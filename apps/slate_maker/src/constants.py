@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # Overwritten at release time by CI (see .github/workflows/release-slate_maker.yml)
-APP_VERSION = "dev"
+APP_VERSION = "0.1.0"
 
 RESOLUTIONS: dict[str, tuple[int, int]] = {
     # HD
