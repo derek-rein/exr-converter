@@ -1,0 +1,33 @@
+[project]
+name = "slate-maker"
+version = "0.1.0"
+description = "VFX Slate Maker — generate cinematic EXR slate sequences"
+authors = [
+    {name = "Derek Rein"},
+]
+dependencies = [
+    "numpy>=2.2.6",
+    "oiio-python>=3.0.10.0.1",
+    "opencolorio>=2.5.1",
+    "pyinstaller>=6.19.0",
+    "PySide6>=6.9.1",
+]
+requires-python = "==3.11.*"
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.scripts]
+slate-maker = "main:main"
+
+[dependency-groups]
+dev = ["ruff>=0.11.0"]
+
+[tool.pdm]
+distribution = false
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]

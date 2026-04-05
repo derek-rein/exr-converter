@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #1c1c1c;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  color: #ddd;
+}
+
+/*
+ * Sizes calibrated to the Netflix Nuke template at 4K (4096×2160).
+ * Nuke nominal: label=40px, value=60px, large_value=75px at 2160h.
+ * All vh values = (nuke_px / 2160) * 100.
+ */
+#slate {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #1c1c1c;
+  padding: 3.7vh 2.9vw;
+}
+
+.slate-body {
+  flex: 1;
+  display: flex;
+  gap: 0;
+  min-height: 0;
+}
+
+.left-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-right: 1.8vw;
+}
+
+.header-row {
+  display: flex;
+  align-items: baseline;
+  gap: 3vw;
+  padding-bottom: 1.2vh;
+}
+.header-row .show-label  { font-size: 1.85vh; color: #888; margin-right: 0.4vw; }
+.header-row .show-value  { font-size: 3.7vh; font-weight: 700; color: #fff; }
+.header-row .submit-label { font-size: 1.85vh; color: #888; margin-right: 0.4vw; }
+.header-row .submit-value { font-size: 4.6vh; font-weight: 800; color: #fff; letter-spacing: 0.02em; }
+
+.red-divider {
+  height: 0.28vh;
+  min-height: 2px;
+  background: #c0392b;
+  margin-bottom: 1.8vh;
+}
+
+.field-row {
+  display: flex;
+  align-items: baseline;
+  padding: 0.55vh 0;
+}
+.field-label {
+  width: 7.5vw;
+  text-align: right;
+  font-size: 1.85vh;
+  color: #888;
+  padding-right: 0.6vw;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+.field-value {
+  flex: 1;
+  font-size: 2.78vh;
+  font-weight: 600;
+  color: #e8e8e8;
+  line-height: 1.35;
+}
+.field-value.large {
+  font-size: 3.47vh;
+  font-weight: 700;
+}
+.field-value.body {
+  font-size: 2.3vh;
+  font-weight: 400;
+  color: #ccc;
+  line-height: 1.45;
+}
+
+.right-col {
+  width: 38%;
+  max-width: 22vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.thumbnail {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #111;
+  border: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #444;
+  font-size: 1.85vh;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 0;
+}
+
+.color-bars {
+  display: flex;
+  width: 100%;
+  height: 2.2vh;
+  min-height: 3px;
+}
+.color-bars div { flex: 1; }
+
+.right-fields {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0;
+}
+.right-fields td {
+  padding: 0.37vh 0.5vw;
+  font-size: 1.85vh;
+  line-height: 1.45;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.right-fields .rl {
+  color: #777;
+  text-align: left;
+  width: 1%;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.right-fields .rv {
+  color: #ddd;
+  text-align: right;
+  font-weight: 600;
+}
+
+.vendor-logo {
+  margin-top: auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding-top: 1.2vh;
+}
+.vendor-logo-box {
+  border: 1px solid #444;
+  padding: 1.1vh 1vw;
+  font-size: 2.5vh;
+  font-weight: 700;
+  font-style: italic;
+  color: #aaa;
+  letter-spacing: 0.05em;
+}
+</style>
+</head>
+<body>
+<div id="slate">
+  <div class="slate-body">
+
+    <!-- ════ LEFT COLUMN ════ -->
+    <div class="left-col">
+
+      <div class="header-row">
+        <div style="display:flex; align-items:baseline; flex:1;">
+          <span class="show-label">Show:</span>
+          <span class="show-value" id="show-field">PROJECT</span>
+        </div>
+        <div style="display:flex; align-items:baseline;">
+          <span class="submit-label">Submitting For:</span>
+          <span class="submit-value" id="submit-for-field">WIP</span>
+        </div>
+      </div>
+
+      <div class="red-divider"></div>
+
+      <div class="field-row">
+        <div class="field-label">Version Name:</div>
+        <div class="field-value large" id="version">v001</div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label">Date:</div>
+        <div class="field-value" id="date-display">2026-04-05</div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label">Shot Types:</div>
+        <div class="field-value" id="shot-types-field">—</div>
+      </div>
+
+      <div class="field-row" id="description-row" style="display:none;">
+        <div class="field-label">Shot<br>Description:</div>
+        <div class="field-value body" id="description-field"></div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label">VFX Scope Of<br>Work:</div>
+        <div class="field-value body" id="scope-field">—</div>
+      </div>
+
+      <div class="field-row" id="notes-row" style="display:none;">
+        <div class="field-label">Submission<br>Note:</div>
+        <div class="field-value body" id="notes"></div>
+      </div>
+
+    </div>
+
+    <!-- ════ RIGHT COLUMN ════ -->
+    <div class="right-col">
+
+      <div class="thumbnail" id="thumbnail-area">Thumbnail</div>
+
+      <div class="color-bars">
+        <div style="background:#fff;"></div>
+        <div style="background:#ff0;"></div>
+        <div style="background:#0ff;"></div>
+        <div style="background:#0f0;"></div>
+        <div style="background:#000;"></div>
+        <div style="background:#f0f;"></div>
+        <div style="background:#f00;"></div>
+        <div style="background:#00f;"></div>
+      </div>
+
+      <table class="right-fields">
+        <tr><td class="rl">Vendor:</td><td class="rv" id="vendor-field">—</td></tr>
+        <tr><td class="rl">Shot Name:</td><td class="rv" id="shot-name">SHOT_010</td></tr>
+        <tr><td class="rl">Episode:</td><td class="rv" id="sequence-name">—</td></tr>
+        <tr><td class="rl">Sequence Name:</td><td class="rv" id="sequence-num">—</td></tr>
+        <tr><td class="rl">Scene:</td><td class="rv" id="take-display">—</td></tr>
+        <tr><td class="rl">Frames:</td><td class="rv" id="frame-range">1001 – 1100 (100)</td></tr>
+        <tr><td class="rl">Media Color:</td><td class="rv" id="colorspace">sRGB</td></tr>
+      </table>
+
+      <div class="vendor-logo">
+        <div class="vendor-logo-box" id="logo-text">Vendor Logo</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+let pyBridge = null;
+if (typeof QWebChannel !== 'undefined') {
+  new QWebChannel(qt.webChannelTransport, function(channel) {
+    pyBridge = channel.objects.bridge;
+    if (pyBridge) pyBridge.ready.connect(function() {});
+  });
+}
+
+function updateSlate(data) {
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (el && val !== undefined && val !== null) el.textContent = val;
+  };
+
+  set('show-field',       data.project);
+  set('submit-for-field', data.submitFor);
+  set('version',          data.version);
+  set('date-display',     data.date);
+  set('shot-types-field', data.shotTypes);
+  set('scope-field',      data.scope);
+  set('vendor-field',     data.vendor);
+  set('shot-name',        data.shot);
+  set('sequence-name',    data.sequence);
+  set('sequence-num',     data.sequence);
+  set('take-display',     data.take);
+  set('frame-range',      data.frameRange);
+  set('colorspace',       data.colorspace);
+  set('logo-text',        data.logo);
+
+  if (data.description !== undefined) {
+    const row = document.getElementById('description-row');
+    const el  = document.getElementById('description-field');
+    if (data.description) {
+      el.textContent = data.description;
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  }
+
+  if (data.notes !== undefined) {
+    const row = document.getElementById('notes-row');
+    const el  = document.getElementById('notes');
+    if (data.notes) {
+      el.textContent = data.notes;
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  }
+}
+
+// Auto-populate with sample data when opened standalone
+if (typeof QWebChannel === 'undefined') {
+  updateSlate({
+    project: 'Netflix VFX Templates',
+    submitFor: 'SAMPLE',
+    version: 'nflx_101_001_0020_slate_VND_v001',
+    date: '2021-05-11',
+    shotTypes: '2d comp',
+    description: 'If a description field is required, it goes on the left to provide more space.',
+    scope: 'Demo a sample slate.',
+    notes: 'Submitting as an example with all template fields filled out.',
+    vendor: 'Template Team',
+    shot: 'nflx_101_001_0020',
+    sequence: '101',
+    take: '001',
+    frameRange: '1000 - 1030 (30)',
+    colorspace: 'rec709 with show lut',
+    logo: 'Vendor Logo',
+  });
+}
+</script>
+</body>
+</html>

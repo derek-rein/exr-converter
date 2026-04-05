@@ -1,0 +1,128 @@
+# Independent versioning: tag format slate_maker/v0.4.0
+# Push: git tag slate_maker/v0.4.0 && git push origin slate_maker/v0.4.0
+
+name: Release slate_maker
+
+on:
+  push:
+    tags:
+      - "slate_maker/v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: slate_maker-linux-x86_64
+            ext: tar.gz
+          - os: macos-latest
+            artifact: slate_maker-macos-arm64
+            ext: tar.gz
+          - os: windows-latest
+            artifact: slate_maker-windows-x86_64
+            ext: zip
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/slate_maker
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Inject version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#slate_maker/v}"
+          sed -i.bak "s/^APP_VERSION = \"[^\"]*\"/APP_VERSION = \"${VERSION}\"/" src/constants.py
+          rm -f src/constants.py.bak
+
+      - name: Compile Qt resources
+        run: uv run pyside6-rcc resources.qrc -o src/rc_resources.py
+
+      - name: Determine platform icon
+        id: icon
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            echo "path=public/icon.icns" >> "$GITHUB_OUTPUT"
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            echo "path=public/icon.ico" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=public/icon.png" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build with PyInstaller
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            DATA_TPL='templates;templates'
+            DATA_QSS='style.qss;.'
+          else
+            DATA_TPL='templates:templates'
+            DATA_QSS='style.qss:.'
+          fi
+          uv run pyinstaller --noconfirm --name slate_maker \
+            --icon ${{ steps.icon.outputs.path }} \
+            --add-data "${DATA_TPL}" \
+            --add-data "${DATA_QSS}" \
+            --hidden-import numpy \
+            --hidden-import OpenImageIO \
+            --hidden-import PyOpenColorIO \
+            --hidden-import PySide6 \
+            --hidden-import src \
+            --hidden-import src.constants \
+            --hidden-import src.widgets \
+            --hidden-import src.worker \
+            --hidden-import src.rc_resources \
+            --collect-all OpenImageIO \
+            --collect-all PyOpenColorIO \
+            --collect-all PySide6 \
+            main.py
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: tar -czf ${{ matrix.artifact }}.${{ matrix.ext }} -C dist slate_maker
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist\slate_maker -DestinationPath ${{ matrix.artifact }}.${{ matrix.ext }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: apps/slate_maker/${{ matrix.artifact }}.${{ matrix.ext }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "slate_maker ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: artifacts/*

@@ -1,0 +1,21 @@
+[project]
+name = "vfx-tools"
+version = "0.1.0"
+description = "Monorepo for VFX desktop tools (EXR converter, slate maker) and Blender scripts"
+authors = [
+    {name = "Derek Rein", email = "derek@derekvfx.ca"},
+]
+dependencies = []
+requires-python = "==3.11.*"
+readme = "README.md"
+license = {text = "MIT"}
+
+
+[tool.pdm]
+distribution = false
+
+[tool.uv.workspace]
+members = [
+    "apps/exr_converter",
+    "apps/slate_maker",
+]

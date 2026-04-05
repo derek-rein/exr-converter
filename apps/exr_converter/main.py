@@ -1,0 +1,39 @@
+"""EXR <-> video converter — entry point."""
+
+from __future__ import annotations
+
+import sys
+
+from src.cli import build_parser, run_cli
+from src.constants import APP_NAME, APP_ORG
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.command:
+        return run_cli(args)
+
+    if args.headless:
+        parser.error("Use: main.py video2exr ... or main.py exr2video ...")
+
+    from PySide6.QtGui import QIcon
+    from PySide6.QtWidgets import QApplication
+
+    import src.rc_resources  # noqa: F401 — register Qt resources
+    from src.window import MainWindow
+
+    app = QApplication(sys.argv)
+    app.setOrganizationName(APP_ORG)
+    app.setApplicationName(APP_NAME)
+    app.setStyle("Fusion")
+    app.setWindowIcon(QIcon(":/icon.png"))
+
+    win = MainWindow()
+    win.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

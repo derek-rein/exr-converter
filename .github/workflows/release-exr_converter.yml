@@ -1,0 +1,122 @@
+# Independent versioning: tag format exr_converter/v1.2.3 (not a global v1.2.3).
+# Push: git tag exr_converter/v1.2.3 && git push origin exr_converter/v1.2.3
+
+name: Release exr_converter
+
+on:
+  push:
+    tags:
+      - "exr_converter/v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: exr_converter-linux-x86_64
+            ext: tar.gz
+          - os: macos-latest
+            artifact: exr_converter-macos-arm64
+            ext: tar.gz
+          - os: windows-latest
+            artifact: exr_converter-windows-x86_64
+            ext: zip
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/exr_converter
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Inject version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#exr_converter/v}"
+          sed -i.bak "s/^APP_VERSION = \"[^\"]*\"/APP_VERSION = \"${VERSION}\"/" src/constants.py
+          rm -f src/constants.py.bak
+
+      - name: Compile Qt resources
+        run: uv run pyside6-rcc resources.qrc -o src/rc_resources.py
+
+      - name: Determine platform icon
+        id: icon
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            echo "path=public/icon.icns" >> "$GITHUB_OUTPUT"
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            echo "path=public/icon.ico" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=public/icon.png" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build with PyInstaller
+        shell: bash
+        run: |
+          uv run pyinstaller --noconfirm --name exr_converter \
+            --icon ${{ steps.icon.outputs.path }} \
+            --hidden-import av \
+            --hidden-import numpy \
+            --hidden-import OpenImageIO \
+            --hidden-import PyOpenColorIO \
+            --hidden-import pyseq \
+            --hidden-import PySide6 \
+            --hidden-import src --hidden-import src.cli \
+            --hidden-import src.constants --hidden-import src.convert \
+            --hidden-import src.exr_io --hidden-import src.ocio_utils \
+            --hidden-import src.sequence --hidden-import src.video \
+            --hidden-import src.widgets --hidden-import src.window \
+            --hidden-import src.worker --hidden-import src.pool \
+            --hidden-import src.presets --hidden-import src.rc_resources \
+            --collect-all av --collect-all OpenImageIO \
+            --collect-all PyOpenColorIO --collect-all PySide6 \
+            main.py
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: tar -czf ${{ matrix.artifact }}.${{ matrix.ext }} -C dist exr_converter
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist\exr_converter -DestinationPath ${{ matrix.artifact }}.${{ matrix.ext }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: apps/exr_converter/${{ matrix.artifact }}.${{ matrix.ext }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "exr_converter ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: artifacts/*
