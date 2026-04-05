@@ -1,20 +1,31 @@
 # vfx-tools
 
-Personal VFX utilities: desktop tools for EXR workflows, slate generation, and helper scripts for Blender and cloud rendering.
+Open-source **desktop tools** for VFX editorial and delivery workflows.
 
-**Requirements:** Python **3.11** (see each app’s `pyproject.toml`). The Python apps use **[uv](https://docs.astral.sh/uv/)** for installs and runs.
+This repository is a **Python monorepo** ([uv](https://docs.astral.sh/uv/) workspace) targeting **Python 3.11**. Each app has its own `pyproject.toml`, release tags, and GitHub Actions builds.
 
-## Repository layout
+## Tech stack
 
-| Path | Description |
-|------|-------------|
-| [`apps/exr_converter`](apps/exr_converter) | **EXR Converter** — PySide6 GUI and CLI to convert between video and OpenEXR sequences using OpenImageIO, OpenColorIO, and PyAV. |
-| [`apps/slate_maker`](apps/slate_maker) | **Slate Maker** — Qt + WebEngine app that renders HTML slates to EXR sequences for editorial and delivery. |
-| [`scripts/`](scripts) | Standalone helpers and Blender add-ons (see below). |
+| Layer | Notes |
+|-------|--------|
+| **Language & tooling** | Python 3.11, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [PyInstaller](https://pyinstaller.org/) for standalone bundles |
+| **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6), Fusion-style desktop apps |
+| **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`oiio-python`), [OpenColorIO](https://opencolorio.org/) for display/render transforms |
+| **EXR Converter specifics** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [pyseq](https://github.com/sqlboy/pyseq) for frame sequences |
+| **Slate Maker specifics** | Qt **WebEngine** for HTML/CSS preview and capture, [Tailwind CSS](https://tailwindcss.com/) in the slate template |
 
-## EXR Converter
+CI runs on **GitHub Actions**; releases publish per-app binaries for Linux, macOS (Apple silicon), and Windows.
 
-Convert **video → EXR** (`video2exr`) or **EXR sequence → video** (`exr2video`) with OCIO color management. Launch the GUI with no subcommand, or use `--headless` with a subcommand for batch use.
+## Apps
+
+| App | Summary |
+|-----|---------|
+| [**exr_converter**](apps/exr_converter) | GUI and CLI: **video ↔ OpenEXR** sequences with OCIO color management. |
+| [**slate_maker**](apps/slate_maker) | HTML/CSS slates rendered to **OpenEXR** sequences for review and delivery (no compositor license required for batch slates). |
+
+### EXR Converter
+
+Convert **video → EXR** (`video2exr`) or **EXR → video** (`exr2video`). Run the GUI with no subcommand, or pass a subcommand for batch use.
 
 ```bash
 cd apps/exr_converter
@@ -24,11 +35,9 @@ uv run python main.py video2exr -i clip.mov -o ./exrs/
 uv run python main.py exr2video -i "./plate.####.exr" -o out.mp4
 ```
 
-See `apps/exr_converter/Makefile` for `make run`, lint/format, and PyInstaller bundle targets.
+Details: [`apps/exr_converter/README.md`](apps/exr_converter/README.md).
 
-**Releases:** each app uses its **own git tag** (not a single repo-wide `v1.0.0`). Example: `exr_converter/v1.2.3` or `slate_maker/v0.4.0` — see [Releases (versioning)](#releases-versioning) below. CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-
-## Slate Maker
+### Slate Maker
 
 ```bash
 cd apps/slate_maker
@@ -36,21 +45,13 @@ uv sync
 uv run python main.py
 ```
 
-From the repo root (after `uv sync`): `uv run --project apps/slate_maker python apps/slate_maker/main.py`. The root [`pyproject.toml`](pyproject.toml) is a **uv workspace** that includes this app — see [`apps/slate_maker/README.md`](apps/slate_maker/README.md).
+From the repo root (after `uv sync`): `uv run --project apps/slate_maker python apps/slate_maker/main.py`.
 
-## Scripts
-
-| Script | Role |
-|--------|------|
-| [`scripts/aovSetup.py`](scripts/aovSetup.py) | Blender add-on: configures view-layer AOVs and compositor outputs (beauty, data, Cryptomatte EXRs). |
-| [`scripts/renderFarm.py`](scripts/renderFarm.py) | Blender add-on integrating **Modal** for cloud rendering (see file for setup). |
-| [`scripts/airplane_motion.py`](scripts/airplane_motion.py) | Blender add-on: procedural airplane-style motion for objects. |
-
-Install Blender add-ons via **Edit → Preferences → Add-ons → Install**, then enable them in the list.
+Details: [`apps/slate_maker/README.md`](apps/slate_maker/README.md).
 
 ## Releases (versioning)
 
-This repo is a **monorepo**: apps ship on **independent semver**, each tied to a **namespaced tag**:
+Apps ship on **independent semver** using **namespaced tags** (not one repo-wide `v1.0.0`):
 
 | App | Tag pattern | Workflow |
 |-----|-------------|----------|
@@ -60,22 +61,17 @@ This repo is a **monorepo**: apps ship on **independent semver**, each tied to a
 **Automated bump, lockfile, commit, and tag** (from repo root):
 
 ```bash
-make help                    # bump / release targets
-make release-exr PART=patch  # bumps semver, syncs APP_VERSION, uv lock, commit, tag
-make release-exr PUSH=1      # …also git push (runs the GitHub release workflow)
+make help
+make release-exr PART=patch
+make release-exr PUSH=1    # push branch + tag (triggers release builds)
 ```
 
-Same pattern for slate: `make release-slate PART=minor`. Bump only (no git): `make bump-exr PART=patch`.
+Same pattern: `make release-slate PART=minor`. CI for lint: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-**Manual tagging** (if you do not use the Makefile): bump `version` in the app’s `pyproject.toml`, sync `APP_VERSION` in `src/constants.py`, run `uv lock`, then:
-
-```bash
-git tag exr_converter/v1.2.3
-git push origin exr_converter/v1.2.3
-```
-
-That creates a **GitHub Release** for that tag and attaches platform archives. The other app is unaffected. CI still injects the build version into frozen binaries where configured.
+Pushing a tag creates a **GitHub Release** with platform archives for that app only. CI injects the version from the tag into release binaries.
 
 ## License
 
-MIT — see `pyproject.toml` in each package for author metadata.
+MIT — see each app’s `pyproject.toml` and [`LICENSE`](LICENSE).
+
+[derekvfx.ca](https://derekvfx.ca)
