@@ -14,6 +14,8 @@ uv sync
 
 ## GUI
 
+![EXR Converter — EXR → Video](../../assets/exr_converter_screenshot.png)
+
 ```bash
 uv run python main.py
 ```

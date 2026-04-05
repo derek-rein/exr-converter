@@ -25,6 +25,8 @@ CI runs on **GitHub Actions**; releases publish per-app binaries for Linux, macO
 
 ### EXR Converter
 
+![EXR Converter — OCIO, EXR → Video tab](assets/exr_converter_screenshot.png)
+
 Convert **video → EXR** (`video2exr`) or **EXR → video** (`exr2video`). Run the GUI with no subcommand, or pass a subcommand for batch use.
 
 ```bash
