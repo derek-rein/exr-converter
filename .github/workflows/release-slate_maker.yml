@@ -11,16 +11,23 @@ on:
 permissions:
   contents: write
 
+env:
+  NUITKA_ASSUME_YES_FOR_DOWNLOADS: "1"
+
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             artifact: slate_maker-linux-x86_64
-            ext: tar.gz
+            ext: AppImage
           - os: macos-latest
             artifact: slate_maker-macos-arm64
+            ext: dmg
+          - os: macos-13
+            artifact: slate_maker-macos-x86_64
             ext: dmg
           - os: windows-latest
             artifact: slate_maker-windows-x86_64
@@ -41,6 +48,16 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+
+      - name: Cache Nuitka and ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/Nuitka
+            ~/Library/Caches/Nuitka
+            ~/AppData/Local/Nuitka
+          key: nuitka-slate-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/slate_maker/pyproject.toml') }}
+          restore-keys: nuitka-slate-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: uv sync
@@ -67,132 +84,49 @@ jobs:
             echo "path=public/icon.png" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install UPX (Linux/Windows)
-        if: runner.os != 'macOS'
+      - name: Build with Nuitka
         shell: bash
         run: |
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            sudo apt-get update && sudo apt-get install -y upx-ucl
-          elif [ "$RUNNER_OS" == "Windows" ]; then
-            choco install upx -y
-          fi
-
-      - name: Build with PyInstaller
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            DATA_TPL='templates;templates'
-            DATA_QSS='style.qss;.'
-          else
-            DATA_TPL='templates:templates'
-            DATA_QSS='style.qss:.'
-          fi
+          MODE="--onefile"
           EXTRA_FLAGS=""
           if [ "$RUNNER_OS" == "macOS" ]; then
-            EXTRA_FLAGS="--windowed"
+            MODE="--standalone"
+            EXTRA_FLAGS="--macos-create-app-bundle --macos-app-name=Slate\ Maker --macos-app-icon=${{ steps.icon.outputs.path }}"
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            EXTRA_FLAGS="--windows-icon-from-ico=${{ steps.icon.outputs.path }} --windows-console-mode=disable"
+          else
+            EXTRA_FLAGS="--linux-icon=${{ steps.icon.outputs.path }}"
           fi
-          uv run pyinstaller --noconfirm --name slate_maker \
-            --icon ${{ steps.icon.outputs.path }} \
+          uv run python -m nuitka \
+            $MODE \
+            --output-dir=dist \
+            --output-filename=slate_maker \
+            --assume-yes-for-downloads \
+            --python-flag=-OO \
+            --enable-plugin=pyside6 \
+            --enable-plugin=anti-bloat \
+            --nofollow-import-to=tkinter \
+            --nofollow-import-to=unittest \
+            --nofollow-import-to=pydoc \
+            --include-package=OpenImageIO \
+            --include-package-data=OpenImageIO \
+            --include-package=PyOpenColorIO \
+            --include-package-data=PyOpenColorIO \
+            --include-data-dir=templates=templates \
+            --include-data-files=style.qss=style.qss \
+            --noinclude-dlls='libcrypto*' \
+            --noinclude-dlls='libssl*' \
+            --quiet \
             $EXTRA_FLAGS \
-            --add-data "${DATA_TPL}" \
-            --add-data "${DATA_QSS}" \
-            --hidden-import numpy \
-            --hidden-import OpenImageIO \
-            --hidden-import PyOpenColorIO \
-            --hidden-import PySide6.QtCore \
-            --hidden-import PySide6.QtGui \
-            --hidden-import PySide6.QtWidgets \
-            --hidden-import PySide6.QtWebChannel \
-            --hidden-import PySide6.QtWebEngineCore \
-            --hidden-import PySide6.QtWebEngineWidgets \
-            --hidden-import PySide6.QtNetwork \
-            --hidden-import src \
-            --hidden-import src.constants \
-            --hidden-import src.widgets \
-            --hidden-import src.worker \
-            --hidden-import src.rc_resources \
-            --collect-all OpenImageIO \
-            --collect-all PyOpenColorIO \
-            --collect-submodules PySide6.QtCore \
-            --collect-submodules PySide6.QtGui \
-            --collect-submodules PySide6.QtWidgets \
-            --collect-submodules PySide6.QtWebChannel \
-            --collect-submodules PySide6.QtWebEngineCore \
-            --collect-submodules PySide6.QtWebEngineWidgets \
-            --collect-submodules PySide6.QtNetwork \
-            --exclude-module PySide6.Qt3DAnimation \
-            --exclude-module PySide6.Qt3DCore \
-            --exclude-module PySide6.Qt3DExtras \
-            --exclude-module PySide6.Qt3DInput \
-            --exclude-module PySide6.Qt3DLogic \
-            --exclude-module PySide6.Qt3DRender \
-            --exclude-module PySide6.QtBluetooth \
-            --exclude-module PySide6.QtCharts \
-            --exclude-module PySide6.QtDataVisualization \
-            --exclude-module PySide6.QtDesigner \
-            --exclude-module PySide6.QtGraphs \
-            --exclude-module PySide6.QtHttpServer \
-            --exclude-module PySide6.QtLocation \
-            --exclude-module PySide6.QtMultimedia \
-            --exclude-module PySide6.QtMultimediaWidgets \
-            --exclude-module PySide6.QtNetworkAuth \
-            --exclude-module PySide6.QtNfc \
-            --exclude-module PySide6.QtPdf \
-            --exclude-module PySide6.QtPdfWidgets \
-            --exclude-module PySide6.QtPositioning \
-            --exclude-module PySide6.QtQuick3D \
-            --exclude-module PySide6.QtRemoteObjects \
-            --exclude-module PySide6.QtScxml \
-            --exclude-module PySide6.QtSensors \
-            --exclude-module PySide6.QtSerialBus \
-            --exclude-module PySide6.QtSerialPort \
-            --exclude-module PySide6.QtSpatialAudio \
-            --exclude-module PySide6.QtSql \
-            --exclude-module PySide6.QtSvg \
-            --exclude-module PySide6.QtSvgWidgets \
-            --exclude-module PySide6.QtTest \
-            --exclude-module PySide6.QtTextToSpeech \
-            --exclude-module PySide6.QtWebSockets \
-            --exclude-module PySide6.QtXml \
-            --exclude-module tkinter \
-            --exclude-module unittest \
-            --exclude-module email \
-            --exclude-module http \
-            --exclude-module xmlrpc \
-            --exclude-module pydoc \
             main.py
 
-      - name: Remove unused Qt frameworks and plugins
-        shell: bash
-        run: |
-          QT_LIB="dist/slate_maker/_internal/PySide6/Qt/lib"
-          QT_PLUG="dist/slate_maker/_internal/PySide6/Qt/plugins"
-          KEEP="QtWebEngineCore QtWebEngineWidgets QtWebChannel QtCore QtGui
-                QtWidgets QtNetwork QtQml QtQmlModels QtQuick QtDBus QtOpenGL
-                QtPositioning QtPrintSupport QtWebChannelQuick QtQmlMeta"
-          if [ -d "$QT_LIB" ]; then
-            for fw in "$QT_LIB"/*.framework "$QT_LIB"/lib*.so* "$QT_LIB"/lib*.dylib; do
-              [ -e "$fw" ] || continue
-              name=$(basename "$fw" | sed 's/\.framework$//;s/^lib//;s/\.so.*//;s/\.dylib.*//')
-              keep=false
-              for k in $KEEP; do
-                if [ "$name" = "$k" ]; then keep=true; break; fi
-              done
-              if [ "$keep" = "false" ]; then rm -rf "$fw"; fi
-            done
-          fi
-          rm -rf "$QT_PLUG/networkinformation" "$QT_PLUG/platforminputcontexts" 2>/dev/null || true
-          find dist/slate_maker/_internal -maxdepth 1 -type d -name 'Qt*' -exec rm -rf {} + 2>/dev/null || true
-          rm -rf dist/slate_maker/_internal/PIL 2>/dev/null || true
-
-      - name: Strip debug symbols (Linux/macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          find dist/slate_maker* -type f \( -name "*.so" -o -name "*.dylib" \) -exec strip -x {} + 2>/dev/null || true
+      - name: Rename macOS app bundle
+        if: runner.os == 'macOS'
+        run: mv dist/main.app dist/slate_maker.app
 
       - name: Create DMG (macOS)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           brew install create-dmg
           create-dmg \
@@ -205,16 +139,41 @@ jobs:
             --hide-extension "slate_maker.app" \
             --app-drop-link 450 190 \
             "${{ matrix.artifact }}.${{ matrix.ext }}" \
-            "dist/slate_maker.app"
+            dist/slate_maker.app
 
-      - name: Package (Linux)
+      - name: Create AppImage (Linux)
         if: runner.os == 'Linux'
-        run: tar -czf ${{ matrix.artifact }}.${{ matrix.ext }} -C dist slate_maker
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#slate_maker/v}"
+          APPDIR="${{ matrix.artifact }}.AppDir"
+          mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+
+          cp dist/slate_maker "${APPDIR}/usr/bin/slate_maker"
+          chmod +x "${APPDIR}/usr/bin/slate_maker"
+          cp public/icon.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/slate_maker.png"
+          cp public/icon.png "${APPDIR}/slate_maker.png"
+
+          printf '[Desktop Entry]\nName=Slate Maker\nExec=slate_maker\nIcon=slate_maker\nType=Application\nCategories=Graphics;\n' \
+            > "${APPDIR}/slate_maker.desktop"
+
+          printf '#!/bin/bash\nSELF="$(readlink -f "$0")"\nHERE="$(dirname "$SELF")"\nexec "$HERE/usr/bin/slate_maker" "$@"\n' \
+            > "${APPDIR}/AppRun"
+          chmod +x "${APPDIR}/AppRun"
+
+          curl -fSL -o appimagetool \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x appimagetool
+          ARCH=x86_64 VERSION="${VERSION}" ./appimagetool --no-appstream "${APPDIR}" \
+            "${{ matrix.artifact }}.${{ matrix.ext }}"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist\slate_maker -DestinationPath ${{ matrix.artifact }}.${{ matrix.ext }}
+        run: |
+          New-Item -ItemType Directory -Force -Path pkg\slate_maker | Out-Null
+          Copy-Item dist\slate_maker.exe pkg\slate_maker\slate_maker.exe
+          Compress-Archive -Path pkg\slate_maker -DestinationPath ${{ matrix.artifact }}.${{ matrix.ext }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6

@@ -11,16 +11,23 @@ on:
 permissions:
   contents: write
 
+env:
+  NUITKA_ASSUME_YES_FOR_DOWNLOADS: "1"
+
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             artifact: exr_converter-linux-x86_64
-            ext: tar.gz
+            ext: AppImage
           - os: macos-latest
             artifact: exr_converter-macos-arm64
+            ext: dmg
+          - os: macos-13
+            artifact: exr_converter-macos-x86_64
             ext: dmg
           - os: windows-latest
             artifact: exr_converter-windows-x86_64
@@ -41,6 +48,16 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+
+      - name: Cache Nuitka and ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/Nuitka
+            ~/Library/Caches/Nuitka
+            ~/AppData/Local/Nuitka
+          key: nuitka-exr-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/exr_converter/pyproject.toml') }}
+          restore-keys: nuitka-exr-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: uv sync
@@ -67,127 +84,47 @@ jobs:
             echo "path=public/icon.png" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install UPX (Linux/Windows)
-        if: runner.os != 'macOS'
+      - name: Build with Nuitka
         shell: bash
         run: |
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            sudo apt-get update && sudo apt-get install -y upx-ucl
-          elif [ "$RUNNER_OS" == "Windows" ]; then
-            choco install upx -y
-          fi
-
-      - name: Build with PyInstaller
-        shell: bash
-        run: |
+          MODE="--onefile"
           EXTRA_FLAGS=""
           if [ "$RUNNER_OS" == "macOS" ]; then
-            EXTRA_FLAGS="--windowed"
+            MODE="--standalone"
+            EXTRA_FLAGS="--macos-create-app-bundle --macos-app-name=EXR\ Converter --macos-app-icon=${{ steps.icon.outputs.path }}"
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            EXTRA_FLAGS="--windows-icon-from-ico=${{ steps.icon.outputs.path }} --windows-console-mode=disable"
+          else
+            EXTRA_FLAGS="--linux-icon=${{ steps.icon.outputs.path }}"
           fi
-          uv run pyinstaller --noconfirm --name exr_converter \
-            --icon ${{ steps.icon.outputs.path }} \
+          uv run python -m nuitka \
+            $MODE \
+            --output-dir=dist \
+            --output-filename=exr_converter \
+            --assume-yes-for-downloads \
+            --python-flag=-OO \
+            --enable-plugin=pyside6 \
+            --enable-plugin=anti-bloat \
+            --nofollow-import-to=tkinter \
+            --nofollow-import-to=unittest \
+            --nofollow-import-to=pydoc \
+            --include-package-data=av \
+            --include-package=OpenImageIO \
+            --include-package-data=OpenImageIO \
+            --include-package=PyOpenColorIO \
+            --include-package-data=PyOpenColorIO \
+            --include-package=fileseq \
+            --quiet \
             $EXTRA_FLAGS \
-            --hidden-import av \
-            --hidden-import numpy \
-            --hidden-import OpenImageIO \
-            --hidden-import PyOpenColorIO \
-            --hidden-import fileseq \
-            --hidden-import PySide6.QtCore \
-            --hidden-import PySide6.QtGui \
-            --hidden-import PySide6.QtWidgets \
-            --hidden-import src --hidden-import src.cli \
-            --hidden-import src.constants --hidden-import src.convert \
-            --hidden-import src.exr_io --hidden-import src.ocio_utils \
-            --hidden-import src.sequence --hidden-import src.video \
-            --hidden-import src.widgets --hidden-import src.window \
-            --hidden-import src.worker --hidden-import src.pool \
-            --hidden-import src.presets --hidden-import src.rc_resources \
-            --collect-all av \
-            --collect-all OpenImageIO \
-            --collect-all PyOpenColorIO \
-            --collect-submodules PySide6.QtCore \
-            --collect-submodules PySide6.QtGui \
-            --collect-submodules PySide6.QtWidgets \
-            --exclude-module PySide6.Qt3DAnimation \
-            --exclude-module PySide6.Qt3DCore \
-            --exclude-module PySide6.Qt3DExtras \
-            --exclude-module PySide6.Qt3DInput \
-            --exclude-module PySide6.Qt3DLogic \
-            --exclude-module PySide6.Qt3DRender \
-            --exclude-module PySide6.QtBluetooth \
-            --exclude-module PySide6.QtCharts \
-            --exclude-module PySide6.QtDataVisualization \
-            --exclude-module PySide6.QtDesigner \
-            --exclude-module PySide6.QtGraphs \
-            --exclude-module PySide6.QtHttpServer \
-            --exclude-module PySide6.QtLocation \
-            --exclude-module PySide6.QtMultimedia \
-            --exclude-module PySide6.QtMultimediaWidgets \
-            --exclude-module PySide6.QtNetworkAuth \
-            --exclude-module PySide6.QtNfc \
-            --exclude-module PySide6.QtPdf \
-            --exclude-module PySide6.QtPdfWidgets \
-            --exclude-module PySide6.QtPositioning \
-            --exclude-module PySide6.QtQml \
-            --exclude-module PySide6.QtQuick \
-            --exclude-module PySide6.QtQuick3D \
-            --exclude-module PySide6.QtQuickControls2 \
-            --exclude-module PySide6.QtQuickWidgets \
-            --exclude-module PySide6.QtRemoteObjects \
-            --exclude-module PySide6.QtScxml \
-            --exclude-module PySide6.QtSensors \
-            --exclude-module PySide6.QtSerialBus \
-            --exclude-module PySide6.QtSerialPort \
-            --exclude-module PySide6.QtSpatialAudio \
-            --exclude-module PySide6.QtSql \
-            --exclude-module PySide6.QtSvg \
-            --exclude-module PySide6.QtSvgWidgets \
-            --exclude-module PySide6.QtTest \
-            --exclude-module PySide6.QtTextToSpeech \
-            --exclude-module PySide6.QtWebChannel \
-            --exclude-module PySide6.QtWebEngineCore \
-            --exclude-module PySide6.QtWebEngineQuick \
-            --exclude-module PySide6.QtWebEngineWidgets \
-            --exclude-module PySide6.QtWebSockets \
-            --exclude-module PySide6.QtXml \
-            --exclude-module tkinter \
-            --exclude-module unittest \
-            --exclude-module email \
-            --exclude-module http \
-            --exclude-module xmlrpc \
-            --exclude-module pydoc \
             main.py
 
-      - name: Remove unused Qt frameworks and plugins
-        shell: bash
-        run: |
-          QT_LIB="dist/exr_converter/_internal/PySide6/Qt/lib"
-          QT_PLUG="dist/exr_converter/_internal/PySide6/Qt/plugins"
-          KEEP="QtCore QtGui QtWidgets QtDBus QtNetwork"
-          if [ -d "$QT_LIB" ]; then
-            for fw in "$QT_LIB"/*.framework "$QT_LIB"/lib*.so* "$QT_LIB"/lib*.dylib; do
-              [ -e "$fw" ] || continue
-              name=$(basename "$fw" | sed 's/\.framework$//;s/^lib//;s/\.so.*//;s/\.dylib.*//')
-              keep=false
-              for k in $KEEP; do
-                if [ "$name" = "$k" ]; then keep=true; break; fi
-              done
-              if [ "$keep" = "false" ]; then rm -rf "$fw"; fi
-            done
-          fi
-          rm -rf "$QT_PLUG/networkinformation" "$QT_PLUG/tls" \
-                 "$QT_PLUG/platforminputcontexts" 2>/dev/null || true
-          find dist/exr_converter/_internal -maxdepth 1 -type d -name 'Qt*' -exec rm -rf {} + 2>/dev/null || true
-          rm -rf dist/exr_converter/_internal/PIL 2>/dev/null || true
-
-      - name: Strip debug symbols (Linux/macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          find dist/exr_converter* -type f \( -name "*.so" -o -name "*.dylib" \) -exec strip -x {} + 2>/dev/null || true
+      - name: Rename macOS app bundle
+        if: runner.os == 'macOS'
+        run: mv dist/main.app dist/exr_converter.app
 
       - name: Create DMG (macOS)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           brew install create-dmg
           create-dmg \
@@ -200,16 +137,41 @@ jobs:
             --hide-extension "exr_converter.app" \
             --app-drop-link 450 190 \
             "${{ matrix.artifact }}.${{ matrix.ext }}" \
-            "dist/exr_converter.app"
+            dist/exr_converter.app
 
-      - name: Package (Linux)
+      - name: Create AppImage (Linux)
         if: runner.os == 'Linux'
-        run: tar -czf ${{ matrix.artifact }}.${{ matrix.ext }} -C dist exr_converter
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#exr_converter/v}"
+          APPDIR="${{ matrix.artifact }}.AppDir"
+          mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+
+          cp dist/exr_converter "${APPDIR}/usr/bin/exr_converter"
+          chmod +x "${APPDIR}/usr/bin/exr_converter"
+          cp public/icon.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/exr_converter.png"
+          cp public/icon.png "${APPDIR}/exr_converter.png"
+
+          printf '[Desktop Entry]\nName=EXR Converter\nExec=exr_converter\nIcon=exr_converter\nType=Application\nCategories=Graphics;\n' \
+            > "${APPDIR}/exr_converter.desktop"
+
+          printf '#!/bin/bash\nSELF="$(readlink -f "$0")"\nHERE="$(dirname "$SELF")"\nexec "$HERE/usr/bin/exr_converter" "$@"\n' \
+            > "${APPDIR}/AppRun"
+          chmod +x "${APPDIR}/AppRun"
+
+          curl -fSL -o appimagetool \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x appimagetool
+          ARCH=x86_64 VERSION="${VERSION}" ./appimagetool --no-appstream "${APPDIR}" \
+            "${{ matrix.artifact }}.${{ matrix.ext }}"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist\exr_converter -DestinationPath ${{ matrix.artifact }}.${{ matrix.ext }}
+        run: |
+          New-Item -ItemType Directory -Force -Path pkg\exr_converter | Out-Null
+          Copy-Item dist\exr_converter.exe pkg\exr_converter\exr_converter.exe
+          Compress-Archive -Path pkg\exr_converter -DestinationPath ${{ matrix.artifact }}.${{ matrix.ext }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
