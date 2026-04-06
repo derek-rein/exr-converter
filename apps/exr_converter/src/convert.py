@@ -21,6 +21,21 @@ LogCallback = Callable[[str], None]
 _DEFAULT_WORKERS = min(os.cpu_count() or 4, 8)
 
 
+def _frame_num_from_path(filepath: str) -> int | None:
+    """Extract the trailing frame number from a sequence filename.
+
+    Handles both dot-separated (``name.0001.exr``) and underscore-separated
+    (``name_00001.exr``) conventions.
+    """
+    import re
+
+    stem = Path(filepath).stem
+    m = re.search(r"(\d+)$", stem)
+    if m:
+        return int(m.group(1))
+    return None
+
+
 def _video_metadata(
     src_space: str = "",
     dst_space: str = "",
@@ -85,14 +100,17 @@ def run_video_to_exr(
     scale: float = 1.0,
     padding: int = 4,
     start_frame: int = 1001,
+    frame_set: set[int] | None = None,
 ) -> None:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     w, h, _fps, total = probe_video(video_path)
     ow, oh = _scaled_dims(w, h, scale)
+    render_total = len(frame_set) if frame_set else total
     if log:
         res_info = f"{w}x{h}" if scale >= 1.0 else f"{w}x{h} \u2192 {ow}x{oh}"
-        log(f"Input: {video_path}  ({res_info}, ~{total} frames)")
+        range_info = f", range trimmed to {render_total}" if frame_set else ""
+        log(f"Input: {video_path}  ({res_info}, ~{total} frames{range_info})")
 
     n_workers = workers if workers > 0 else _DEFAULT_WORKERS
 
@@ -113,6 +131,7 @@ def run_video_to_exr(
             scale,
             padding,
             start_frame,
+            frame_set,
         )
         return
 
@@ -127,22 +146,32 @@ def run_video_to_exr(
     fmt = f"0{padding}d"
 
     idx = 0
+    submitted = 0
     try:
         with ProcessPoolExecutor(max_workers=n_workers) as pool:
             pending = {}
             frame_iter = container.decode(stream)
             finished = 0
+            all_submitted = False
 
             def _submit_batch() -> None:
-                nonlocal idx
+                nonlocal idx, submitted, all_submitted
+                if all_submitted:
+                    return
                 while len(pending) < max_inflight:
                     try:
                         frame = next(frame_iter)
                     except StopIteration:
+                        all_submitted = True
                         return
                     if cancel_check and cancel_check():
                         raise RuntimeError("Cancelled")
                     idx += 1
+                    if frame_set and idx not in frame_set:
+                        if frame_set and idx > max(frame_set):
+                            all_submitted = True
+                            return
+                        continue
                     if do_resize:
                         frame = frame.reformat(width=ow, height=oh)
                     rgb_u16 = frame.to_ndarray(format="rgb48le")
@@ -161,6 +190,10 @@ def run_video_to_exr(
                         dst_space,
                     )
                     pending[fut] = idx
+                    submitted += 1
+                    if frame_set and submitted >= len(frame_set):
+                        all_submitted = True
+                        return
 
             _submit_batch()
             while pending:
@@ -169,16 +202,16 @@ def run_video_to_exr(
                 del pending[done]
                 finished += 1
                 if progress:
-                    progress(finished, max(total, idx))
+                    progress(finished, render_total)
                 _submit_batch()
     finally:
         container.close()
 
-    if idx == 0:
+    if finished == 0:
         raise RuntimeError("No frames decoded from the video file.")
     if log:
         nuke_pat = "#" * padding
-        log(f"Wrote {idx} EXR frames \u2192 {output_dir / f'{stem}.{nuke_pat}.exr'}")
+        log(f"Wrote {finished} EXR frames \u2192 {output_dir / f'{stem}.{nuke_pat}.exr'}")
 
 
 def _v2e_serial(
@@ -197,8 +230,10 @@ def _v2e_serial(
     scale: float = 1.0,
     padding: int = 4,
     start_frame: int = 1001,
+    frame_set: set[int] | None = None,
 ) -> None:
     cpu = make_cpu_processor(ocio_cfg, src_space, dst_space)
+    render_total = len(frame_set) if frame_set else total
     if log:
         log(f"OCIO: {src_space} \u2192 {dst_space}  (single-threaded)")
 
@@ -209,12 +244,18 @@ def _v2e_serial(
     do_resize = scale < 1.0
     fmt = f"0{padding}d"
 
+    max_idx = max(frame_set) if frame_set else 0
     idx = 0
+    written = 0
     try:
         for frame in container.decode(stream):
             if cancel_check and cancel_check():
                 raise RuntimeError("Cancelled")
             idx += 1
+            if frame_set and idx not in frame_set:
+                if idx > max_idx:
+                    break
+                continue
             if do_resize:
                 frame = frame.reformat(width=w, height=h)
             rgb_u16 = frame.to_ndarray(format="rgb48le")
@@ -230,16 +271,17 @@ def _v2e_serial(
                 src_space=src_space,
                 dst_space=dst_space,
             )
+            written += 1
             if progress:
-                progress(idx, max(total, idx))
+                progress(written, render_total)
     finally:
         container.close()
 
-    if idx == 0:
+    if written == 0:
         raise RuntimeError("No frames decoded from the video file.")
     if log:
         nuke_pat = "#" * padding
-        log(f"Wrote {idx} EXR frames \u2192 {output_dir / f'{stem}.{nuke_pat}.exr'}")
+        log(f"Wrote {written} EXR frames \u2192 {output_dir / f'{stem}.{nuke_pat}.exr'}")
 
 
 # ---- exr -> video ----------------------------------------------------------
@@ -262,8 +304,13 @@ def run_exr_to_video(
     config_path: str = "",
     scale: float = 1.0,
     codec_key: str = "h264",
+    frame_set: set[int] | None = None,
 ) -> None:
     paths, basename = find_exr_sequence(input_spec)
+
+    if frame_set:
+        paths = [p for p in paths if _frame_num_from_path(p) in frame_set]
+
     total = len(paths)
     if total == 0:
         raise RuntimeError("No EXR frames to encode.")

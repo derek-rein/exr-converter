@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QDir, QRegularExpression, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -449,8 +450,6 @@ class SequenceBrowserDialog(QDialog):
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
-        self._table.setMouseTracking(True)
-        self._table.cellEntered.connect(lambda r, _c: self._table.selectRow(r))
         self._table.setMinimumWidth(320)
         th = self._table.horizontalHeader()
         th.setStretchLastSection(False)
@@ -615,15 +614,17 @@ class SequenceBrowserDialog(QDialog):
         directory = s["path"]
         name = s["name"]
 
-        import pyseq
+        import fileseq
 
-        seqs = pyseq.get_sequences(directory)
+        seqs = fileseq.findSequencesOnDisk(directory)
         first_path = ""
         for sq in seqs:
-            if sq.head().rstrip(".") == name and sq.tail().lower() == ".exr":
-                items = list(sq)
-                if items:
-                    first_path = items[0].path
+            if (
+                sq.basename().rstrip("._") == name
+                and sq.extension().lower() == ".exr"
+                and sq.frameSet()
+            ):
+                first_path = sq.frame(sorted(sq.frameSet())[0])
                 break
         if not first_path:
             self._meta_text.setPlainText("Could not locate first frame.")
@@ -697,8 +698,6 @@ class VideoBrowserDialog(QDialog):
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
-        self._table.setMouseTracking(True)
-        self._table.cellEntered.connect(lambda r, _c: self._table.selectRow(r))
         self._table.setMinimumWidth(320)
         th = self._table.horizontalHeader()
         th.setStretchLastSection(False)
@@ -1172,6 +1171,7 @@ class ConvertTab(QWidget):
         self._mode = mode
         self._settings = settings
         self._ocio_cfg: object | None = None
+        self._input_seq: object | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -1202,6 +1202,34 @@ class ConvertTab(QWidget):
         self.src_btn = ColorSpaceButton()
         cs_in_row.addWidget(self.src_btn, 1)
         in_main.addLayout(cs_in_row)
+
+        range_row = QHBoxLayout()
+        range_row.addWidget(QLabel("Frames:"))
+        self._frame_range_edit = QLineEdit()
+        self._frame_range_edit.setPlaceholderText("e.g. 1001-1100, 1-50x2")
+        self._frame_range_edit.setToolTip(
+            "Nuke-style frame range.\n"
+            "Examples: 1-100, 1-10x2, 1-4 8-10"
+        )
+        self._frame_range_edit.setValidator(
+            QRegularExpressionValidator(
+                QRegularExpression(
+                    r"(\d+(-\d+)?(x\d+)?([, ] *)?)*"
+                ),
+                self._frame_range_edit,
+            )
+        )
+        range_row.addWidget(self._frame_range_edit, 1)
+
+        self._reset_range_btn = QToolButton()
+        self._reset_range_btn.setText("\u21ba")
+        self._reset_range_btn.setToolTip("Reset to source range")
+        self._reset_range_btn.setEnabled(False)
+        self._reset_range_btn.clicked.connect(self._reset_to_source_range)
+        range_row.addWidget(self._reset_range_btn)
+
+        in_main.addLayout(range_row)
+        self._full_input_range = ""
 
         layout.addWidget(in_group)
 
@@ -1357,6 +1385,33 @@ class ConvertTab(QWidget):
         layout.addWidget(opts_group)
         layout.addStretch()
 
+        # -- Tab order --
+        tab_chain = [
+            self.input_path,
+            self._browse_in,
+            self.src_btn,
+            self._frame_range_edit,
+            self._reset_range_btn,
+            self.output_path,
+            self._browse_out,
+            self.dst_btn,
+            self.scale_combo,
+        ]
+        if mode == "video2exr":
+            tab_chain += [
+                self.compression_combo,
+                self._comp_settings_btn,
+                self.padding_spin,
+                self.start_frame_spin,
+            ]
+        elif mode == "exr2video":
+            if self.fps_widget:
+                tab_chain.append(self.fps_widget)
+            tab_chain += [self.codec_combo, self._codec_settings_btn]
+        for i in range(len(tab_chain) - 1):
+            if tab_chain[i] and tab_chain[i + 1]:
+                self.setTabOrder(tab_chain[i], tab_chain[i + 1])
+
         # -- Connections --
         self._browse_in.clicked.connect(self._pick_input)
         self._browse_out.clicked.connect(self._pick_output)
@@ -1488,14 +1543,20 @@ class ConvertTab(QWidget):
             start = self.input_path.text().strip() or str(Path.home())
             dlg = VideoBrowserDialog(start, parent=self)
             if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_path():
-                self.input_path.setText(dlg.selected_path())
+                video_path = dlg.selected_path()
+                self.input_path.setText(video_path)
+                self._auto_fill_exr_output(video_path)
+                self._auto_detect_video_colorspace(video_path)
+                self._detect_input_range()
         else:
-            start = self.input_path.text().strip() or str(Path.home())
+            start = self.get_input_path() or str(Path.home())
             dlg = SequenceBrowserDialog(start, parent=self)
             if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_directory():
-                self.input_path.setText(dlg.selected_directory())
-                self._auto_fill_video_output(dlg.selected_directory())
-                self._auto_detect_colorspace(dlg.selected_directory())
+                sel_dir = dlg.selected_directory()
+                self.input_path.setText(sel_dir)
+                self._auto_fill_video_output(sel_dir)
+                self._auto_detect_colorspace(sel_dir)
+                self._detect_input_range()
 
     def _pick_output(self) -> None:
         if self._mode == "video2exr":
@@ -1529,17 +1590,22 @@ class ConvertTab(QWidget):
         if self._mode == "video2exr":
             if p.is_file() and p.suffix.lower() in _VIDEO_EXTS:
                 self.input_path.setText(str(p))
+                self._auto_fill_exr_output(str(p))
+                self._auto_detect_video_colorspace(str(p))
+                self._detect_input_range()
                 return True
         else:
             if p.is_dir():
                 self.input_path.setText(str(p))
                 self._auto_fill_video_output(str(p))
                 self._auto_detect_colorspace(str(p))
+                self._detect_input_range()
                 return True
             if p.is_file() and p.suffix.lower() == ".exr":
                 self.input_path.setText(str(p.parent))
                 self._auto_fill_video_output(str(p.parent))
                 self._auto_detect_colorspace(str(p.parent))
+                self._detect_input_range()
                 return True
         return False
 
@@ -1568,12 +1634,53 @@ class ConvertTab(QWidget):
         out = p.parent / f"{p.name}{self._codec_ext()}"
         self.output_path.setText(str(out))
 
+    def _auto_fill_exr_output(self, video_path: str) -> None:
+        """Set output EXR path to <video_parent>/<stem>/<stem>.####.exr."""
+        if self._mode != "video2exr":
+            return
+        p = Path(video_path)
+        out_dir = p.parent / p.stem
+        pad = "#" * self.get_padding()
+        display = str(out_dir / f"{p.stem}.{pad}.exr")
+        self.output_path.setText(display)
+
+    def _auto_detect_video_colorspace(self, video_path: str) -> None:
+        """Guess the source colorspace from video codec/format and select it."""
+        if self._mode != "video2exr":
+            return
+        from .video import guess_video_colorspace_candidates
+
+        candidates = guess_video_colorspace_candidates(video_path)
+        if not candidates:
+            return
+        ocio_cfg = getattr(self, "_ocio_cfg", None)
+        preferred = candidates[0]
+        if ocio_cfg is not None:
+            from .ocio_utils import resolve_alias
+
+            for name in candidates:
+                resolved = resolve_alias(ocio_cfg, name)
+                if resolved:
+                    preferred = resolved
+                    break
+        if self.src_btn.try_select(preferred):
+            self.log_message.emit(f"Auto-detected source color space: {preferred}")
+            self.src_btn.setStyleSheet("background-color: #3a3020;")
+            QTimer.singleShot(500, lambda: self.src_btn.setStyleSheet(""))
+
     def _update_output_placeholder(self) -> None:
-        """Update the output placeholder to reflect current padding."""
+        """Update the output placeholder and current pattern to reflect padding."""
         if self._mode != "video2exr" or not self.padding_spin:
             return
         pat = "#" * self.padding_spin.value()
-        self.output_path.setPlaceholderText(f"Output directory for EXR sequence (name.{pat}.exr)")
+        self.output_path.setPlaceholderText(f"Output EXR sequence (name.{pat}.exr)")
+        import re
+
+        current = self.output_path.text()
+        if current and re.search(r"#+\.exr$", current):
+            updated = re.sub(r"#+\.exr$", f"{pat}.exr", current)
+            if updated != current:
+                self.output_path.setText(updated)
 
     def _update_output_ext(self) -> None:
         """Update the output path extension to match the current codec."""
@@ -1636,3 +1743,82 @@ class ConvertTab(QWidget):
             QTimer.singleShot(500, lambda: self.src_btn.setStyleSheet(""))
         else:
             self.log_message.emit(f'EXR color space "{cs}" not found in current OCIO config')
+
+    # -- Frame range --
+
+    def _detect_input_range(self) -> None:
+        """Detect the frame range of the current input and populate the field."""
+        from .framerange import format_frame_range
+
+        inp = self.get_input_path()
+        if not inp:
+            self._full_input_range = ""
+            self._input_seq = None
+            self._frame_range_edit.clear()
+            self._reset_range_btn.setEnabled(False)
+            return
+
+        try:
+            if self._mode == "video2exr":
+                from .video import probe_video
+
+                _w, _h, _fps, total = probe_video(inp)
+                frames = list(range(1, total + 1))
+                self._input_seq = None
+            else:
+                from .sequence import find_exr_sequence_info
+
+                _paths, _seq_name, frames, _pad_len, seq = find_exr_sequence_info(inp)
+                self._input_seq = seq
+                pad = "#" * seq.zfill()
+                display = f"{seq.dirname()}{seq.basename()}{pad}{seq.extension()}"
+                self.input_path.blockSignals(True)
+                self.input_path.setText(display)
+                self.input_path.blockSignals(False)
+        except Exception:
+            self._full_input_range = ""
+            self._input_seq = None
+            self._reset_range_btn.setEnabled(False)
+            return
+
+        if not frames:
+            self._full_input_range = ""
+            self._reset_range_btn.setEnabled(False)
+            return
+
+        range_str = format_frame_range(frames)
+        self._full_input_range = range_str
+        self._frame_range_edit.setText(range_str)
+        self._reset_range_btn.setEnabled(True)
+
+    def _reset_to_source_range(self) -> None:
+        """Reset the frame range field to the full source range."""
+        if self._full_input_range:
+            self._frame_range_edit.setText(self._full_input_range)
+
+    def get_input_path(self) -> str:
+        """Return the real filesystem path for the input.
+
+        For EXR sequences, returns the directory (from the stored FileSequence)
+        rather than the display pattern shown in the text field.
+        """
+        if self._mode == "exr2video" and self._input_seq is not None:
+            return self._input_seq.dirname().rstrip("/")
+        return self.input_path.text().strip()
+
+    def get_output_path(self) -> str:
+        """Return the real filesystem path for the output.
+
+        For video2exr, the display shows a sequence pattern (e.g. name.####.exr)
+        but the converter needs just the directory.
+        """
+        raw = self.output_path.text().strip()
+        if self._mode == "video2exr" and raw:
+            p = Path(raw)
+            if "#" in p.name:
+                return str(p.parent)
+        return raw
+
+    def get_frame_range(self) -> str:
+        """Return the user-specified frame range string, or '' for all frames."""
+        return self._frame_range_edit.text().strip()

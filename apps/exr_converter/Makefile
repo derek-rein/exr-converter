@@ -38,7 +38,7 @@ HIDDEN_IMPORTS := \
 	--hidden-import numpy \
 	--hidden-import OpenImageIO \
 	--hidden-import PyOpenColorIO \
-	--hidden-import pyseq \
+	--hidden-import fileseq \
 	--hidden-import PySide6 \
 	--hidden-import src \
 	--hidden-import src.cli \

@@ -18,6 +18,45 @@ def probe_video(path: str) -> tuple[int, int, float, int]:
     return w, h, fps, n_frames
 
 
+def guess_video_colorspace_candidates(path: str) -> list[str]:
+    """Return a ranked list of OCIO color space name candidates for the video.
+
+    Uses codec, pixel format, and color metadata to infer the transfer
+    characteristics. The caller should try each candidate through alias
+    resolution until one matches the active OCIO config.
+    """
+    try:
+        container = av.open(path)
+        stream = container.streams.video[0]
+        codec = stream.codec_context.name
+        pix_fmt = stream.codec_context.pix_fmt or ""
+        color_trc = str(getattr(stream.codec_context, "color_trc", "") or "")
+        container.close()
+    except Exception:
+        return []
+
+    is_10bit = "10" in pix_fmt or "12" in pix_fmt or "16" in pix_fmt
+
+    if "log" in color_trc.lower():
+        return ["Cineon"]
+    if "linear" in color_trc.lower():
+        return ["scene_linear"]
+    if "smpte2084" in color_trc.lower() or "2084" in color_trc:
+        return ["Output - Rec.2100-PQ"]
+    if "arib-std-b67" in color_trc.lower() or "hlg" in color_trc.lower():
+        return ["Output - Rec.2100-HLG"]
+
+    if codec == "ffv1" and is_10bit:
+        return ["scene_linear"]
+
+    return [
+        "Output - Rec.709",
+        "Rec.1886 Rec.709 - Display",
+        "Gamma 2.4 Rec.709 - Texture",
+        "sRGB - Display",
+    ]
+
+
 _VIDEO_SUFFIXES = {
     ".mp4",
     ".mov",

@@ -11,7 +11,7 @@ This repository is a **Python monorepo** ([uv](https://docs.astral.sh/uv/) works
 | **Language & tooling** | Python 3.13, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [PyInstaller](https://pyinstaller.org/) for standalone bundles |
 | **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.8), Nuke-inspired dark theme |
 | **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`oiio-python`), [OpenColorIO 2.5](https://opencolorio.org/) for display/render transforms |
-| **EXR Converter specifics** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [pyseq](https://github.com/sqlboy/pyseq) for frame sequences |
+| **EXR Converter specifics** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences & ranges |
 | **Slate Maker specifics** | Qt **WebEngine** for HTML/CSS preview and capture, [Tailwind CSS](https://tailwindcss.com/) in the slate template |
 
 CI runs on **GitHub Actions**; releases publish per-app binaries for Linux, macOS (Apple silicon), and Windows.

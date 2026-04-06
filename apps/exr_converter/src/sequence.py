@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pyseq
+import fileseq
 
 
 def _probe_resolution(filepath: str) -> tuple[int, int]:
@@ -21,20 +21,22 @@ def _probe_resolution(filepath: str) -> tuple[int, int]:
     return 0, 0
 
 
+def _find_exr_seqs(directory: str) -> list[fileseq.FileSequence]:
+    """Return all .exr FileSequences found in *directory*, sorted by basename."""
+    seqs = fileseq.findSequencesOnDisk(directory)
+    exr = [s for s in seqs if s.extension().lower() == ".exr" and s.frameSet()]
+    return sorted(exr, key=lambda s: s.basename())
+
+
 def probe_exr_colorspace(directory: str) -> str:
     """Return the oiio:ColorSpace from the first EXR in *directory*, or ''."""
-    seqs = pyseq.get_sequences(directory)
-    for s in sorted(
-        (s for s in seqs if s.tail().lower() == ".exr"),
-        key=lambda s: s.head(),
-    ):
-        items = list(s)
-        if not items:
-            continue
+    for s in _find_exr_seqs(directory):
+        first_frame = list(s.frameSet())[0]
+        path = s.frame(first_frame)
         try:
             import OpenImageIO as oiio
 
-            inp = oiio.ImageInput.open(items[0].path)
+            inp = oiio.ImageInput.open(path)
             if inp:
                 cs = inp.spec().getattribute("oiio:ColorSpace")
                 inp.close()
@@ -82,37 +84,30 @@ def scan_exr_sequences(directory: str) -> list[dict]:
     """Return metadata dicts for every EXR sequence found in *directory*.
 
     Each dict contains:
-        name       - sequence head (e.g. "beauty")
+        name       - sequence basename (e.g. "beauty")
         frames     - number of frames
         range      - human-readable frame range string
         resolution - "W\u00d7H" string from the first frame
         path       - the directory scanned
     """
-    seqs = pyseq.get_sequences(directory)
-    exr_seqs = sorted(
-        (s for s in seqs if s.tail().lower() == ".exr"),
-        key=lambda s: s.head(),
-    )
     results = []
-    for s in exr_seqs:
-        items = list(s)
-        frame_nums = sorted(int(i.frame) for i in items if i.frame is not None)
-        if frame_nums:
-            range_str = f"{frame_nums[0]}-{frame_nums[-1]}"
-        else:
-            range_str = "?"
+    for s in _find_exr_seqs(directory):
+        fs = s.frameSet()
+        frame_list = sorted(fs)
+        range_str = s.frameRange() if frame_list else "?"
 
-        w, h = _probe_resolution(items[0].path) if items else (0, 0)
+        first_path = s.frame(frame_list[0]) if frame_list else ""
+        w, h = _probe_resolution(first_path) if first_path else (0, 0)
         res_str = f"{w}\u00d7{h}" if w and h else ""
 
         pixel_type = ""
         compression = ""
         colorspace = ""
-        if items:
+        if first_path:
             try:
                 import OpenImageIO as oiio
 
-                inp = oiio.ImageInput.open(items[0].path)
+                inp = oiio.ImageInput.open(first_path)
                 if inp:
                     spec = inp.spec()
                     pixel_type = str(spec.format)
@@ -128,8 +123,8 @@ def scan_exr_sequences(directory: str) -> list[dict]:
 
         results.append(
             {
-                "name": s.head().rstrip("."),
-                "frames": len(items),
+                "name": s.basename().rstrip("._"),
+                "frames": len(frame_list),
                 "range": range_str,
                 "resolution": res_str,
                 "pixel_type": pixel_type,
@@ -145,7 +140,7 @@ def find_exr_sequence(input_path: str) -> tuple[list[str], str]:
     """Resolve *input_path* to an ordered list of EXR file paths + a basename.
 
     *input_path* may be:
-    - a directory  -> scan with pyseq, pick the first .exr sequence
+    - a directory  -> scan for .exr sequences, pick the first
     - a single .exr file -> scan its parent dir, find the sequence it belongs to
     """
     p = Path(input_path)
@@ -156,17 +151,58 @@ def find_exr_sequence(input_path: str) -> tuple[list[str], str]:
     else:
         raise RuntimeError(f"Path does not exist: {input_path}")
 
-    seqs = pyseq.get_sequences(scan_dir)
-    exr_seqs = [s for s in seqs if s.tail().lower() == ".exr"]
+    exr_seqs = _find_exr_seqs(scan_dir)
     if not exr_seqs:
         raise RuntimeError(f"No EXR sequences found in {scan_dir}")
 
     if p.is_file():
-        fname = p.name
         for s in exr_seqs:
-            if any(str(item) == fname for item in s):
-                return [item.path for item in s], s.head().rstrip(".")
+            fs = s.frameSet()
+            for f in fs:
+                if Path(s.frame(f)).name == p.name:
+                    frames = sorted(fs)
+                    return [s.frame(f) for f in frames], s.basename().rstrip("._")
         return [str(p)], p.stem
 
-    seq = sorted(exr_seqs, key=lambda s: s.head())[0]
-    return [item.path for item in seq], seq.head().rstrip(".")
+    seq = exr_seqs[0]
+    frames = sorted(seq.frameSet())
+    return [seq.frame(f) for f in frames], seq.basename().rstrip("._")
+
+
+def find_exr_sequence_info(
+    input_path: str,
+) -> tuple[list[str], str, list[int], int, fileseq.FileSequence]:
+    """Like find_exr_sequence but also returns frame numbers, padding, and the FileSequence.
+
+    Returns (paths, basename, sorted_frame_nums, pad_width, file_sequence).
+    """
+    p = Path(input_path)
+    if p.is_file():
+        scan_dir = str(p.parent)
+    elif p.is_dir():
+        scan_dir = str(p)
+    else:
+        raise RuntimeError(f"Path does not exist: {input_path}")
+
+    exr_seqs = _find_exr_seqs(scan_dir)
+    if not exr_seqs:
+        raise RuntimeError(f"No EXR sequences found in {scan_dir}")
+
+    seq = None
+    if p.is_file():
+        for s in exr_seqs:
+            fs = s.frameSet()
+            for f in fs:
+                if Path(s.frame(f)).name == p.name:
+                    seq = s
+                    break
+            if seq:
+                break
+    if seq is None:
+        seq = exr_seqs[0]
+
+    frames = sorted(seq.frameSet())
+    paths = [seq.frame(f) for f in frames]
+    name = seq.basename().rstrip("._")
+    pad_width = seq.zfill()
+    return paths, name, frames, pad_width, seq

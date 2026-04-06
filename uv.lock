@@ -40,11 +40,11 @@ version = "0.1.0"
 source = { virtual = "apps/exr_converter" }
 dependencies = [
     { name = "av" },
+    { name = "fileseq" },
     { name = "numpy" },
     { name = "oiio-python" },
     { name = "opencolorio" },
     { name = "pyinstaller" },
-    { name = "pyseq" },
     { name = "pyside6" },
 ]
 
@@ -57,11 +57,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "av", specifier = ">=17.0.0" },
+    { name = "fileseq", specifier = ">=3.1.1" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "oiio-python", specifier = ">=3.0.10.0.1" },
     { name = "opencolorio", specifier = ">=2.5.1" },
     { name = "pyinstaller", specifier = ">=6.19.0" },
-    { name = "pyseq", specifier = ">=0.9.1" },
     { name = "pyside6", specifier = ">=6.8.3" },
 ]
 
@@ -69,6 +69,15 @@ requires-dist = [
 dev = [
     { name = "pillow", specifier = ">=12.2.0" },
     { name = "ruff", specifier = ">=0.11.0" },
+]
+
+[[package]]
+name = "fileseq"
+version = "3.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/a5/ac3b1a1faa4dac933a0359787752cee10cb9b71c8551f17da49de3f9524d/fileseq-3.1.1.tar.gz", hash = "sha256:a8e776f00fbfa3c879a70aa5506b9032cb80ecdd304b8c94da545d20f5508246", size = 2164365, upload-time = "2026-03-13T18:31:21.909Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/72/49/69fee1dd9cf129f0af0b485cd566051019fa7432dcc256aa37e2d633584d/fileseq-3.1.1-py3-none-any.whl", hash = "sha256:1cdb11884af8a951b0855732baddf6d28720f688d231aef5ea695e6c1a7535ba", size = 200507, upload-time = "2026-03-13T18:31:20.669Z" },
 ]
 
 [[package]]
@@ -233,15 +242,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c7/fe/9278c29394bf69169febc21f96b4252c3ee7c8ec22c2fc545004bed47e71/pyinstaller_hooks_contrib-2026.4.tar.gz", hash = "sha256:766c281acb1ecc32e21c8c667056d7ebf5da0aabd5e30c219f9c2a283620eeaa", size = 173050, upload-time = "2026-03-31T14:10:51.188Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/f4/035fb8c06deff827f540a9a4ed9122c54e5376fca3e42eddf0c263730775/pyinstaller_hooks_contrib-2026.4-py3-none-any.whl", hash = "sha256:1de1a5e49a878122010b88c7e295502bc69776c157c4a4dc78741a4e6178b00f", size = 455496, upload-time = "2026-03-31T14:10:49.867Z" },
-]
-
-[[package]]
-name = "pyseq"
-version = "0.9.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/08/ca/ece38c40ff07899334c10179f0a0ea603b422ec1d1ef3674e2a21988eab3/pyseq-0.9.1.tar.gz", hash = "sha256:6272833cb08f8d6e4ff676c65bb9ab274290f8e57ae387d34f6f873d5517a929", size = 37896, upload-time = "2026-04-05T01:22:28.445Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8c/c5/5cd404fac659cd3869303421ee169c27638029f07bd0a0812799771c2b53/pyseq-0.9.1-py3-none-any.whl", hash = "sha256:8268126453476b656cac392d0bebaef77e998c2f50f63872ca1fca832485907d", size = 36379, upload-time = "2026-04-05T01:22:27.177Z" },
 ]
 
 [[package]]

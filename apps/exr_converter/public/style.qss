@@ -182,6 +182,10 @@ QPushButton#clearBtn {
     padding: 3px 10px;
     font-size: 11px;
 }
+QLabel#dimLabel {
+    color: @FG_DIM;
+    font-size: 11px;
+}
 
 /* ---- ToolButton (color-space picker) ---- */
 QToolButton {
@@ -316,8 +320,20 @@ QTableView::item:selected {
     background-color: @ACCENT;
     color: @SEL_FG;
 }
-QTreeView::item:hover {
+QTreeView::item:hover,
+QTableWidget::item:hover,
+QTableView::item:hover {
     background-color: @BG_BTN;
+}
+QTableWidget::item:selected,
+QTableView::item:selected {
+    background-color: @ACCENT;
+    color: @SEL_FG;
+}
+QTableWidget::item:selected:hover,
+QTableView::item:selected:hover {
+    background-color: @ACCENT_HOVER;
+    color: @SEL_FG;
 }
 QHeaderView::section {
     background-color: @BG_ALT;

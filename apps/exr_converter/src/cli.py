@@ -84,6 +84,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_START_FRAME,
         help=f"First frame number (default: {DEFAULT_START_FRAME})",
     )
+    v2e.add_argument(
+        "--frame-range",
+        default="",
+        help="Nuke-style frame range (e.g. 1-100, 1-50x2). Empty = all.",
+    )
 
     e2v = sub.add_parser("exr2video", help="EXR sequence -> OCIO -> video.")
     e2v.add_argument("-i", "--input", required=True)
@@ -104,6 +109,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=_CODEC_KEYS,
         help=f"Video codec (default: {DEFAULT_VIDEO_CODEC})",
     )
+    e2v.add_argument(
+        "--frame-range",
+        default="",
+        help="Nuke-style frame range (e.g. 1001-1100, 1-50x2). Empty = all.",
+    )
 
     return p
 
@@ -119,6 +129,15 @@ def run_cli(args: argparse.Namespace) -> int:
     try:
         cfg = resolve_ocio_for_cli(args.ocio)
         cs, cp = _resolve_config_source(args.ocio)
+
+        frame_set: set[int] | None = None
+        if getattr(args, "frame_range", ""):
+            from .framerange import parse_frame_range
+
+            frames = parse_frame_range(args.frame_range)
+            if frames:
+                frame_set = set(frames)
+
         if args.command == "video2exr":
             run_video_to_exr(
                 args.input,
@@ -135,6 +154,7 @@ def run_cli(args: argparse.Namespace) -> int:
                 scale=args.scale,
                 padding=args.padding,
                 start_frame=args.start_frame,
+                frame_set=frame_set,
             )
         else:
             codec_key = args.codec
@@ -160,6 +180,7 @@ def run_cli(args: argparse.Namespace) -> int:
                 video_codec=codec_name,
                 pix_fmt_out=pix_fmt,
                 codec_key=codec_key,
+                frame_set=frame_set,
             )
         print(file=sys.stderr)
     except Exception as e:

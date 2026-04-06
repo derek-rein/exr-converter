@@ -234,6 +234,11 @@ class MainWindow(QMainWindow):
         m = self._presets_menu
         m.clear()
 
+        reset_action = QAction("Reset to Defaults", self)
+        reset_action.triggered.connect(self._reset_to_defaults)
+        m.addAction(reset_action)
+        m.addSeparator()
+
         save_action = QAction("Save Preset As\u2026", self)
         save_action.triggered.connect(self._save_preset)
         m.addAction(save_action)
@@ -278,6 +283,37 @@ class MainWindow(QMainWindow):
         delete_preset(name)
         self._append_log(f"Preset deleted: {name}")
 
+    def _reset_to_defaults(self) -> None:
+        from .constants import (
+            DEFAULT_EXR_COMPRESSION,
+            DEFAULT_FRAME_PADDING,
+            DEFAULT_SCALE,
+            DEFAULT_SRC_E2V,
+            DEFAULT_SRC_V2E,
+            DEFAULT_START_FRAME,
+            DEFAULT_VIDEO_CODEC,
+            OCIO_SOURCE_ENV,
+        )
+
+        defaults = {
+            "tab": 0,
+            "ocio_source": OCIO_SOURCE_ENV,
+            "ocio_file": "",
+            "v2e_src_space": DEFAULT_SRC_V2E,
+            "v2e_dst_space": "ACEScg",
+            "v2e_compression": DEFAULT_EXR_COMPRESSION,
+            "v2e_scale": DEFAULT_SCALE,
+            "v2e_padding": DEFAULT_FRAME_PADDING,
+            "v2e_start_frame": DEFAULT_START_FRAME,
+            "e2v_src_space": DEFAULT_SRC_E2V,
+            "e2v_dst_space": "Output - Rec.709",
+            "e2v_fps": 24.0,
+            "e2v_scale": DEFAULT_SCALE,
+            "e2v_codec": DEFAULT_VIDEO_CODEC,
+        }
+        self.restore_state(defaults)
+        self._append_log("Reset all parameters to defaults")
+
     # -- OCIO --
 
     def _reload_ocio(self) -> None:
@@ -312,8 +348,8 @@ class MainWindow(QMainWindow):
         tab = self._active_tab()
         mode = "video2exr" if self._tabs.currentIndex() == 0 else "exr2video"
 
-        inp = tab.input_path.text().strip()
-        out = tab.output_path.text().strip()
+        inp = tab.get_input_path()
+        out = tab.get_output_path()
         if not inp or not out:
             QMessageBox.warning(self, "Missing paths", "Set both input and output paths.")
             return
@@ -332,6 +368,21 @@ class MainWindow(QMainWindow):
             self._ocio_panel._file_path,
         )
 
+        frame_range_str = tab.get_frame_range()
+        frame_set: set[int] | None = None
+        if frame_range_str:
+            from .framerange import parse_frame_range
+
+            try:
+                frame_set = set(parse_frame_range(frame_range_str))
+            except ValueError as e:
+                QMessageBox.warning(self, "Frame range", f"Invalid frame range: {e}")
+                self._go.setEnabled(True)
+                self._cancel_btn.setEnabled(False)
+                return
+            if not frame_set:
+                frame_set = None
+
         if mode == "video2exr":
             kwargs = dict(
                 video_path=inp,
@@ -345,6 +396,7 @@ class MainWindow(QMainWindow):
                 scale=tab.get_scale(),
                 padding=tab.get_padding(),
                 start_frame=tab.get_start_frame(),
+                frame_set=frame_set,
             )
         else:
             _codec_key, _codec, _pix = tab.get_video_codec_info()
@@ -361,6 +413,7 @@ class MainWindow(QMainWindow):
                 video_codec=_codec,
                 pix_fmt_out=_pix,
                 codec_key=_codec_key,
+                frame_set=frame_set,
             )
 
         self._append_log(f"--- {mode} ---")
