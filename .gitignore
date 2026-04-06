@@ -6,3 +6,12 @@
 .pdm-python
 **/.venv/
 **/.DS_Store
+*.spec
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pywz
+*.pyzw
+*.pyzwz

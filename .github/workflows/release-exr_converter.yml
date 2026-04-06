@@ -19,9 +19,9 @@ jobs:
           - os: ubuntu-latest
             artifact: exr_converter-linux-x86_64
             ext: tar.gz
-          - os: macos-latest
-            artifact: exr_converter-macos-arm64
-            ext: tar.gz
+          - os: macos-13
+            artifact: exr_converter-macos-x86_64
+            ext: dmg
           - os: windows-latest
             artifact: exr_converter-windows-x86_64
             ext: zip
@@ -67,17 +67,34 @@ jobs:
             echo "path=public/icon.png" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install UPX (Linux/Windows)
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y upx-ucl
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            choco install upx -y
+          fi
+
       - name: Build with PyInstaller
         shell: bash
         run: |
+          EXTRA_FLAGS=""
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            EXTRA_FLAGS="--windowed"
+          fi
           uv run pyinstaller --noconfirm --name exr_converter \
             --icon ${{ steps.icon.outputs.path }} \
+            $EXTRA_FLAGS \
             --hidden-import av \
             --hidden-import numpy \
             --hidden-import OpenImageIO \
             --hidden-import PyOpenColorIO \
             --hidden-import fileseq \
-            --hidden-import PySide6 \
+            --hidden-import PySide6.QtCore \
+            --hidden-import PySide6.QtGui \
+            --hidden-import PySide6.QtWidgets \
             --hidden-import src --hidden-import src.cli \
             --hidden-import src.constants --hidden-import src.convert \
             --hidden-import src.exr_io --hidden-import src.ocio_utils \
@@ -85,12 +102,102 @@ jobs:
             --hidden-import src.widgets --hidden-import src.window \
             --hidden-import src.worker --hidden-import src.pool \
             --hidden-import src.presets --hidden-import src.rc_resources \
-            --collect-all av --collect-all OpenImageIO \
-            --collect-all PyOpenColorIO --collect-all PySide6 \
+            --collect-all av \
+            --collect-all OpenImageIO \
+            --collect-all PyOpenColorIO \
+            --collect-submodules PySide6.QtCore \
+            --collect-submodules PySide6.QtGui \
+            --collect-submodules PySide6.QtWidgets \
+            --exclude-module PySide6.Qt3DAnimation \
+            --exclude-module PySide6.Qt3DCore \
+            --exclude-module PySide6.Qt3DExtras \
+            --exclude-module PySide6.Qt3DInput \
+            --exclude-module PySide6.Qt3DLogic \
+            --exclude-module PySide6.Qt3DRender \
+            --exclude-module PySide6.QtBluetooth \
+            --exclude-module PySide6.QtCharts \
+            --exclude-module PySide6.QtDataVisualization \
+            --exclude-module PySide6.QtDesigner \
+            --exclude-module PySide6.QtGraphs \
+            --exclude-module PySide6.QtHttpServer \
+            --exclude-module PySide6.QtLocation \
+            --exclude-module PySide6.QtMultimedia \
+            --exclude-module PySide6.QtMultimediaWidgets \
+            --exclude-module PySide6.QtNetworkAuth \
+            --exclude-module PySide6.QtNfc \
+            --exclude-module PySide6.QtPdf \
+            --exclude-module PySide6.QtPdfWidgets \
+            --exclude-module PySide6.QtPositioning \
+            --exclude-module PySide6.QtQml \
+            --exclude-module PySide6.QtQuick \
+            --exclude-module PySide6.QtQuick3D \
+            --exclude-module PySide6.QtQuickControls2 \
+            --exclude-module PySide6.QtQuickWidgets \
+            --exclude-module PySide6.QtRemoteObjects \
+            --exclude-module PySide6.QtScxml \
+            --exclude-module PySide6.QtSensors \
+            --exclude-module PySide6.QtSerialBus \
+            --exclude-module PySide6.QtSerialPort \
+            --exclude-module PySide6.QtSpatialAudio \
+            --exclude-module PySide6.QtSql \
+            --exclude-module PySide6.QtSvg \
+            --exclude-module PySide6.QtSvgWidgets \
+            --exclude-module PySide6.QtTest \
+            --exclude-module PySide6.QtTextToSpeech \
+            --exclude-module PySide6.QtWebChannel \
+            --exclude-module PySide6.QtWebEngineCore \
+            --exclude-module PySide6.QtWebEngineQuick \
+            --exclude-module PySide6.QtWebEngineWidgets \
+            --exclude-module PySide6.QtWebSockets \
+            --exclude-module PySide6.QtXml \
+            --exclude-module tkinter \
+            --exclude-module unittest \
+            --exclude-module email \
+            --exclude-module http \
+            --exclude-module xmlrpc \
+            --exclude-module pydoc \
             main.py
 
-      - name: Package (Unix)
+      - name: Remove unused Qt frameworks and plugins
+        shell: bash
+        run: |
+          QT_LIB="dist/exr_converter/_internal/PySide6/Qt/lib"
+          QT_PLUG="dist/exr_converter/_internal/PySide6/Qt/plugins"
+          if [ -d "$QT_LIB" ]; then
+            for fw in QtPdf QtQuick QtQml QtQmlModels QtQmlMeta QtQmlWorkerScript \
+                       QtOpenGL QtSvg QtVirtualKeyboard QtVirtualKeyboardQml; do
+              rm -rf "$QT_LIB/${fw}.framework" "$QT_LIB/lib${fw}"* 2>/dev/null || true
+            done
+          fi
+          rm -rf "$QT_PLUG/networkinformation" "$QT_PLUG/tls" \
+                 "$QT_PLUG/platforminputcontexts" 2>/dev/null || true
+          find dist/exr_converter/_internal -maxdepth 1 -type d -name 'Qt*' -exec rm -rf {} + 2>/dev/null || true
+          rm -rf dist/exr_converter/_internal/PIL 2>/dev/null || true
+
+      - name: Strip debug symbols (Linux/macOS)
         if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          find dist/exr_converter* -type f \( -name "*.so" -o -name "*.dylib" \) -exec strip -x {} + 2>/dev/null || true
+
+      - name: Create DMG (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "EXR Converter" \
+            --volicon "public/icon.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "exr_converter.app" 150 190 \
+            --hide-extension "exr_converter.app" \
+            --app-drop-link 450 190 \
+            "${{ matrix.artifact }}.${{ matrix.ext }}" \
+            "dist/exr_converter.app"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
         run: tar -czf ${{ matrix.artifact }}.${{ matrix.ext }} -C dist exr_converter
 
       - name: Package (Windows)
