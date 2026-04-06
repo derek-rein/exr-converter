@@ -1,6 +1,6 @@
 [project]
 name = "exr_converter"
-version = "0.1.0"
+version = "0.1.1"
 description = "A cross-platform GUI tool for converting and transcoding EXR and video files."
 authors = [
     {name = "Derek Rein"},
