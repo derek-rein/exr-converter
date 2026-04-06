@@ -19,8 +19,8 @@ jobs:
           - os: ubuntu-latest
             artifact: exr_converter-linux-x86_64
             ext: tar.gz
-          - os: macos-13
-            artifact: exr_converter-macos-x86_64
+          - os: macos-latest
+            artifact: exr_converter-macos-arm64
             ext: dmg
           - os: windows-latest
             artifact: exr_converter-windows-x86_64
