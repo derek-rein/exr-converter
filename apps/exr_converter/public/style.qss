@@ -1,0 +1,382 @@
+/* ==========================================================================
+   EXR Converter — Nuke-inspired dark theme with orange accents
+   Loaded as Qt resource  :/style.qss
+
+   Color variables are substituted at load time by style.py.
+   Use the syntax  @VARNAME  — see style.py for the palette definition.
+   ========================================================================== */
+
+/* ---- Base ---- */
+QWidget {
+    background-color: @BG;
+    color: @FG;
+    font-size: 13px;
+    selection-background-color: @ACCENT;
+    selection-color: @SEL_FG;
+}
+
+/* ---- GroupBox ---- */
+QGroupBox {
+    border: 1px solid @BORDER;
+    border-radius: 4px;
+    margin-top: 6px;
+    padding: 10px 8px 8px 8px;
+    font-weight: bold;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    color: @FG;
+}
+
+/* ---- Inputs ---- */
+QLineEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {
+    background-color: @BG_INPUT;
+    border: 1px solid @BORDER;
+    border-radius: 3px;
+    padding: 4px 6px;
+    color: @FG;
+}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
+QPlainTextEdit:focus, QTextEdit:focus {
+    border-color: @ACCENT;
+}
+QLineEdit:disabled, QSpinBox:disabled {
+    color: @FG_DISABLED;
+    background-color: @BG;
+}
+
+/* ---- ComboBox ---- */
+QComboBox {
+    background-color: @BG_INPUT;
+    border: 1px solid @BORDER;
+    border-radius: 3px;
+    padding: 4px 8px;
+    color: @FG;
+    min-height: 20px;
+}
+QComboBox:focus, QComboBox:on {
+    border-color: @ACCENT;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+QComboBox::down-arrow {
+    image: url(:/arrow_down.png);
+    width: 10px;
+    height: 6px;
+}
+QComboBox::down-arrow:on {
+    image: url(:/arrow_down_accent.png);
+}
+QComboBox QAbstractItemView {
+    background-color: @BG_ALT;
+    border: 1px solid @BORDER;
+    selection-background-color: @ACCENT;
+    selection-color: @SEL_FG;
+    outline: 0;
+}
+
+/* ---- Buttons ---- */
+QPushButton {
+    background-color: @BG_BTN;
+    border: 1px solid @BORDER;
+    border-radius: 3px;
+    padding: 5px 14px;
+    color: @FG;
+}
+QPushButton:hover {
+    background-color: @BG_BTN_HOVER;
+    border-color: @ACCENT;
+}
+QPushButton:pressed {
+    background-color: @BG_BTN_PRESSED;
+}
+QPushButton:disabled {
+    color: @FG_DISABLED;
+    background-color: @BG;
+    border-color: @BORDER;
+}
+
+/* Primary action button */
+QPushButton#convertBtn {
+    background-color: @ACCENT;
+    color: #fff;
+    font-weight: bold;
+    border: 1px solid @ACCENT_DARK;
+    padding: 6px 22px;
+}
+QPushButton#convertBtn:hover {
+    background-color: @ACCENT_HOVER;
+}
+QPushButton#convertBtn:pressed {
+    background-color: @ACCENT_DARK;
+}
+QPushButton#convertBtn:disabled {
+    background-color: @BG_BTN;
+    color: @FG_DISABLED;
+    border-color: @BORDER;
+}
+
+/* Small inline icon buttons (gear, clear, etc.) */
+QPushButton#gearBtn {
+    padding: 2px 4px;
+    font-size: 14px;
+    min-width: 24px;
+    max-width: 28px;
+    border: 1px solid @ACCENT;
+    background-color: @BG_BTN;
+}
+QPushButton#gearBtn:hover {
+    background-color: @BG_BTN_HOVER;
+    border-color: @ACCENT_HOVER;
+}
+QPushButton#gearBtn:disabled {
+    border-color: @BORDER;
+    background-color: @BG;
+    color: @FG_DISABLED;
+}
+QPushButton#clearBtn {
+    padding: 3px 10px;
+    font-size: 11px;
+}
+
+/* ---- ToolButton (color-space picker) ---- */
+QToolButton {
+    background-color: @BG_INPUT;
+    border: 1px solid @BORDER;
+    border-radius: 3px;
+    padding: 4px 8px;
+    text-align: left;
+    font-size: 13px;
+    color: @FG;
+}
+QToolButton:hover {
+    border-color: @ACCENT;
+}
+QToolButton::menu-indicator {
+    image: url(:/arrow_down.png);
+    width: 10px;
+    height: 6px;
+    subcontrol-position: right center;
+    subcontrol-origin: padding;
+    right: 6px;
+}
+
+/* ---- TabWidget ---- */
+QTabWidget::pane {
+    border: 1px solid @BORDER;
+    border-top: none;
+    background-color: @BG;
+}
+QTabBar::tab {
+    background-color: @BG_ALT;
+    border: 1px solid @BORDER;
+    border-bottom: none;
+    padding: 6px 16px;
+    margin-right: 2px;
+    color: @FG_DIM;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+QTabBar::tab:selected {
+    background-color: @BG;
+    color: @ACCENT;
+    border-color: @BORDER;
+    border-top: 2px solid @ACCENT;
+}
+QTabBar::tab:hover:!selected {
+    color: @FG;
+    background-color: @BG_BTN;
+}
+
+/* ---- Slider ---- */
+QSlider::groove:horizontal {
+    height: 6px;
+    background: @BORDER;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: @ACCENT;
+    border: 1px solid @ACCENT_DARK;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}
+QSlider::handle:horizontal:hover {
+    background: @ACCENT_HOVER;
+}
+QSlider::sub-page:horizontal {
+    background: @ACCENT_DARK;
+    border-radius: 3px;
+}
+
+/* ---- Progress bar ---- */
+QProgressBar {
+    background-color: @BG_INPUT;
+    border: 1px solid @BORDER;
+    border-radius: 3px;
+    text-align: center;
+    color: @FG;
+    min-height: 22px;
+    max-height: 22px;
+}
+QProgressBar::chunk {
+    background-color: @ACCENT;
+    border-radius: 2px;
+}
+
+/* ---- Scrollbar ---- */
+QScrollBar:vertical {
+    background: @BG;
+    width: 10px;
+    border: none;
+}
+QScrollBar::handle:vertical {
+    background: @SCROLLBAR;
+    border-radius: 4px;
+    min-height: 20px;
+}
+QScrollBar::handle:vertical:hover {
+    background: @SCROLLBAR_HOVER;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}
+QScrollBar:horizontal {
+    background: @BG;
+    height: 10px;
+    border: none;
+}
+QScrollBar::handle:horizontal {
+    background: @SCROLLBAR;
+    border-radius: 4px;
+    min-width: 20px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: @SCROLLBAR_HOVER;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0;
+}
+
+/* ---- TreeView / TableWidget ---- */
+QTreeView, QTableWidget, QTableView {
+    background-color: @BG_INPUT;
+    alternate-background-color: @BG_ALT;
+    border: 1px solid @BORDER;
+    gridline-color: @BORDER;
+    outline: 0;
+}
+QTreeView::item:selected, QTableWidget::item:selected,
+QTableView::item:selected {
+    background-color: @ACCENT;
+    color: @SEL_FG;
+}
+QTreeView::item:hover, QTableWidget::item:hover {
+    background-color: @BG_BTN;
+}
+QHeaderView::section {
+    background-color: @BG_ALT;
+    border: 1px solid @BORDER;
+    padding: 4px 6px;
+    color: @FG;
+    font-weight: bold;
+    font-size: 11px;
+}
+
+/* ---- Splitter ---- */
+QSplitter::handle {
+    background-color: @BORDER;
+}
+QSplitter::handle:vertical {
+    height: 3px;
+}
+QSplitter::handle:horizontal {
+    width: 3px;
+}
+
+/* ---- StatusBar ---- */
+QStatusBar {
+    background-color: @BG_ALT;
+    border-top: 1px solid @BORDER;
+    color: @FG_DIM;
+    font-size: 11px;
+}
+
+/* ---- Menu ---- */
+QMenuBar {
+    background-color: @BG_ALT;
+    border-bottom: 1px solid @BORDER;
+    color: @FG;
+}
+QMenuBar::item:selected {
+    background-color: @ACCENT;
+    color: #fff;
+}
+QMenu {
+    background-color: @BG_ALT;
+    border: 1px solid @BORDER;
+    color: @FG;
+    padding: 4px 0;
+}
+QMenu::item {
+    padding: 5px 24px 5px 24px;
+}
+QMenu::item:selected {
+    background-color: @ACCENT;
+    color: @SEL_FG;
+}
+QMenu::separator {
+    height: 1px;
+    background: @BORDER;
+    margin: 4px 8px;
+}
+
+/* ---- CheckBox ---- */
+QCheckBox {
+    spacing: 6px;
+    color: @FG;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+    border: 1px solid @BORDER;
+    border-radius: 2px;
+    background-color: @BG_INPUT;
+}
+QCheckBox::indicator:checked {
+    background-color: @ACCENT;
+    border-color: @ACCENT_DARK;
+}
+QCheckBox::indicator:hover {
+    border-color: @ACCENT;
+}
+
+/* ---- Dialog buttons ---- */
+QDialogButtonBox QPushButton {
+    min-width: 70px;
+}
+
+/* ---- Labels ---- */
+QLabel {
+    background-color: transparent;
+}
+
+/* ---- Log pane ---- */
+QPlainTextEdit#logPane {
+    background: @BG_INPUT;
+    color: @FG;
+    border: 1px solid @BORDER;
+    font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New';
+    font-size: 11px;
+}
+
+/* ---- Metadata inspector pane ---- */
+QPlainTextEdit#metaPane {
+    font-size: 11px;
+    font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New';
+}

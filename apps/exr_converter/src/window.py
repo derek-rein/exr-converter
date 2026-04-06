@@ -6,7 +6,15 @@ from pathlib import Path
 
 import PyOpenColorIO as OCIO_mod
 from PySide6.QtCore import QSettings, Qt, QThread
-from PySide6.QtGui import QAction, QDesktopServices, QFont, QIcon, QKeySequence
+from PySide6.QtGui import (
+    QAction,
+    QDesktopServices,
+    QDragEnterEvent,
+    QDropEvent,
+    QFont,
+    QIcon,
+    QKeySequence,
+)
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -36,7 +44,7 @@ class AboutDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("About EXR Converter")
-        self.setFixedSize(480, 380)
+        self.setFixedSize(480, 440)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
@@ -48,7 +56,7 @@ class AboutDialog(QDialog):
         try:
             import OpenImageIO as oiio
 
-            oiio_ver = oiio.openimageio_version()
+            oiio_ver = getattr(oiio, "VERSION_STRING", None) or str(oiio.openimageio_version())
         except Exception:
             oiio_ver = "?"
 
@@ -61,7 +69,6 @@ class AboutDialog(QDialog):
 
         info = QLabel("<br>".join(info_lines))
         info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info.setStyleSheet("color: #888; font-size: 11px;")
         layout.addWidget(info)
 
         body = QTextBrowser()
@@ -94,6 +101,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("EXR Converter")
         self.setWindowIcon(QIcon(":/icon.png"))
         self.setMinimumSize(700, 640)
+        self.setAcceptDrops(True)
         self._settings = QSettings(APP_ORG, APP_NAME)
         self._thread: QThread | None = None
         self._worker: ConvertWorker | None = None
@@ -136,7 +144,7 @@ class MainWindow(QMainWindow):
         self._progress.setFormat("%p%")
         prog_row.addWidget(self._progress, 1)
         self._go = QPushButton("  Convert  ")
-        self._go.setStyleSheet("QPushButton { padding: 6px 20px; font-weight: bold; }")
+        self._go.setObjectName("convertBtn")
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setEnabled(False)
         prog_row.addWidget(self._go)
@@ -151,19 +159,18 @@ class MainWindow(QMainWindow):
         log_header = QHBoxLayout()
         log_header.addWidget(QLabel("Log"))
         self._clear_log = QPushButton("Clear")
-        self._clear_log.setFixedWidth(50)
+        self._clear_log.setObjectName("clearBtn")
         log_header.addStretch()
         log_header.addWidget(self._clear_log)
         log_layout.addLayout(log_header)
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
         self._log.setMaximumBlockCount(5000)
-        mono = QFont("Menlo, Monaco, Consolas, monospace")
+        mono = QFont("Menlo")
+        mono.setStyleHint(QFont.StyleHint.Monospace)
         mono.setPointSize(11)
         self._log.setFont(mono)
-        self._log.setStyleSheet(
-            "QPlainTextEdit { background: #1e1e1e; color: #d4d4d4; border: 1px solid #333; }"
-        )
+        self._log.setObjectName("logPane")
         log_layout.addWidget(self._log, 1)
         splitter.addWidget(log_container)
         splitter.setStretchFactor(0, 3)
@@ -177,6 +184,8 @@ class MainWindow(QMainWindow):
         self._cancel_btn.clicked.connect(self._cancel_run)
         self._clear_log.clicked.connect(self._log.clear)
         self._tabs.currentChanged.connect(lambda i: self._settings.setValue("ui/tab", i))
+        self._v2e_tab.log_message.connect(self._append_log)
+        self._e2v_tab.log_message.connect(self._append_log)
 
         self._reload_ocio()
 
@@ -280,8 +289,8 @@ class MainWindow(QMainWindow):
         self._ocio_cfg = cfg
         families = color_space_families(cfg)
         n_spaces = sum(len(v) for v in families.values())
-        self._v2e_tab.populate_spaces(families)
-        self._e2v_tab.populate_spaces(families)
+        self._v2e_tab.populate_spaces(families, ocio_cfg=cfg)
+        self._e2v_tab.populate_spaces(families, ocio_cfg=cfg)
         self._statusbar.showMessage(f"OCIO: {n_spaces} color spaces loaded", 3000)
         self._append_log(f"OCIO config loaded ({n_spaces} spaces)")
 
@@ -320,7 +329,7 @@ class MainWindow(QMainWindow):
 
         cs, cp = config_source_info(
             self._ocio_panel.current_source_key(),
-            self._ocio_panel._file_edit.text().strip(),
+            self._ocio_panel._file_path,
         )
 
         if mode == "video2exr":
@@ -402,7 +411,7 @@ class MainWindow(QMainWindow):
         return {
             "tab": self._tabs.currentIndex(),
             "ocio_source": self._ocio_panel.current_source_key(),
-            "ocio_file": self._ocio_panel._file_edit.text(),
+            "ocio_file": self._ocio_panel._file_path,
             "v2e_src_space": self._v2e_tab.src_btn.current_space(),
             "v2e_dst_space": self._v2e_tab.dst_btn.current_space(),
             "v2e_compression": self._v2e_tab.get_compression(),
@@ -425,7 +434,9 @@ class MainWindow(QMainWindow):
                     combo.setCurrentIndex(i)
                     break
         if "ocio_file" in data:
-            self._ocio_panel._file_edit.setText(data["ocio_file"])
+            self._ocio_panel._file_path = data["ocio_file"]
+            self._ocio_panel._settings.setValue("ocio/file_path", data["ocio_file"])
+            self._ocio_panel._update_custom_label()
         if "v2e_src_space" in data:
             self._v2e_tab.src_btn.set_current_space(data["v2e_src_space"])
         if "v2e_dst_space" in data:
@@ -454,6 +465,51 @@ class MainWindow(QMainWindow):
                 if self._e2v_tab.codec_combo.itemData(i) == data["e2v_codec"]:
                     self._e2v_tab.codec_combo.setCurrentIndex(i)
                     break
+
+    # -- Drag and drop --
+
+    _VIDEO_EXTS = {
+        ".mp4",
+        ".mov",
+        ".mkv",
+        ".avi",
+        ".mxf",
+        ".webm",
+        ".m4v",
+        ".ts",
+    }
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # type: ignore[override]
+        mime = event.mimeData()
+        if mime.hasUrls():
+            for url in mime.urls():
+                if url.isLocalFile():
+                    p = Path(url.toLocalFile())
+                    if p.is_dir() or p.suffix.lower() in (self._VIDEO_EXTS | {".exr"}):
+                        event.acceptProposedAction()
+                        return
+        event.ignore()
+
+    def dropEvent(self, event: QDropEvent) -> None:  # type: ignore[override]
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return
+        for url in mime.urls():
+            if not url.isLocalFile():
+                continue
+            p = Path(url.toLocalFile())
+            if p.is_file() and p.suffix.lower() in self._VIDEO_EXTS:
+                self._tabs.setCurrentIndex(0)
+                self._v2e_tab.handle_dropped_path(str(p))
+                self._append_log(f"Dropped video: {p.name}")
+                event.acceptProposedAction()
+                return
+            if p.is_dir() or (p.is_file() and p.suffix.lower() == ".exr"):
+                self._tabs.setCurrentIndex(1)
+                self._e2v_tab.handle_dropped_path(str(p))
+                self._append_log(f"Dropped: {p.name}")
+                event.acceptProposedAction()
+                return
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._settings.setValue("ui/geometry", self.saveGeometry())

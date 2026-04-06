@@ -64,6 +64,25 @@ def color_space_families(config: OCIO.Config) -> dict[str, list[str]]:
     return dict(families)
 
 
+def resolve_alias(config: OCIO.Config, name: str) -> str:
+    """Return the canonical color-space name for *name*, checking aliases.
+
+    OCIO 2.x color spaces can have aliases (e.g. "ACEScg" might be aliased
+    as "ACES - ACEScg" or "acescg").  ``config.getColorSpace(name)`` already
+    resolves aliases, so if it returns a valid object the canonical name is
+    ``cs.getName()``.
+    """
+    if not name:
+        return ""
+    try:
+        cs = config.getColorSpace(name)
+        if cs is not None:
+            return cs.getName()
+    except Exception:
+        pass
+    return ""
+
+
 def make_cpu_processor(config: OCIO.Config, src: str, dst: str) -> OCIO.CPUProcessor:
     return config.getProcessor(src, dst).getDefaultCPUProcessor()
 

@@ -9,7 +9,7 @@ import av
 import numpy as np
 import PyOpenColorIO as OCIO
 
-from .exr_io import read_exr, write_exr
+from .exr_io import read_exr, read_exr_safe, write_exr
 from .ocio_utils import make_cpu_processor
 from .pool import process_frame_e2v, process_frame_v2e
 from .sequence import find_exr_sequence
@@ -19,6 +19,26 @@ ProgressCallback = Callable[[int, int], None]
 LogCallback = Callable[[str], None]
 
 _DEFAULT_WORKERS = min(os.cpu_count() or 4, 8)
+
+
+def _video_metadata(
+    src_space: str = "",
+    dst_space: str = "",
+    codec_key: str = "",
+) -> dict[str, str]:
+    """Build metadata dict for video container."""
+    from .constants import APP_NAME, APP_VERSION
+
+    meta: dict[str, str] = {
+        "encoder": f"{APP_NAME} {APP_VERSION}",
+    }
+    if src_space:
+        meta["source_colorspace"] = src_space
+    if dst_space:
+        meta["dest_colorspace"] = dst_space
+    if codec_key:
+        meta["codec_preset"] = codec_key
+    return meta
 
 
 def _scaled_dims(w: int, h: int, scale: float) -> tuple[int, int]:
@@ -192,7 +212,13 @@ def _v2e_serial(
             desc = OCIO.PackedImageDesc(frame_buf, w, h, 3)
             cpu.apply(desc)
             out_path = output_dir / f"{stem}.{idx:04d}.exr"
-            write_exr(str(out_path), frame_buf, compression=compression)
+            write_exr(
+                str(out_path),
+                frame_buf,
+                compression=compression,
+                src_space=src_space,
+                dst_space=dst_space,
+            )
             if progress:
                 progress(idx, max(total, idx))
     finally:
@@ -267,6 +293,7 @@ def run_exr_to_video(
     output_video.parent.mkdir(parents=True, exist_ok=True)
 
     container = av.open(str(output_video), mode="w")
+    container.metadata.update(_video_metadata(src_space, dst_space, codec_key))
     stream = container.add_stream(video_codec, rate=int(fps))
     stream.width = ow
     stream.height = oh
@@ -361,6 +388,7 @@ def _e2v_serial(
     output_video.parent.mkdir(parents=True, exist_ok=True)
 
     container = av.open(str(output_video), mode="w")
+    container.metadata.update(_video_metadata(src_space, dst_space, codec_key))
     stream = container.add_stream(video_codec, rate=int(fps))
     stream.width = w
     stream.height = h
@@ -373,8 +401,8 @@ def _e2v_serial(
         for idx, path in enumerate(paths, 1):
             if cancel_check and cancel_check():
                 raise RuntimeError("Cancelled")
-            rgb = read_exr(path)
-            frame_buf = np.ascontiguousarray(rgb, dtype=np.float32)
+            rgb = read_exr_safe(path, w, h)
+            frame_buf = np.ascontiguousarray(rgb[:, :, :3], dtype=np.float32)
             fh, fw = frame_buf.shape[:2]
             desc = OCIO.PackedImageDesc(frame_buf, fw, fh, 3)
             cpu.apply(desc)

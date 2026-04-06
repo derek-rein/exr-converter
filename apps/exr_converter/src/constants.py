@@ -5,7 +5,7 @@ APP_NAME = "EXRConverter"
 APP_VERSION = "0.1.0"
 
 DEFAULT_SRC_V2E = "Gamma 2.2 Encoded Rec.709"
-DEFAULT_DST_V2E = "scene_linear"
+DEFAULT_DST_V2E = "ACEScg"
 DEFAULT_SRC_E2V = "scene_linear"
 DEFAULT_DST_E2V = "Gamma 2.2 Encoded Rec.709"
 

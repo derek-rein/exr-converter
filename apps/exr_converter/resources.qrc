@@ -1,5 +1,8 @@
 <RCC>
   <qresource prefix="/">
     <file alias="icon.png">public/icon.png</file>
+    <file alias="style.qss">public/style.qss</file>
+    <file alias="arrow_down.png">public/arrow_down.png</file>
+    <file alias="arrow_down_accent.png">public/arrow_down_accent.png</file>
   </qresource>
 </RCC>

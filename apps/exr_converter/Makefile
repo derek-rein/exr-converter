@@ -26,7 +26,7 @@ fmt:
 
 resources: src/rc_resources.py
 
-src/rc_resources.py: resources.qrc public/icon.png
+src/rc_resources.py: resources.qrc public/icon.png public/style.qss
 	$(RCC) resources.qrc -o src/rc_resources.py
 
 # ── Bundle with PyInstaller ──────────────────────────────────────────────────
@@ -53,6 +53,7 @@ HIDDEN_IMPORTS := \
 	--hidden-import src.worker \
 	--hidden-import src.pool \
 	--hidden-import src.presets \
+	--hidden-import src.style \
 	--hidden-import src.rc_resources
 
 # Collect entire packages so native .so/.dylib files are included

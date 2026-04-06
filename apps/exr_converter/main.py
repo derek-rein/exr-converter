@@ -22,12 +22,14 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     import src.rc_resources  # noqa: F401 — register Qt resources
+    from src.style import load_stylesheet
     from src.window import MainWindow
 
     app = QApplication(sys.argv)
     app.setOrganizationName(APP_ORG)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
+    app.setStyleSheet(load_stylesheet())
     app.setWindowIcon(QIcon(":/icon.png"))
 
     win = MainWindow()

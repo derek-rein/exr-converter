@@ -21,6 +21,63 @@ def _probe_resolution(filepath: str) -> tuple[int, int]:
     return 0, 0
 
 
+def probe_exr_colorspace(directory: str) -> str:
+    """Return the oiio:ColorSpace from the first EXR in *directory*, or ''."""
+    seqs = pyseq.get_sequences(directory)
+    for s in sorted(
+        (s for s in seqs if s.tail().lower() == ".exr"),
+        key=lambda s: s.head(),
+    ):
+        items = list(s)
+        if not items:
+            continue
+        try:
+            import OpenImageIO as oiio
+
+            inp = oiio.ImageInput.open(items[0].path)
+            if inp:
+                cs = inp.spec().getattribute("oiio:ColorSpace")
+                inp.close()
+                if cs:
+                    return str(cs)
+        except Exception:
+            pass
+        break
+    return ""
+
+
+def probe_exr_metadata(filepath: str) -> dict[str, str]:
+    """Return a dict of human-readable EXR metadata from the first frame."""
+    result: dict[str, str] = {}
+    try:
+        import OpenImageIO as oiio
+
+        inp = oiio.ImageInput.open(filepath)
+        if not inp:
+            return {"error": "Could not open file"}
+        spec = inp.spec()
+        result["Resolution"] = f"{spec.width} \u00d7 {spec.height}"
+        result["Channels"] = str(spec.nchannels)
+        ch_names = [spec.channel_name(i) for i in range(spec.nchannels)]
+        result["Channel names"] = ", ".join(ch_names)
+        result["Pixel type"] = str(spec.format)
+        comp = spec.getattribute("compression")
+        if comp:
+            result["Compression"] = str(comp)
+        for attr in spec.extra_attribs:
+            name = attr.name
+            if name in ("compression",):
+                continue
+            val = str(attr.value)
+            if len(val) > 200:
+                val = val[:200] + "\u2026"
+            result[name] = val
+        inp.close()
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
 def scan_exr_sequences(directory: str) -> list[dict]:
     """Return metadata dicts for every EXR sequence found in *directory*.
 
@@ -48,12 +105,36 @@ def scan_exr_sequences(directory: str) -> list[dict]:
         w, h = _probe_resolution(items[0].path) if items else (0, 0)
         res_str = f"{w}\u00d7{h}" if w and h else ""
 
+        pixel_type = ""
+        compression = ""
+        colorspace = ""
+        if items:
+            try:
+                import OpenImageIO as oiio
+
+                inp = oiio.ImageInput.open(items[0].path)
+                if inp:
+                    spec = inp.spec()
+                    pixel_type = str(spec.format)
+                    comp = spec.getattribute("compression")
+                    if comp:
+                        compression = str(comp)
+                    cs = spec.getattribute("oiio:ColorSpace")
+                    if cs:
+                        colorspace = str(cs)
+                    inp.close()
+            except Exception:
+                pass
+
         results.append(
             {
                 "name": s.head().rstrip("."),
                 "frames": len(items),
                 "range": range_str,
                 "resolution": res_str,
+                "pixel_type": pixel_type,
+                "compression": compression,
+                "colorspace": colorspace,
                 "path": directory,
             }
         )

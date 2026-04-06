@@ -1,20 +1,21 @@
 [project]
 name = "exr_converter"
 version = "0.1.0"
-description = "Default template for PDM package"
+description = "A cross-platform GUI tool for converting and transcoding EXR and video files."
 authors = [
     {name = "Derek Rein"},
 ]
 dependencies = [
     "av>=17.0.0",
-    "numpy>=2.2.6",
     "oiio-python>=3.0.10.0.1",
-    "opencolorio>=2.5.1",
     "pyinstaller>=6.19.0",
     "pyseq>=0.9.1",
+    "PySide6>=6.8.0",
+    "numpy>=2.2.6",
+    "opencolorio>=2.5.1",
     "PySide6>=6.9.1",
 ]
-requires-python = "==3.11.*"
+requires-python = "==3.13.*"
 readme = "README.md"
 license = {text = "MIT"}
 
@@ -28,7 +29,7 @@ dev = [
 distribution = false
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py313"
 line-length = 100
 
 [tool.ruff.lint]

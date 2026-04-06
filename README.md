@@ -2,15 +2,15 @@
 
 Open-source **desktop tools** for VFX editorial and delivery workflows.
 
-This repository is a **Python monorepo** ([uv](https://docs.astral.sh/uv/) workspace) targeting **Python 3.11**. Each app has its own `pyproject.toml`, release tags, and GitHub Actions builds.
+This repository is a **Python monorepo** ([uv](https://docs.astral.sh/uv/) workspace) targeting the [**VFX Reference Platform CY2026**](https://vfxplatform.com/#reference-platform) — **Python 3.13**, Qt/PySide 6.8, OpenColorIO 2.5, OpenEXR 3.4, NumPy 2.3. Each app has its own `pyproject.toml`, release tags, and GitHub Actions builds.
 
 ## Tech stack
 
 | Layer | Notes |
 |-------|--------|
-| **Language & tooling** | Python 3.11, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [PyInstaller](https://pyinstaller.org/) for standalone bundles |
-| **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6), Fusion-style desktop apps |
-| **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`oiio-python`), [OpenColorIO](https://opencolorio.org/) for display/render transforms |
+| **Language & tooling** | Python 3.13, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [PyInstaller](https://pyinstaller.org/) for standalone bundles |
+| **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.8), Nuke-inspired dark theme |
+| **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`oiio-python`), [OpenColorIO 2.5](https://opencolorio.org/) for display/render transforms |
 | **EXR Converter specifics** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [pyseq](https://github.com/sqlboy/pyseq) for frame sequences |
 | **Slate Maker specifics** | Qt **WebEngine** for HTML/CSS preview and capture, [Tailwind CSS](https://tailwindcss.com/) in the slate template |
 
