@@ -88,15 +88,14 @@ jobs:
         shell: bash
         run: |
           MODE="--onefile"
-          EXTRA_FLAGS=""
+          EXTRA_FLAGS=()
           if [ "$RUNNER_OS" == "macOS" ]; then
             MODE="--standalone"
-            APP_NAME="EXR Converter"
-            EXTRA_FLAGS="--macos-create-app-bundle --macos-app-name=${APP_NAME} --macos-app-icon=${{ steps.icon.outputs.path }}"
+            EXTRA_FLAGS+=(--macos-create-app-bundle "--macos-app-name=EXR Converter" "--macos-app-icon=${{ steps.icon.outputs.path }}")
           elif [ "$RUNNER_OS" == "Windows" ]; then
-            EXTRA_FLAGS="--windows-icon-from-ico=${{ steps.icon.outputs.path }} --windows-console-mode=disable"
+            EXTRA_FLAGS+=("--windows-icon-from-ico=${{ steps.icon.outputs.path }}" --windows-console-mode=disable)
           else
-            EXTRA_FLAGS="--linux-icon=${{ steps.icon.outputs.path }}"
+            EXTRA_FLAGS+=("--linux-icon=${{ steps.icon.outputs.path }}")
           fi
           uv run python -m nuitka \
             $MODE \
@@ -115,7 +114,7 @@ jobs:
             --include-package-data=PyOpenColorIO \
             --include-package=fileseq \
             --quiet \
-            $EXTRA_FLAGS \
+            "${EXTRA_FLAGS[@]}" \
             main.py
 
       - name: Rename macOS app bundle
