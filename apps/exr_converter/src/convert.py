@@ -83,6 +83,8 @@ def run_video_to_exr(
     config_source: str = "",
     config_path: str = "",
     scale: float = 1.0,
+    padding: int = 4,
+    start_frame: int = 1001,
 ) -> None:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -109,6 +111,8 @@ def run_video_to_exr(
             oh,
             total,
             scale,
+            padding,
+            start_frame,
         )
         return
 
@@ -120,6 +124,7 @@ def run_video_to_exr(
     stream = container.streams.video[0]
     max_inflight = n_workers * 2
     do_resize = scale < 1.0
+    fmt = f"0{padding}d"
 
     idx = 0
     try:
@@ -142,7 +147,8 @@ def run_video_to_exr(
                         frame = frame.reformat(width=ow, height=oh)
                     rgb_u16 = frame.to_ndarray(format="rgb48le")
                     rgb_f32 = rgb_u16.astype(np.float32) * (1.0 / 65535.0)
-                    out_path = str(output_dir / f"{stem}.{idx:04d}.exr")
+                    frame_num = start_frame + idx - 1
+                    out_path = str(output_dir / f"{stem}.{frame_num:{fmt}}.exr")
                     fut = pool.submit(
                         process_frame_v2e,
                         idx,
@@ -171,7 +177,8 @@ def run_video_to_exr(
     if idx == 0:
         raise RuntimeError("No frames decoded from the video file.")
     if log:
-        log(f"Wrote {idx} EXR frames to {output_dir}")
+        nuke_pat = "#" * padding
+        log(f"Wrote {idx} EXR frames \u2192 {output_dir / f'{stem}.{nuke_pat}.exr'}")
 
 
 def _v2e_serial(
@@ -188,6 +195,8 @@ def _v2e_serial(
     h: int,
     total: int,
     scale: float = 1.0,
+    padding: int = 4,
+    start_frame: int = 1001,
 ) -> None:
     cpu = make_cpu_processor(ocio_cfg, src_space, dst_space)
     if log:
@@ -198,6 +207,7 @@ def _v2e_serial(
     stream = container.streams.video[0]
     frame_buf = np.empty((h, w, 3), dtype=np.float32)
     do_resize = scale < 1.0
+    fmt = f"0{padding}d"
 
     idx = 0
     try:
@@ -211,7 +221,8 @@ def _v2e_serial(
             np.multiply(rgb_u16, 1.0 / 65535.0, out=frame_buf, casting="unsafe")
             desc = OCIO.PackedImageDesc(frame_buf, w, h, 3)
             cpu.apply(desc)
-            out_path = output_dir / f"{stem}.{idx:04d}.exr"
+            frame_num = start_frame + idx - 1
+            out_path = output_dir / f"{stem}.{frame_num:{fmt}}.exr"
             write_exr(
                 str(out_path),
                 frame_buf,
@@ -227,7 +238,8 @@ def _v2e_serial(
     if idx == 0:
         raise RuntimeError("No frames decoded from the video file.")
     if log:
-        log(f"Wrote {idx} EXR frames to {output_dir}")
+        nuke_pat = "#" * padding
+        log(f"Wrote {idx} EXR frames \u2192 {output_dir / f'{stem}.{nuke_pat}.exr'}")
 
 
 # ---- exr -> video ----------------------------------------------------------

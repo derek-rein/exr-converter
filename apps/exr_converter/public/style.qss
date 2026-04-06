@@ -38,6 +38,9 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {
     padding: 4px 6px;
     color: @FG;
 }
+QSpinBox, QDoubleSpinBox {
+    padding-right: 18px;
+}
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QPlainTextEdit:focus, QTextEdit:focus {
     border-color: @ACCENT;
@@ -45,6 +48,43 @@ QPlainTextEdit:focus, QTextEdit:focus {
 QLineEdit:disabled, QSpinBox:disabled {
     color: @FG_DISABLED;
     background-color: @BG;
+}
+
+/* ---- SpinBox buttons ---- */
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 16px;
+    border: none;
+    border-left: 1px solid @BORDER;
+    border-bottom: 1px solid @BORDER;
+    background-color: @BG_BTN;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: padding;
+    subcontrol-position: bottom right;
+    width: 16px;
+    border: none;
+    border-left: 1px solid @BORDER;
+    background-color: @BG_BTN;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background-color: @BG_BTN_HOVER;
+}
+QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
+QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {
+    background-color: @ACCENT;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url(:/arrow_up.png);
+    width: 8px;
+    height: 5px;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url(:/arrow_down.png);
+    width: 8px;
+    height: 5px;
 }
 
 /* ---- ComboBox ---- */
@@ -276,7 +316,7 @@ QTableView::item:selected {
     background-color: @ACCENT;
     color: @SEL_FG;
 }
-QTreeView::item:hover, QTableWidget::item:hover {
+QTreeView::item:hover {
     background-color: @BG_BTN;
 }
 QHeaderView::section {
@@ -351,6 +391,7 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked {
     background-color: @ACCENT;
     border-color: @ACCENT_DARK;
+    image: url(:/check.png);
 }
 QCheckBox::indicator:hover {
     border-color: @ACCENT;

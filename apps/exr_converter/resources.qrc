@@ -4,5 +4,7 @@
     <file alias="style.qss">public/style.qss</file>
     <file alias="arrow_down.png">public/arrow_down.png</file>
     <file alias="arrow_down_accent.png">public/arrow_down_accent.png</file>
+    <file alias="arrow_up.png">public/arrow_up.png</file>
+    <file alias="check.png">public/check.png</file>
   </qresource>
 </RCC>

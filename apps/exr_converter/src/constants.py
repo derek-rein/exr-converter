@@ -4,10 +4,10 @@ APP_ORG = "VFXTools"
 APP_NAME = "EXRConverter"
 APP_VERSION = "0.1.0"
 
-DEFAULT_SRC_V2E = "Gamma 2.2 Encoded Rec.709"
+DEFAULT_SRC_V2E = "Output - Rec.709"
 DEFAULT_DST_V2E = "ACEScg"
 DEFAULT_SRC_E2V = "scene_linear"
-DEFAULT_DST_E2V = "Gamma 2.2 Encoded Rec.709"
+DEFAULT_DST_E2V = "Output - Rec.709"
 
 COMMON_FPS = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60]
 
@@ -27,6 +27,9 @@ EXR_COMPRESSIONS = [
     "dwab",
 ]
 DEFAULT_EXR_COMPRESSION = "dwaa"
+
+DEFAULT_FRAME_PADDING = 4
+DEFAULT_START_FRAME = 1001
 
 SCALE_OPTIONS = [
     (1.0, "100%"),

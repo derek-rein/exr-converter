@@ -62,8 +62,7 @@ requires-dist = [
     { name = "opencolorio", specifier = ">=2.5.1" },
     { name = "pyinstaller", specifier = ">=6.19.0" },
     { name = "pyseq", specifier = ">=0.9.1" },
-    { name = "pyside6", specifier = ">=6.8.0" },
-    { name = "pyside6", specifier = ">=6.9.1" },
+    { name = "pyside6", specifier = ">=6.8.3" },
 ]
 
 [package.metadata.requires-dev]

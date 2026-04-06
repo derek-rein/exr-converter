@@ -343,6 +343,8 @@ class MainWindow(QMainWindow):
                 config_source=cs,
                 config_path=cp,
                 scale=tab.get_scale(),
+                padding=tab.get_padding(),
+                start_frame=tab.get_start_frame(),
             )
         else:
             _codec_key, _codec, _pix = tab.get_video_codec_info()
@@ -416,6 +418,8 @@ class MainWindow(QMainWindow):
             "v2e_dst_space": self._v2e_tab.dst_btn.current_space(),
             "v2e_compression": self._v2e_tab.get_compression(),
             "v2e_scale": self._v2e_tab.get_scale(),
+            "v2e_padding": self._v2e_tab.get_padding(),
+            "v2e_start_frame": self._v2e_tab.get_start_frame(),
             "e2v_src_space": self._e2v_tab.src_btn.current_space(),
             "e2v_dst_space": self._e2v_tab.dst_btn.current_space(),
             "e2v_fps": self._e2v_tab.get_fps(),
@@ -447,6 +451,10 @@ class MainWindow(QMainWindow):
             val = data["v2e_compression"]
             if val in EXR_COMPRESSIONS:
                 self._v2e_tab.compression_combo.setCurrentIndex(EXR_COMPRESSIONS.index(val))
+        if "v2e_padding" in data and self._v2e_tab.padding_spin:
+            self._v2e_tab.padding_spin.setValue(int(data["v2e_padding"]))
+        if "v2e_start_frame" in data and self._v2e_tab.start_frame_spin:
+            self._v2e_tab.start_frame_spin.setValue(int(data["v2e_start_frame"]))
         if "e2v_src_space" in data:
             self._e2v_tab.src_btn.set_current_space(data["e2v_src_space"])
         if "e2v_dst_space" in data:

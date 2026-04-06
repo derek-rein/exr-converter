@@ -39,9 +39,11 @@ from .constants import (
     DEFAULT_DST_E2V,
     DEFAULT_DST_V2E,
     DEFAULT_EXR_COMPRESSION,
+    DEFAULT_FRAME_PADDING,
     DEFAULT_SCALE,
     DEFAULT_SRC_E2V,
     DEFAULT_SRC_V2E,
+    DEFAULT_START_FRAME,
     DEFAULT_VIDEO_CODEC,
     EXR_COMPRESSIONS,
     OCIO_SOURCE_ENV,
@@ -484,15 +486,13 @@ class SequenceBrowserDialog(QDialog):
 
         # buttons
         buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Open | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self.accept)
+        buttons.button(QDialogButtonBox.StandardButton.Open).clicked.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        self._ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        self._ok_btn = buttons.button(QDialogButtonBox.StandardButton.Open)
         self._ok_btn.setEnabled(False)
         layout.addWidget(buttons)
-
-        # connections
         self._tree.clicked.connect(self._on_tree_clicked)
         self._table.itemSelectionChanged.connect(self._on_table_selection)
         self._table.cellDoubleClicked.connect(lambda _r, _c: self.accept())
@@ -733,11 +733,11 @@ class VideoBrowserDialog(QDialog):
         layout.addWidget(self._outer_splitter, 1)
 
         buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Open | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self.accept)
+        buttons.button(QDialogButtonBox.StandardButton.Open).clicked.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        self._ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        self._ok_btn = buttons.button(QDialogButtonBox.StandardButton.Open)
         self._ok_btn.setEnabled(False)
         layout.addWidget(buttons)
 
@@ -1213,7 +1213,7 @@ class ConvertTab(QWidget):
         out_row = QHBoxLayout()
         self.output_path = QLineEdit()
         self.output_path.setPlaceholderText(
-            "Output directory for EXR sequence"
+            f"Output directory for EXR sequence (name.{'#' * DEFAULT_FRAME_PADDING}.exr)"
             if mode == "video2exr"
             else "Output video file (mp4, mov, \u2026)"
         )
@@ -1278,10 +1278,44 @@ class ConvertTab(QWidget):
             )
             comp_row.addWidget(self._comp_settings_btn)
             opts_layout.addRow("EXR Compression", comp_row)
+
+            self.padding_spin = QSpinBox()
+            self.padding_spin.setRange(1, 8)
+            self.padding_spin.setValue(
+                int(settings.value(f"{mode}/padding", DEFAULT_FRAME_PADDING))
+            )
+            self.padding_spin.setToolTip("Number of # digits in the frame number (e.g. #### = 4)")
+            self.padding_spin.valueChanged.connect(
+                lambda v: self._settings.setValue(f"{self._mode}/padding", v)
+            )
+            self.padding_spin.valueChanged.connect(lambda _: self._update_output_placeholder())
+
+            self.start_frame_spin = QSpinBox()
+            self.start_frame_spin.setRange(0, 999999)
+            self.start_frame_spin.setValue(
+                int(settings.value(f"{mode}/start_frame", DEFAULT_START_FRAME))
+            )
+            self.start_frame_spin.setToolTip("First frame number in the output sequence")
+            self.start_frame_spin.valueChanged.connect(
+                lambda v: self._settings.setValue(f"{self._mode}/start_frame", v)
+            )
+
+            frame_row = QHBoxLayout()
+            frame_row.setSpacing(8)
+            frame_row.addWidget(QLabel("Padding"))
+            frame_row.addWidget(self.padding_spin)
+            frame_row.addSpacing(12)
+            frame_row.addWidget(QLabel("Start frame"))
+            frame_row.addWidget(self.start_frame_spin)
+            frame_row.addStretch()
+            opts_layout.addRow("Frame numbering", frame_row)
+
             self.fps_widget = None
             self.codec_combo = None
         elif mode == "exr2video":
             self.compression_combo = None
+            self.padding_spin = None
+            self.start_frame_spin = None
             self.fps_widget = FpsCombo(settings, f"{mode}/fps")
             opts_layout.addRow("Frame rate", self.fps_widget)
 
@@ -1315,6 +1349,8 @@ class ConvertTab(QWidget):
             opts_layout.addRow("Codec", codec_row)
         else:
             self.compression_combo = None
+            self.padding_spin = None
+            self.start_frame_spin = None
             self.fps_widget = None
             self.codec_combo = None
 
@@ -1364,6 +1400,16 @@ class ConvertTab(QWidget):
 
     def get_scale(self) -> float:
         return float(self.scale_combo.currentData() or DEFAULT_SCALE)
+
+    def get_padding(self) -> int:
+        if self.padding_spin:
+            return self.padding_spin.value()
+        return DEFAULT_FRAME_PADDING
+
+    def get_start_frame(self) -> int:
+        if self.start_frame_spin:
+            return self.start_frame_spin.value()
+        return DEFAULT_START_FRAME
 
     def get_video_codec_info(self) -> tuple[str, str, str]:
         """Return (key, libav_codec, pix_fmt) for the selected video codec."""
@@ -1522,6 +1568,13 @@ class ConvertTab(QWidget):
         out = p.parent / f"{p.name}{self._codec_ext()}"
         self.output_path.setText(str(out))
 
+    def _update_output_placeholder(self) -> None:
+        """Update the output placeholder to reflect current padding."""
+        if self._mode != "video2exr" or not self.padding_spin:
+            return
+        pat = "#" * self.padding_spin.value()
+        self.output_path.setPlaceholderText(f"Output directory for EXR sequence (name.{pat}.exr)")
+
     def _update_output_ext(self) -> None:
         """Update the output path extension to match the current codec."""
         if self._mode != "exr2video":
@@ -1541,12 +1594,26 @@ class ConvertTab(QWidget):
         if self._mode != "exr2video":
             return
         codec_key = self.codec_combo.currentData() if self.codec_combo else ""
-        # FFV1 is lossless — keep scene-linear
         if codec_key == "ffv1":
-            preferred = "scene_linear"
+            candidates = ["scene_linear"]
         else:
-            preferred = DEFAULT_DST_E2V
-        self.dst_btn.try_select(preferred)
+            candidates = [
+                "Output - Rec.709",
+                "Rec.1886 Rec.709 - Display",
+            ]
+        ocio_cfg = getattr(self, "_ocio_cfg", None)
+        preferred = candidates[0]
+        if ocio_cfg is not None:
+            from .ocio_utils import resolve_alias
+
+            for name in candidates:
+                resolved = resolve_alias(ocio_cfg, name)
+                if resolved:
+                    preferred = resolved
+                    break
+        if self.dst_btn.try_select(preferred):
+            self.dst_btn.setStyleSheet("background-color: #3a3020;")
+            QTimer.singleShot(500, lambda: self.dst_btn.setStyleSheet(""))
 
     def _auto_detect_colorspace(self, exr_dir: str) -> None:
         """Probe colorspace from EXRs and select it in src_btn if found."""
@@ -1565,5 +1632,7 @@ class ConvertTab(QWidget):
                 canonical = resolved
         if self.src_btn.try_select(canonical):
             self.log_message.emit(f"Auto-detected source color space: {canonical}")
+            self.src_btn.setStyleSheet("background-color: #3a3020;")
+            QTimer.singleShot(500, lambda: self.src_btn.setStyleSheet(""))
         else:
             self.log_message.emit(f'EXR color space "{cs}" not found in current OCIO config')

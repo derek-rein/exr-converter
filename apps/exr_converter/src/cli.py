@@ -9,8 +9,10 @@ from .constants import (
     DEFAULT_DST_E2V,
     DEFAULT_DST_V2E,
     DEFAULT_EXR_COMPRESSION,
+    DEFAULT_FRAME_PADDING,
     DEFAULT_SRC_E2V,
     DEFAULT_SRC_V2E,
+    DEFAULT_START_FRAME,
     DEFAULT_VIDEO_CODEC,
     EXR_COMPRESSIONS,
     VIDEO_CODECS,
@@ -67,6 +69,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="Output scale factor (e.g. 0.5 for half res)",
     )
+    v2e.add_argument(
+        "--padding",
+        type=int,
+        default=DEFAULT_FRAME_PADDING,
+        help=(
+            "Frame number padding as # count"
+            f" (default: {DEFAULT_FRAME_PADDING} = {'#' * DEFAULT_FRAME_PADDING})"
+        ),
+    )
+    v2e.add_argument(
+        "--start-frame",
+        type=int,
+        default=DEFAULT_START_FRAME,
+        help=f"First frame number (default: {DEFAULT_START_FRAME})",
+    )
 
     e2v = sub.add_parser("exr2video", help="EXR sequence -> OCIO -> video.")
     e2v.add_argument("-i", "--input", required=True)
@@ -116,6 +133,8 @@ def run_cli(args: argparse.Namespace) -> int:
                 config_source=cs,
                 config_path=cp,
                 scale=args.scale,
+                padding=args.padding,
+                start_frame=args.start_frame,
             )
         else:
             codec_key = args.codec
