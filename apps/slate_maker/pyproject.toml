@@ -1,6 +1,6 @@
 [project]
 name = "slate-maker"
-version = "0.1.0"
+version = "0.1.2"
 description = "VFX Slate Maker — generate cinematic EXR slate sequences"
 authors = [
     {name = "Derek Rein"},
