@@ -1208,14 +1208,11 @@ class ConvertTab(QWidget):
         self._frame_range_edit = QLineEdit()
         self._frame_range_edit.setPlaceholderText("e.g. 1001-1100, 1-50x2")
         self._frame_range_edit.setToolTip(
-            "Nuke-style frame range.\n"
-            "Examples: 1-100, 1-10x2, 1-4 8-10"
+            "Nuke-style frame range.\nExamples: 1-100, 1-10x2, 1-4 8-10"
         )
         self._frame_range_edit.setValidator(
             QRegularExpressionValidator(
-                QRegularExpression(
-                    r"(\d+(-\d+)?(x\d+)?([, ] *)?)*"
-                ),
+                QRegularExpression(r"(\d+(-\d+)?(x\d+)?([, ] *)?)*"),
                 self._frame_range_edit,
             )
         )
