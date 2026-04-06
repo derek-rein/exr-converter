@@ -133,12 +133,17 @@ bundle: resources
 		$(EXCLUDES) \
 		$(EXTRA) \
 		$(ENTRY)
-	@# Remove leaked Qt frameworks not needed at runtime
+	@# Remove Qt frameworks not needed at runtime (whitelist approach)
 	@QT_LIB="dist/$(APP_NAME)/_internal/PySide6/Qt/lib"; \
+	KEEP="QtCore QtGui QtWidgets QtDBus QtNetwork"; \
 	if [ -d "$$QT_LIB" ]; then \
-		for fw in QtPdf QtQuick QtQml QtQmlModels QtQmlMeta QtQmlWorkerScript \
-		           QtOpenGL QtSvg QtVirtualKeyboard QtVirtualKeyboardQml; do \
-			rm -rf "$$QT_LIB/$${fw}.framework" "$$QT_LIB/lib$${fw}"* 2>/dev/null || true; \
+		for fw in "$$QT_LIB"/*.framework; do \
+			name=$$(basename "$$fw" .framework); \
+			keep=false; \
+			for k in $$KEEP; do \
+				if [ "$$name" = "$$k" ]; then keep=true; break; fi; \
+			done; \
+			if [ "$$keep" = "false" ]; then rm -rf "$$fw"; fi; \
 		done; \
 	fi
 	@rm -rf dist/$(APP_NAME)/_internal/PySide6/Qt/plugins/networkinformation \
