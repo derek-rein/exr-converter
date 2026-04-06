@@ -26,7 +26,7 @@ jobs:
           - os: macos-latest
             artifact: exr_converter-macos-arm64
             ext: dmg
-          - os: macos-13
+          - os: macos-26-intel
             artifact: exr_converter-macos-x86_64
             ext: dmg
           - os: windows-latest
@@ -91,7 +91,8 @@ jobs:
           EXTRA_FLAGS=""
           if [ "$RUNNER_OS" == "macOS" ]; then
             MODE="--standalone"
-            EXTRA_FLAGS="--macos-create-app-bundle --macos-app-name=EXR\ Converter --macos-app-icon=${{ steps.icon.outputs.path }}"
+            APP_NAME="EXR Converter"
+            EXTRA_FLAGS="--macos-create-app-bundle --macos-app-name=${APP_NAME} --macos-app-icon=${{ steps.icon.outputs.path }}"
           elif [ "$RUNNER_OS" == "Windows" ]; then
             EXTRA_FLAGS="--windows-icon-from-ico=${{ steps.icon.outputs.path }} --windows-console-mode=disable"
           else
@@ -104,7 +105,6 @@ jobs:
             --assume-yes-for-downloads \
             --python-flag=-OO \
             --enable-plugin=pyside6 \
-            --enable-plugin=anti-bloat \
             --nofollow-import-to=tkinter \
             --nofollow-import-to=unittest \
             --nofollow-import-to=pydoc \

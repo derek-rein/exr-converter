@@ -50,7 +50,6 @@ bundle: resources
 		--assume-yes-for-downloads \
 		--python-flag=-OO \
 		--enable-plugin=pyside6 \
-		--enable-plugin=anti-bloat \
 		--macos-create-app-bundle \
 		--macos-app-name="Slate Maker" \
 		--macos-app-icon=$(ICON) \

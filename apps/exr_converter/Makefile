@@ -42,7 +42,6 @@ bundle: resources
 		--assume-yes-for-downloads \
 		--python-flag=-OO \
 		--enable-plugin=pyside6 \
-		--enable-plugin=anti-bloat \
 		--macos-create-app-bundle \
 		--macos-app-name="EXR Converter" \
 		--macos-app-icon=$(ICON) \
