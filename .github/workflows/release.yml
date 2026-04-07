@@ -1,12 +1,12 @@
-# Independent versioning: tag format exr_converter/v1.2.3 (not a global v1.2.3).
-# Push: git tag exr_converter/v1.2.3 && git push origin exr_converter/v1.2.3
+# Tag format: v1.2.3
+# Push: git tag v1.2.3 && git push origin v1.2.3
 
-name: Release exr_converter
+name: Release
 
 on:
   push:
     tags:
-      - "exr_converter/v*"
+      - "v*"
 
 permissions:
   contents: write
@@ -35,9 +35,6 @@ jobs:
             ext: exe
 
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: apps/exr_converter
 
     steps:
       - uses: actions/checkout@v6
@@ -57,8 +54,8 @@ jobs:
             ~/.cache/Nuitka
             ~/Library/Caches/Nuitka
             ~/AppData/Local/Nuitka
-          key: nuitka-exr-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/exr_converter/pyproject.toml') }}
-          restore-keys: nuitka-exr-${{ runner.os }}-${{ runner.arch }}-
+          key: nuitka-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: nuitka-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: uv sync
@@ -66,7 +63,7 @@ jobs:
       - name: Inject version from tag
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#exr_converter/v}"
+          VERSION="${GITHUB_REF_NAME#v}"
           sed -i.bak "s/^APP_VERSION = \"[^\"]*\"/APP_VERSION = \"${VERSION}\"/" src/constants.py
           rm -f src/constants.py.bak
 
@@ -147,7 +144,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#exr_converter/v}"
+          VERSION="${GITHUB_REF_NAME#v}"
           APPDIR="${{ matrix.artifact }}.AppDir"
           mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
 
@@ -178,18 +175,16 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}".Replace("exr_converter/v","")
+          $version = "${{ github.ref_name }}".Replace("v","")
           iscc "/DAppVersion=$version" installer.iss
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
-          path: apps/exr_converter/${{ matrix.artifact }}.${{ matrix.ext }}
+          path: ${{ matrix.artifact }}.${{ matrix.ext }}
 
   # ── Cosign (Sigstore keyless) ─────────────────────────────────────────────
-  # Proves each artifact was built by this GitHub Actions workflow.
-  # Users verify with: cosign verify-blob --bundle <file>.sigstore.json <file>
   sign:
     needs: build
     runs-on: ubuntu-latest
@@ -271,7 +266,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: "exr_converter ${{ github.ref_name }}"
+          name: "EXR Converter ${{ github.ref_name }}"
           generate_release_notes: true
           files: artifacts/*
           body: |

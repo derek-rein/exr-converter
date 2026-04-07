@@ -1,46 +1,113 @@
-# Versioning & releases for the monorepo (namespaced tags: exr_converter/v1.2.3, slate_maker/v0.4.0)
+# EXR Converter — build, run, lint, release
 #
 # Usage:
 #   make help
-#   make bump-exr PART=minor              # bump semver + sync APP_VERSION + uv lock (no git)
-#   make release-exr PART=patch         # bump + lock + commit + tag
-#   make release-exr PUSH=1             # … + git push branch + push tag (triggers CI release)
+#   make run                              # launch the GUI
+#   make bump PART=minor                  # bump semver + sync APP_VERSION + uv lock
+#   make release PART=patch               # bump + lock + commit + tag
+#   make release PUSH=1                   # … + git push branch + push tag (triggers CI)
 
-UV ?= uv
-PYTHON ?= python3
-BUMP := $(PYTHON) scripts/bump_app_version.py
-PART ?= patch
+.PHONY: help run lint fmt resources bundle clean bump release
 
-.PHONY: help bump-exr release-exr
+APP_NAME := exr_converter
+ENTRY    := main.py
+UV       := uv
+PYTHON   := $(UV) run python
+RCC      := $(UV) run pyside6-rcc
+BUMP     := python3 scripts/bump_app_version.py
+PART     ?= patch
+
+export NUITKA_ASSUME_YES_FOR_DOWNLOADS := 1
+
+# ── Help ─────────────────────────────────────────────────────────────────────
 
 help:
-	@echo "Monorepo version bump (semver x.y.z) and git tags"
+	@echo "EXR Converter"
 	@echo ""
-	@echo "  make bump-exr PART=patch|minor|major    # update pyproject, constants, uv.lock"
+	@echo "  make run                               # launch the GUI"
+	@echo "  make lint / fmt                        # ruff check / format"
+	@echo "  make resources                         # regenerate Qt resources"
+	@echo "  make bundle                            # Nuitka standalone build"
+	@echo "  make clean                             # remove build artifacts"
 	@echo ""
-	@echo "  make release-exr PART=patch             # bump + commit + tag (no push)"
-	@echo "  make release-exr PUSH=1               # also: git push && push tag"
+	@echo "  make bump PART=patch|minor|major       # bump version (no git)"
+	@echo "  make release PART=patch                # bump + commit + tag"
+	@echo "  make release PUSH=1                    # … + git push + push tag"
 	@echo ""
-	@echo "Current tags: git tag -l 'exr_converter/v*' --sort=-v:refname | head"
+	@echo "Current tags: git tag -l 'v*' --sort=-v:refname | head"
 
-# --- bump only (no git) -------------------------------------------------------
+# ── Run ──────────────────────────────────────────────────────────────────────
 
-bump-exr:
-	@$(BUMP) bump exr_converter $(PART)
-	@cd "$(CURDIR)" && $(UV) lock
-	@echo "Done. Review diff, then: make release-exr PART=$(PART)  (or commit manually)"
+run:
+	$(PYTHON) $(ENTRY)
 
-# --- bump + commit + tag (+ optional push) -----------------------------------
+# ── Lint & Format ────────────────────────────────────────────────────────────
 
-define RELEASE_RULE
+lint:
+	$(UV) run ruff check src/ main.py
+
+fmt:
+	$(UV) run ruff format src/ main.py
+	$(UV) run ruff check --fix src/ main.py
+
+# ── Qt Resources ─────────────────────────────────────────────────────────────
+
+resources: src/rc_resources.py
+
+src/rc_resources.py: resources.qrc public/icon.png public/style.qss
+	$(RCC) resources.qrc -o src/rc_resources.py
+
+# ── Bundle with Nuitka ───────────────────────────────────────────────────────
+# macOS: dist/exr_converter.app   Linux: dist/exr_converter   Windows: dist/exr_converter.exe
+
+ICON ?= public/icon.icns
+
+bundle: resources
+	$(PYTHON) -m nuitka \
+		--standalone \
+		--output-dir=dist \
+		--output-filename=$(APP_NAME) \
+		--assume-yes-for-downloads \
+		--python-flag=-OO \
+		--enable-plugin=pyside6 \
+		--macos-create-app-bundle \
+		--macos-app-name="EXR Converter" \
+		--macos-app-icon=$(ICON) \
+		--nofollow-import-to=tkinter \
+		--nofollow-import-to=unittest \
+		--nofollow-import-to=pydoc \
+		--include-package-data=av \
+		--include-package=OpenImageIO \
+		--include-package-data=OpenImageIO \
+		--include-package=PyOpenColorIO \
+		--include-package-data=PyOpenColorIO \
+		--include-package=fileseq \
+		--include-data-dir=templates=templates \
+		--noinclude-dlls='libcrypto*' \
+		--noinclude-dlls='libssl*' \
+		$(ENTRY)
+	mv dist/main.app dist/$(APP_NAME).app
+
+clean:
+	rm -rf dist build *.build *.dist *.onefile-build __pycache__
+
+# ── Version bump (no git) ────────────────────────────────────────────────────
+
+bump:
+	@$(BUMP) bump $(PART)
+	@$(UV) lock
+	@echo "Done. Review diff, then: make release PART=$(PART)  (or commit manually)"
+
+# ── Release: bump + commit + tag (+ optional push) ──────────────────────────
+
+release:
 	@set -e; \
-	cd "$(CURDIR)"; \
-	$(BUMP) bump $(1) $(PART); \
+	$(BUMP) bump $(PART); \
 	$(UV) lock; \
-	eval $$($(BUMP) show $(1)); \
-	git add apps/$(1)/pyproject.toml apps/$(1)/src/constants.py uv.lock; \
+	eval $$($(BUMP) show); \
+	git add pyproject.toml src/constants.py uv.lock; \
 	if git diff --staged --quiet; then echo "No changes to commit."; exit 1; fi; \
-	git commit -m "release($(1)): $${VERSION}"; \
+	git commit -m "release: $${VERSION}"; \
 	git tag "$${TAG}"; \
 	echo "Created commit + tag $${TAG}"; \
 	if [ "$(PUSH)" = "1" ]; then \
@@ -49,7 +116,3 @@ define RELEASE_RULE
 	else \
 	  echo "Push when ready: git push origin HEAD && git push origin $${TAG}"; \
 	fi
-endef
-
-release-exr:
-	$(call RELEASE_RULE,exr_converter)

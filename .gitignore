@@ -6,6 +6,10 @@
 .pdm-python
 **/.venv/
 **/.DS_Store
+dist/
+build/
+*.app/
+*.bin
 *.spec
 *.pyc
 *.pyo

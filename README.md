@@ -1,8 +1,8 @@
-# vfx-tools
+# EXR Converter
 
-Open-source **desktop tools** for VFX editorial and delivery workflows.
+Desktop app and CLI for converting between **video** and **OpenEXR** sequences with **OpenColorIO** color management and built-in **slate rendering**. Uses **PyAV** for decode/encode, **OpenImageIO** for EXR I/O, **PySide6** for the GUI, and **Qt WebEngine** for HTML/CSS slate capture.
 
-This repository is a **Python monorepo** ([uv](https://docs.astral.sh/uv/) workspace) targeting the [**VFX Reference Platform CY2026**](https://vfxplatform.com/#reference-platform) — **Python 3.13**, Qt/PySide 6.8, OpenColorIO 2.5, OpenEXR 3.4, NumPy 2.3. Each app has its own `pyproject.toml`, release tags, and GitHub Actions builds.
+Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-platform): Python 3.13, Qt/PySide 6.8, OpenColorIO 2.5, OpenEXR 3.4, NumPy 2.3.
 
 ## Tech stack
 
@@ -14,99 +14,121 @@ This repository is a **Python monorepo** ([uv](https://docs.astral.sh/uv/) works
 | **Video & sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences & ranges |
 | **Slate rendering** | Qt **WebEngine** for HTML/CSS slate preview and capture, [Tailwind CSS](https://tailwindcss.com/) in the slate template |
 
-CI runs on **GitHub Actions**; releases publish per-app binaries for Linux, macOS (Apple Silicon + Intel), and Windows.
+CI runs on **GitHub Actions**; releases publish binaries for Linux, macOS (Apple Silicon + Intel), and Windows.
 All release artifacts are signed with [Sigstore Cosign](https://docs.sigstore.dev/) for supply-chain provenance.
 
 ## Downloads
 
-> **Tip:** These links always point to the latest release.
+[![Latest release](https://img.shields.io/github/v/release/derek-rein/vfx-tools?label=latest)](https://github.com/derek-rein/vfx-tools/releases)
 
-| App | Latest | Downloads |
-|-----|--------|-----------|
-| **EXR Converter** | [![version](https://img.shields.io/github/v/release/derek-rein/vfx-tools?filter=exr_converter/*&label=)](https://github.com/derek-rein/vfx-tools/releases?q=exr_converter) | [Windows installer](https://github.com/derek-rein/vfx-tools/releases?q=exr_converter) · [macOS DMG](https://github.com/derek-rein/vfx-tools/releases?q=exr_converter) · [Linux AppImage](https://github.com/derek-rein/vfx-tools/releases?q=exr_converter) |
+Pre-built binaries are available on the [releases page](https://github.com/derek-rein/vfx-tools/releases):
 
-## Apps
+| Platform | Format |
+|----------|--------|
+| Windows x64 | Installer (`.exe`) via Inno Setup |
+| macOS Apple Silicon | `.dmg` |
+| macOS Intel | `.dmg` |
+| Linux x86_64 | `.AppImage` |
 
-| App | Summary |
-|-----|---------|
-| [**exr_converter**](apps/exr_converter) | GUI and CLI: **video ↔ OpenEXR** sequences with OCIO color management. Includes built-in **slate rendering** — prepend an HTML/CSS slate frame to any conversion. |
+## Screenshot
 
-### EXR Converter
+![EXR Converter — EXR → Video](assets/exr_converter_screenshot.png)
 
-![EXR Converter — OCIO, EXR → Video tab](assets/exr_converter_screenshot.png)
-
-Convert **video → EXR** (`video2exr`) or **EXR → video** (`exr2video`). Run the GUI with no subcommand, or pass a subcommand for batch use. Enable the "Prepend slate" checkbox to add a 1-frame slate image before the converted output.
+## GUI
 
 ```bash
-cd apps/exr_converter
-uv sync
-uv run python main.py                    # GUI
-uv run python main.py video2exr -i clip.mov -o ./exrs/
-uv run python main.py exr2video -i "./plate.####.exr" -o out.mp4
+uv run python main.py
 ```
 
-Details: [`apps/exr_converter/README.md`](apps/exr_converter/README.md).
+No subcommand — opens the main window. OCIO resolution follows `$OCIO` when set, otherwise built-in configs (see in-app / CLI `--ocio`).
 
-## Building from source
+Enable the **Prepend slate** checkbox to add a 1-frame slate image before the converted output.
 
-Prerequisites: **Python 3.13** and [**uv**](https://docs.astral.sh/uv/).
+## CLI
+
+Use the `video2exr` or `exr2video` subcommand.
+
+**Video → EXR**
+
+```bash
+uv run python main.py video2exr -i clip.mov -o ./exr_out/
+```
+
+**EXR → video**
+
+```bash
+uv run python main.py exr2video -i "./plate.####.exr" -o review.mov --fps 24
+```
+
+Common options:
+
+| Option | Applies to | Notes |
+|--------|------------|--------|
+| `--ocio PATH` | both | OCIO config file (overrides `$OCIO`) |
+| `--src` / `--dst` | both | OCIO display / scene color space names |
+| `--workers N` | both | `0` = auto, `1` = single-threaded |
+| `--scale FACTOR` | both | e.g. `0.5` for half resolution |
+| `--exr-compression NAME` | `video2exr` | e.g. `dwaa`, `zip`, `none` (see `--help`) |
+| `--codec KEY` | `exr2video` | e.g. `prores`, `h264`, `prores_4444`, `dnxhr_hq`, `ffv1` |
+
+Run `uv run python main.py video2exr --help` or `exr2video --help` for the full list.
+
+## Requirements (running from source)
+
+- **Python 3.13**
+- [uv](https://docs.astral.sh/uv/) (recommended) or another PEP 621-compatible installer
 
 ```bash
 git clone https://github.com/derek-rein/vfx-tools.git
 cd vfx-tools
-```
-
-### Run an app (no build needed)
-
-```bash
-cd apps/exr_converter
 uv sync
-uv run python main.py
 ```
 
-### Build a standalone bundle with Nuitka
+## Building from source
 
-The app has a `make bundle` target that produces a native distributable (macOS `.app`, Linux binary, Windows folder).
+Prerequisites: **Python 3.13**, [**uv**](https://docs.astral.sh/uv/), and a C compiler (Xcode CLT on macOS, MSVC on Windows, gcc on Linux).
 
 ```bash
-cd apps/exr_converter
 uv sync
 make bundle
 ```
 
-Output lands in `dist/`. On macOS this produces `dist/exr_converter.app`; on Linux `dist/exr_converter`; on Windows `dist\main.dist\` (a folder with `exr_converter.exe` and its dependencies).
+This uses [Nuitka](https://nuitka.net/) to produce a standalone distributable:
 
-A C compiler is required for Nuitka (Xcode CLT on macOS, MSVC or MinGW on Windows, gcc on Linux). Nuitka will auto-download `ccache` on first run.
+| Platform | Output |
+|----------|--------|
+| macOS | `dist/exr_converter.app` |
+| Linux | `dist/exr_converter` (single binary) |
+| Windows | `dist\main.dist\` (folder with `exr_converter.exe` + dependencies) |
 
-### Lint and format
+Nuitka will auto-download `ccache` on first run. See the `Makefile` for the full set of flags.
 
-```bash
-make lint   # ruff check
-make fmt    # ruff format + auto-fix
-```
+## Development
 
-## Releases (versioning)
+| Target | Purpose |
+|--------|---------|
+| `make run` | Start the GUI |
+| `make lint` / `make fmt` | Ruff check / format |
+| `make resources` | Regenerate `src/rc_resources.py` from `resources.qrc` (needed after icon changes) |
+| `make bundle` | Nuitka standalone bundle under `dist/` |
+| `make clean` | Remove all build artifacts |
 
-Releases use **namespaced tags** (`exr_converter/v1.2.3`):
+Icons live under `public/` (`icon.icns` / `icon.ico` / `icon.png`).
 
-| App | Tag pattern | Workflow |
-|-----|-------------|----------|
-| exr_converter | `exr_converter/v1.2.3` | [`.github/workflows/release-exr_converter.yml`](.github/workflows/release-exr_converter.yml) |
+## Releases
 
-**Automated bump, lockfile, commit, and tag** (from repo root):
+Tags use plain semver: `v1.2.3`. Pushing a tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml) and publishes a GitHub Release with Linux AppImage, macOS DMGs (ARM64 + Intel), and a Windows installer.
 
 ```bash
 make help
-make release-exr PART=patch
-make release-exr PUSH=1    # push branch + tag (triggers release builds)
+make release PART=patch        # bump + commit + tag
+make release PUSH=1            # … + git push + push tag (triggers CI)
 ```
 
 CI for lint: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-Pushing a tag creates a **GitHub Release** with platform installers for that app only. CI injects the version from the tag into release binaries.
-
 ## License
 
-MIT — see each app's `pyproject.toml` and [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](LICENSE).
 
 [derekvfx.ca](https://derekvfx.ca)

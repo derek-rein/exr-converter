@@ -7,28 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  # ---------- detect which apps have changes ----------
-  changes:
+  lint:
     runs-on: ubuntu-latest
-    outputs:
-      exr_converter: ${{ steps.filter.outputs.exr_converter }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v4
-        id: filter
-        with:
-          filters: |
-            exr_converter:
-              - 'apps/exr_converter/**'
-
-  # ---------- lint exr_converter ----------
-  lint-exr-converter:
-    needs: changes
-    if: needs.changes.outputs.exr_converter == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/exr_converter
     steps:
       - uses: actions/checkout@v6
 
