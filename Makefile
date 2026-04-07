@@ -105,14 +105,16 @@ release:
 	$(BUMP) bump $(PART); \
 	$(UV) lock; \
 	eval $$($(BUMP) show); \
+	if [ -z "$${TAG}" ]; then echo "ERROR: TAG is empty — bump show failed"; exit 1; fi; \
 	git add pyproject.toml src/constants.py uv.lock; \
 	if git diff --staged --quiet; then echo "No changes to commit."; exit 1; fi; \
 	git commit -m "release: $${VERSION}"; \
 	git tag "$${TAG}"; \
 	echo "Created commit + tag $${TAG}"; \
 	if [ "$(PUSH)" = "1" ]; then \
-	  git push origin HEAD && git push origin "$${TAG}"; \
-	  echo "Pushed branch and tag."; \
+	  git push origin HEAD; \
+	  git push origin "$${TAG}"; \
+	  echo "Pushed branch and tag $${TAG}."; \
 	else \
 	  echo "Push when ready: git push origin HEAD && git push origin $${TAG}"; \
 	fi
