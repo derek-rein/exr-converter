@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 env:
   NUITKA_ASSUME_YES_FOR_DOWNLOADS: "1"
@@ -30,8 +31,8 @@ jobs:
             artifact: exr_converter-macos-x86_64
             ext: dmg
           - os: windows-latest
-            artifact: exr_converter-windows-x86_64
-            ext: zip
+            artifact: exr_converter-windows-x86_64-setup
+            ext: exe
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -50,7 +51,7 @@ jobs:
           python-version: "3.13"
 
       - name: Cache Nuitka and ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/Nuitka
@@ -93,6 +94,7 @@ jobs:
             MODE="--standalone"
             EXTRA_FLAGS+=(--macos-create-app-bundle "--macos-app-name=EXR Converter" "--macos-app-icon=${{ steps.icon.outputs.path }}")
           elif [ "$RUNNER_OS" == "Windows" ]; then
+            MODE="--standalone"
             EXTRA_FLAGS+=("--windows-icon-from-ico=${{ steps.icon.outputs.path }}" --windows-console-mode=disable)
           else
             EXTRA_FLAGS+=("--linux-icon=${{ steps.icon.outputs.path }}")
@@ -164,13 +166,17 @@ jobs:
           ARCH=x86_64 VERSION="${VERSION}" ./appimagetool --no-appstream "${APPDIR}" \
             "${{ matrix.artifact }}.${{ matrix.ext }}"
 
-      - name: Package (Windows)
+      - name: Rename standalone folder (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Rename-Item dist\main.dist exr_converter
+
+      - name: Create installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path pkg\exr_converter | Out-Null
-          Copy-Item dist\exr_converter.exe pkg\exr_converter\exr_converter.exe
-          Compress-Archive -Path pkg\exr_converter -DestinationPath ${{ matrix.artifact }}.${{ matrix.ext }}
+          $version = "${{ github.ref_name }}".Replace("exr_converter/v","")
+          iscc "/DAppVersion=$version" installer.iss
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
@@ -178,8 +184,79 @@ jobs:
           name: ${{ matrix.artifact }}
           path: apps/exr_converter/${{ matrix.artifact }}.${{ matrix.ext }}
 
-  release:
+  # ── Cosign (Sigstore keyless) ─────────────────────────────────────────────
+  # Proves each artifact was built by this GitHub Actions workflow.
+  # Users verify with: cosign verify-blob --bundle <file>.sigstore.json <file>
+  sign:
     needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: sigstore/cosign-installer@v4
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Sign all artifacts with Cosign
+        shell: bash
+        run: |
+          for f in artifacts/*; do
+            [ -f "$f" ] || continue
+            echo "Signing $f ..."
+            cosign sign-blob "$f" \
+              --bundle "${f}.sigstore.json" \
+              --yes
+          done
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: cosign-bundles
+          path: artifacts/*.sigstore.json
+
+  # ── SignPath Foundation (Windows Authenticode) ────────────────────────────
+  # Free for qualifying open-source projects. Eliminates SmartScreen warnings.
+  #
+  # Prerequisites (one-time manual setup):
+  #   1. Apply at https://signpath.org/ (requires OSI license, MFA, active maintenance)
+  #   2. Install the SignPath GitHub App on this repo
+  #   3. Create a signing policy + artifact configuration in SignPath dashboard
+  #   4. Add secrets: SIGNPATH_API_TOKEN, SIGNPATH_ORGANIZATION_ID
+  #   5. Set variables: SIGNPATH_PROJECT_SLUG, SIGNPATH_SIGNING_POLICY_SLUG
+  #
+  # Uncomment the job below once onboarded:
+  #
+  # sign-windows:
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/download-artifact@v7
+  #       with:
+  #         name: exr_converter-windows-x86_64
+  #         path: unsigned
+  #
+  #     - name: Submit to SignPath
+  #       uses: signpath/github-action-submit-signing-request@v1
+  #       with:
+  #         api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+  #         organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+  #         project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+  #         signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+  #         artifact-configuration-slug: exr_converter
+  #         github-artifact-id: ${{ needs.build.outputs.windows-artifact-id }}
+  #         wait-for-completion: true
+  #         output-artifact-directory: signed
+  #
+  #     - uses: actions/upload-artifact@v6
+  #       with:
+  #         name: exr_converter-windows-x86_64-signed
+  #         path: signed/
+
+  release:
+    needs: sign
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v7
@@ -194,3 +271,22 @@ jobs:
           name: "exr_converter ${{ github.ref_name }}"
           generate_release_notes: true
           files: artifacts/*
+          body: |
+            ## Verify artifact signatures
+
+            All release artifacts are signed with [Sigstore Cosign](https://docs.sigstore.dev/) (keyless).
+            Each artifact has a matching `.sigstore.json` bundle that proves it was built by this repository's GitHub Actions workflow.
+
+            ```bash
+            # Install cosign: https://docs.sigstore.dev/cosign/system_config/installation/
+            cosign verify-blob <ARTIFACT_FILE> \
+              --bundle <ARTIFACT_FILE>.sigstore.json \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity-regexp "github.com/derek-rein/vfx-tools"
+            ```
+
+            ### macOS note
+            These builds use an ad-hoc code signature. On first launch, right-click the app and select **Open**, or run:
+            ```bash
+            xattr -cr /Applications/exr_converter.app
+            ```
