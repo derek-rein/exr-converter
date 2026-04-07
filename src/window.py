@@ -208,6 +208,11 @@ class MainWindow(QMainWindow):
         self._presets_menu = mb.addMenu("&Presets")
         self._presets_menu.aboutToShow.connect(self._populate_presets_menu)
 
+        slate_menu = mb.addMenu("&Slate")
+        edit_slate_action = QAction("Edit Slate\u2026", self)
+        edit_slate_action.triggered.connect(self._open_slate_dialog)
+        slate_menu.addAction(edit_slate_action)
+
         help_menu = mb.addMenu("&Help")
 
         about_action = QAction("&About EXR Converter", self)
@@ -227,6 +232,15 @@ class MainWindow(QMainWindow):
     def _show_about(self) -> None:
         dlg = AboutDialog(self)
         dlg.exec()
+
+    # -- Slate menu --
+
+    def _active_tab(self) -> ConvertTab:
+        return self._tabs.currentWidget()
+
+    def _open_slate_dialog(self) -> None:
+        tab = self._active_tab()
+        tab._open_slate_dialog()
 
     # -- Presets --
 
@@ -387,12 +401,16 @@ class MainWindow(QMainWindow):
         if tab.slate_enabled():
             slate_data = tab.get_slate_data()
             if slate_data is not None:
-                from .slate import render_slate_frame
+                from .slate import SLATE_COLORSPACE, render_slate_frame
 
                 sw, sh = self._detect_slate_resolution(mode, inp)
+                thumb_b64 = tab.get_slate_thumbnail_b64()
                 self._append_log(f"Rendering slate frame ({sw}\u00d7{sh})\u2026")
                 try:
-                    slate_np = render_slate_frame(slate_data, sw, sh)
+                    slate_np = render_slate_frame(
+                        slate_data, sw, sh, thumbnail_b64=thumb_b64
+                    )
+                    slate_np = self._ocio_transform_slate(slate_np, SLATE_COLORSPACE, dst)
                     self._append_log("Slate frame rendered successfully")
                 except Exception as e:
                     QMessageBox.warning(self, "Slate Error", f"Failed to render slate: {e}")
@@ -478,7 +496,51 @@ class MainWindow(QMainWindow):
             self._worker.cancel()
             self._append_log("Cancellation requested\u2026")
 
-    # -- Slate resolution detection --
+    # -- Slate colorspace + resolution --
+
+    def _ocio_transform_slate(self, slate, slate_cs: str, dst_space: str):
+        """OCIO-transform the slate frame from its native colorspace to *dst_space*.
+
+        The slate is rendered by a web browser and is always sRGB.  This
+        converts it into whatever the pipeline destination is (e.g. ACEScg
+        for EXR output, or Rec.709 for video output).
+        """
+        import numpy as np
+        import PyOpenColorIO as OCIO_mod
+
+        cfg = self._ocio_cfg
+        if cfg is None:
+            return slate
+
+        from .ocio_utils import resolve_alias
+
+        src_name = resolve_alias(cfg, slate_cs)
+        if not src_name:
+            for candidate in ("sRGB", "sRGB - Texture", "Utility - sRGB - Texture", "srgb"):
+                src_name = resolve_alias(cfg, candidate)
+                if src_name:
+                    break
+        if not src_name:
+            self._append_log(
+                "Warning: could not find sRGB colorspace in OCIO config, "
+                "slate will not be color-managed"
+            )
+            return slate
+
+        dst_name = resolve_alias(cfg, dst_space) or dst_space
+        if src_name == dst_name:
+            return slate
+
+        self._append_log(f"Slate OCIO: {src_name} \u2192 {dst_name}")
+        rgb = np.ascontiguousarray(slate[:, :, :3], dtype=np.float32)
+        h, w = rgb.shape[:2]
+        cpu = cfg.getProcessor(src_name, dst_name).getDefaultCPUProcessor()
+        desc = OCIO_mod.PackedImageDesc(rgb, w, h, 3)
+        cpu.apply(desc)
+        result = np.empty_like(slate)
+        result[:, :, :3] = rgb
+        result[:, :, 3] = slate[:, :, 3]
+        return result
 
     @staticmethod
     def _detect_slate_resolution(mode: str, inp: str) -> tuple[int, int]:

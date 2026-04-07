@@ -1275,7 +1275,16 @@ class ConvertTab(QWidget):
         self.scale_combo.currentIndexChanged.connect(
             lambda _: self._settings.setValue(f"{self._mode}/scale", self.scale_combo.currentData())
         )
-        opts_layout.addRow("Scale", self.scale_combo)
+
+        self._slate_check = QCheckBox("Prepend Slate")
+        self._slate_check.setToolTip("Add a 1-frame slate image before the converted output")
+        self._slate_check.setChecked(bool(settings.value(f"{mode}/slate_enabled", False)))
+
+        scale_row = QHBoxLayout()
+        scale_row.setSpacing(12)
+        scale_row.addWidget(self.scale_combo, 1)
+        scale_row.addWidget(self._slate_check)
+        opts_layout.addRow("Scale", scale_row)
 
         if mode == "video2exr":
             self.compression_combo = QComboBox()
@@ -1382,22 +1391,9 @@ class ConvertTab(QWidget):
 
         layout.addWidget(opts_group)
 
-        # -- Slate row --
-        slate_row = QHBoxLayout()
-        slate_row.setSpacing(8)
-        self._slate_check = QCheckBox("Prepend slate")
-        self._slate_check.setToolTip("Add a 1-frame slate image before the converted output")
-        self._slate_check.setChecked(bool(settings.value(f"{mode}/slate_enabled", False)))
-        self._edit_slate_btn = QPushButton("Edit Slate\u2026")
-        self._edit_slate_btn.setEnabled(self._slate_check.isChecked())
-        slate_row.addWidget(self._slate_check)
-        slate_row.addWidget(self._edit_slate_btn)
-        slate_row.addStretch()
-        layout.addLayout(slate_row)
-
         self._slate_data: dict | None = None
+        self._slate_thumbnail_b64: str = ""
         self._slate_check.toggled.connect(self._on_slate_toggled)
-        self._edit_slate_btn.clicked.connect(self._open_slate_dialog)
 
         layout.addStretch()
 
@@ -1533,6 +1529,12 @@ class ConvertTab(QWidget):
             return None
         return self._slate_data
 
+    def get_slate_thumbnail_b64(self) -> str:
+        """Return the base64-encoded thumbnail for the slate, or ''."""
+        if not self._slate_check.isChecked():
+            return ""
+        return self._slate_thumbnail_b64
+
     def get_slate_resolution(self) -> tuple[int, int] | None:
         """Return the slate resolution if slate is enabled."""
         if not self._slate_check.isChecked() or self._slate_data is None:
@@ -1547,22 +1549,45 @@ class ConvertTab(QWidget):
         return None
 
     def _on_slate_toggled(self, checked: bool) -> None:
-        self._edit_slate_btn.setEnabled(checked)
         self._settings.setValue(f"{self._mode}/slate_enabled", checked)
         if checked and self._slate_data is None:
             self._open_slate_dialog()
 
     def _open_slate_dialog(self) -> None:
         locked_w, locked_h = self._detect_input_resolution()
+        inp = self.get_input_path()
+        inferred_fps = self._infer_fps_from_input()
+        dst_cs = self.dst_btn.current_space()
         dlg = SlateDialog(
             self._settings,
             locked_width=locked_w,
             locked_height=locked_h,
+            input_path=inp,
+            mode=self._mode,
+            inferred_fps=inferred_fps,
+            frame_range=self._full_input_range,
+            dst_colorspace=dst_cs,
             parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._slate_data = dlg.slate_data()
+            self._slate_thumbnail_b64 = dlg.thumbnail_b64()
             self.log_message.emit("Slate data updated")
+
+    def _infer_fps_from_input(self) -> float:
+        """Probe the input to infer frame rate. Returns 0.0 if unavailable."""
+        inp = self.get_input_path()
+        if not inp:
+            return 0.0
+        try:
+            if self._mode == "video2exr":
+                from .video import probe_video
+
+                _w, _h, fps, _total = probe_video(inp)
+                return fps
+        except Exception:
+            pass
+        return 0.0
 
     def _detect_input_resolution(self) -> tuple[int, int]:
         """Probe the input to determine resolution for the slate.

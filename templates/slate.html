@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<script src="qrc:///qtwebchannel/qwebchannel.js" onerror=""></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
@@ -43,14 +43,23 @@ html, body {
   padding-right: 1.8vw;
 }
 
+.identity-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 1.5vw;
+  padding-bottom: 1.2vh;
+}
+.id-cell { display: flex; align-items: baseline; gap: 0.4vw; }
+.id-label { font-size: 1.6vh; color: #666; text-transform: uppercase; letter-spacing: 0.08em; }
+.id-value { font-size: 3.2vh; font-weight: 700; color: #fff; }
+.id-sep { font-size: 2.5vh; color: #444; }
+
 .header-row {
   display: flex;
   align-items: baseline;
   gap: 3vw;
   padding-bottom: 1.2vh;
 }
-.header-row .show-label  { font-size: 1.85vh; color: #888; margin-right: 0.4vw; }
-.header-row .show-value  { font-size: 3.7vh; font-weight: 700; color: #fff; }
 .header-row .submit-label { font-size: 1.85vh; color: #888; margin-right: 0.4vw; }
 .header-row .submit-value { font-size: 4.6vh; font-weight: 800; color: #fff; letter-spacing: 0.02em; }
 
@@ -115,6 +124,12 @@ html, body {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   margin-bottom: 0;
+  overflow: hidden;
+}
+.thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .color-bars {
@@ -169,27 +184,46 @@ html, body {
 </head>
 <body>
 <div id="slate">
+  <!-- ════ TOP IDENTITY BAR: Show · Seq · Shot · Version ════ -->
+  <div class="identity-bar">
+    <div class="id-cell">
+      <span class="id-label">Show</span>
+      <span class="id-value" id="show-field">SHOW</span>
+    </div>
+    <div class="id-sep">·</div>
+    <div class="id-cell">
+      <span class="id-label">Seq</span>
+      <span class="id-value" id="sequence-field">SEQ</span>
+    </div>
+    <div class="id-sep">·</div>
+    <div class="id-cell">
+      <span class="id-label">Shot</span>
+      <span class="id-value" id="shot-field">SHOT</span>
+    </div>
+    <div class="id-sep">·</div>
+    <div class="id-cell">
+      <span class="id-label">Version</span>
+      <span class="id-value" id="version-field">v001</span>
+    </div>
+  </div>
+
+  <div class="red-divider"></div>
+
   <div class="slate-body">
 
     <!-- ════ LEFT COLUMN ════ -->
     <div class="left-col">
 
       <div class="header-row">
-        <div style="display:flex; align-items:baseline; flex:1;">
-          <span class="show-label">Show:</span>
-          <span class="show-value" id="show-field">PROJECT</span>
-        </div>
         <div style="display:flex; align-items:baseline;">
           <span class="submit-label">Submitting For:</span>
           <span class="submit-value" id="submit-for-field">WIP</span>
         </div>
       </div>
 
-      <div class="red-divider"></div>
-
-      <div class="field-row">
-        <div class="field-label">Version Name:</div>
-        <div class="field-value large" id="version">v001</div>
+      <div class="field-row" id="notes-row" style="display:none;">
+        <div class="field-label">Submission<br>Note:</div>
+        <div class="field-value body" id="notes"></div>
       </div>
 
       <div class="field-row">
@@ -197,9 +231,9 @@ html, body {
         <div class="field-value" id="date-display">2026-04-05</div>
       </div>
 
-      <div class="field-row">
+      <div class="field-row" id="shot-types-row" style="display:none;">
         <div class="field-label">Shot Types:</div>
-        <div class="field-value" id="shot-types-field">—</div>
+        <div class="field-value" id="shot-types-field"></div>
       </div>
 
       <div class="field-row" id="description-row" style="display:none;">
@@ -207,14 +241,9 @@ html, body {
         <div class="field-value body" id="description-field"></div>
       </div>
 
-      <div class="field-row">
+      <div class="field-row" id="scope-row" style="display:none;">
         <div class="field-label">VFX Scope Of<br>Work:</div>
-        <div class="field-value body" id="scope-field">—</div>
-      </div>
-
-      <div class="field-row" id="notes-row" style="display:none;">
-        <div class="field-label">Submission<br>Note:</div>
-        <div class="field-value body" id="notes"></div>
+        <div class="field-value body" id="scope-field"></div>
       </div>
 
     </div>
@@ -236,17 +265,17 @@ html, body {
       </div>
 
       <table class="right-fields">
-        <tr><td class="rl">Vendor:</td><td class="rv" id="vendor-field">—</td></tr>
-        <tr><td class="rl">Shot Name:</td><td class="rv" id="shot-name">SHOT_010</td></tr>
-        <tr><td class="rl">Episode:</td><td class="rv" id="sequence-name">—</td></tr>
-        <tr><td class="rl">Sequence Name:</td><td class="rv" id="sequence-num">—</td></tr>
-        <tr><td class="rl">Scene:</td><td class="rv" id="take-display">—</td></tr>
+        <tr id="vendor-row"><td class="rl">Vendor:</td><td class="rv" id="vendor-field">—</td></tr>
+        <tr><td class="rl">Artist:</td><td class="rv" id="artist-field">—</td></tr>
+        <tr id="take-row" style="display:none;"><td class="rl">Take:</td><td class="rv" id="take-display"></td></tr>
         <tr><td class="rl">Frames:</td><td class="rv" id="frame-range">1001 – 1100 (100)</td></tr>
+        <tr><td class="rl">FPS:</td><td class="rv" id="fps-field">24</td></tr>
+        <tr><td class="rl">Resolution:</td><td class="rv" id="resolution-field">1920×1080</td></tr>
         <tr><td class="rl">Media Color:</td><td class="rv" id="colorspace">sRGB</td></tr>
       </table>
 
-      <div class="vendor-logo">
-        <div class="vendor-logo-box" id="logo-text">Vendor Logo</div>
+      <div class="vendor-logo" id="logo-row" style="display:none;">
+        <div class="vendor-logo-box" id="logo-text"></div>
       </div>
 
     </div>
@@ -255,7 +284,7 @@ html, body {
 
 <script>
 let pyBridge = null;
-if (typeof QWebChannel !== 'undefined') {
+if (typeof QWebChannel !== 'undefined' && typeof qt !== 'undefined') {
   new QWebChannel(qt.webChannelTransport, function(channel) {
     pyBridge = channel.objects.bridge;
     if (pyBridge) pyBridge.ready.connect(function() {});
@@ -268,59 +297,68 @@ function updateSlate(data) {
     if (el && val !== undefined && val !== null) el.textContent = val;
   };
 
-  set('show-field',       data.project);
+  set('show-field',       data.show);
+  set('sequence-field',   data.sequence);
+  set('shot-field',       data.shot);
+  set('version-field',    data.version);
   set('submit-for-field', data.submitFor);
-  set('version',          data.version);
   set('date-display',     data.date);
-  set('shot-types-field', data.shotTypes);
-  set('scope-field',      data.scope);
-  set('vendor-field',     data.vendor);
-  set('shot-name',        data.shot);
-  set('sequence-name',    data.sequence);
-  set('sequence-num',     data.sequence);
-  set('take-display',     data.take);
+  set('artist-field',     data.artist);
   set('frame-range',      data.frameRange);
+  set('fps-field',        data.fps);
+  set('resolution-field', data.resolution);
   set('colorspace',       data.colorspace);
-  set('logo-text',        data.logo);
 
-  if (data.description !== undefined) {
-    const row = document.getElementById('description-row');
-    const el  = document.getElementById('description-field');
-    if (data.description) {
-      el.textContent = data.description;
+  const toggle = (rowId, fieldId, val) => {
+    const row = document.getElementById(rowId);
+    const el  = document.getElementById(fieldId);
+    if (!row) return;
+    if (val) {
+      if (el) el.textContent = val;
       row.style.display = '';
     } else {
       row.style.display = 'none';
     }
-  }
+  };
 
-  if (data.notes !== undefined) {
-    const row = document.getElementById('notes-row');
-    const el  = document.getElementById('notes');
-    if (data.notes) {
-      el.textContent = data.notes;
-      row.style.display = '';
-    } else {
-      row.style.display = 'none';
-    }
-  }
+  toggle('vendor-row',     'vendor-field',      data.vendor);
+  toggle('take-row',       'take-display',      data.take);
+  toggle('shot-types-row', 'shot-types-field',  data.shotTypes);
+  toggle('scope-row',      'scope-field',       data.scope);
+  toggle('description-row','description-field',  data.description);
+  toggle('notes-row',      'notes',             data.notes);
+  toggle('logo-row',       'logo-text',         data.logo);
+}
+
+function setThumbnail(b64) {
+  const el = document.getElementById('thumbnail-area');
+  if (!el || !b64) return;
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const blob = new Blob([bytes], { type: 'image/jpeg' });
+  const url = URL.createObjectURL(blob);
+  el.innerHTML = '<img src="' + url + '" alt="Thumbnail">';
 }
 
 // Auto-populate with sample data when opened standalone
 if (typeof QWebChannel === 'undefined') {
   updateSlate({
-    project: 'Netflix VFX Templates',
+    show: 'NFLX',
+    sequence: '101',
+    shot: '001_0020',
     submitFor: 'SAMPLE',
-    version: 'nflx_101_001_0020_slate_VND_v001',
+    version: 'v001',
     date: '2021-05-11',
     shotTypes: '2d comp',
     description: 'If a description field is required, it goes on the left to provide more space.',
     scope: 'Demo a sample slate.',
     notes: 'Submitting as an example with all template fields filled out.',
     vendor: 'Template Team',
-    shot: 'nflx_101_001_0020',
-    sequence: '101',
+    artist: 'Jane Doe',
     take: '001',
+    fps: '24',
+    resolution: '4096×2160',
     frameRange: '1000 - 1030 (30)',
     colorspace: 'rec709 with show lut',
     logo: 'Vendor Logo',

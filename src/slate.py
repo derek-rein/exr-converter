@@ -42,18 +42,27 @@ def _srgb_to_linear(arr: np.ndarray) -> np.ndarray:
     return np.concatenate([linear_rgb, alpha], axis=-1)
 
 
+SLATE_COLORSPACE = "sRGB"
+"""The colorspace of the rendered slate frame (always sRGB from the browser)."""
+
+
 def render_slate_frame(
     slate_data: dict,
     width: int,
     height: int,
     template_path: str | Path | None = None,
-    linearize: bool = True,
+    linearize: bool = False,
+    thumbnail_b64: str = "",
 ) -> np.ndarray:
     """Render the HTML slate template at the given resolution and return float32 RGBA.
 
     Must be called from the main thread (Qt event loop required for WebEngine).
     Uses a hidden QWebEngineView, loads the template, injects slate_data via JS,
     grabs the widget, and converts to numpy.
+
+    The output is in **sRGB** by default (``linearize=False``).  The caller
+    should use OCIO to transform from ``SLATE_COLORSPACE`` ("sRGB") to the
+    pipeline's destination colorspace.
 
     Parameters
     ----------
@@ -65,6 +74,7 @@ def render_slate_frame(
         Path to ``slate.html``. Defaults to the bundled template.
     linearize : bool
         If True, apply sRGB-to-linear on the RGB channels (alpha untouched).
+        Default is False — the caller handles colorspace conversion via OCIO.
 
     Returns
     -------
@@ -96,6 +106,8 @@ def render_slate_frame(
     def _inject() -> None:
         view.page().setZoomFactor(1.0)
         js = f"updateSlate({json.dumps(slate_data)})"
+        if thumbnail_b64:
+            js += f"; setThumbnail('{thumbnail_b64}')"
         view.page().runJavaScript(js, lambda _: QTimer.singleShot(80, _capture))
 
     def _capture() -> None:
