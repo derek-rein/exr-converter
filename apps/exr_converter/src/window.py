@@ -383,6 +383,23 @@ class MainWindow(QMainWindow):
             if not frame_set:
                 frame_set = None
 
+        slate_np = None
+        if tab.slate_enabled():
+            slate_data = tab.get_slate_data()
+            if slate_data is not None:
+                from .slate import render_slate_frame
+
+                sw, sh = self._detect_slate_resolution(mode, inp)
+                self._append_log(f"Rendering slate frame ({sw}\u00d7{sh})\u2026")
+                try:
+                    slate_np = render_slate_frame(slate_data, sw, sh)
+                    self._append_log("Slate frame rendered successfully")
+                except Exception as e:
+                    QMessageBox.warning(self, "Slate Error", f"Failed to render slate: {e}")
+                    self._go.setEnabled(True)
+                    self._cancel_btn.setEnabled(False)
+                    return
+
         if mode == "video2exr":
             kwargs = dict(
                 video_path=inp,
@@ -397,6 +414,7 @@ class MainWindow(QMainWindow):
                 padding=tab.get_padding(),
                 start_frame=tab.get_start_frame(),
                 frame_set=frame_set,
+                slate_frame=slate_np,
             )
         else:
             _codec_key, _codec, _pix = tab.get_video_codec_info()
@@ -414,6 +432,7 @@ class MainWindow(QMainWindow):
                 pix_fmt_out=_pix,
                 codec_key=_codec_key,
                 frame_set=frame_set,
+                slate_frame=slate_np,
             )
 
         self._append_log(f"--- {mode} ---")
@@ -458,6 +477,29 @@ class MainWindow(QMainWindow):
         if self._worker:
             self._worker.cancel()
             self._append_log("Cancellation requested\u2026")
+
+    # -- Slate resolution detection --
+
+    @staticmethod
+    def _detect_slate_resolution(mode: str, inp: str) -> tuple[int, int]:
+        """Probe the input to determine the resolution for the slate frame."""
+        try:
+            if mode == "video2exr":
+                from .video import probe_video
+
+                w, h, _fps, _total = probe_video(inp)
+                return w, h
+            else:
+                from .exr_io import read_exr
+                from .sequence import find_exr_sequence
+
+                paths, _bn = find_exr_sequence(inp)
+                if paths:
+                    first = read_exr(paths[0])
+                    return first.shape[1], first.shape[0]
+        except Exception:
+            pass
+        return 1920, 1080
 
     # -- State snapshot/restore (for presets) --
 

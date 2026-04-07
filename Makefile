@@ -11,20 +11,17 @@ PYTHON ?= python3
 BUMP := $(PYTHON) scripts/bump_app_version.py
 PART ?= patch
 
-.PHONY: help bump-exr bump-slate release-exr release-slate
+.PHONY: help bump-exr release-exr
 
 help:
 	@echo "Monorepo version bump (semver x.y.z) and git tags"
 	@echo ""
 	@echo "  make bump-exr PART=patch|minor|major    # update pyproject, constants, uv.lock"
-	@echo "  make bump-slate PART=patch|minor|major"
 	@echo ""
 	@echo "  make release-exr PART=patch             # bump + commit + tag (no push)"
-	@echo "  make release-slate PART=minor"
 	@echo "  make release-exr PUSH=1               # also: git push && push tag"
 	@echo ""
 	@echo "Current tags: git tag -l 'exr_converter/v*' --sort=-v:refname | head"
-	@echo "               git tag -l 'slate_maker/v*' --sort=-v:refname | head"
 
 # --- bump only (no git) -------------------------------------------------------
 
@@ -32,11 +29,6 @@ bump-exr:
 	@$(BUMP) bump exr_converter $(PART)
 	@cd "$(CURDIR)" && $(UV) lock
 	@echo "Done. Review diff, then: make release-exr PART=$(PART)  (or commit manually)"
-
-bump-slate:
-	@$(BUMP) bump slate_maker $(PART)
-	@cd "$(CURDIR)" && $(UV) lock
-	@echo "Done. Review diff, then: make release-slate PART=$(PART)  (or commit manually)"
 
 # --- bump + commit + tag (+ optional push) -----------------------------------
 
@@ -61,6 +53,3 @@ endef
 
 release-exr:
 	$(call RELEASE_RULE,exr_converter)
-
-release-slate:
-	$(call RELEASE_RULE,slate_maker)

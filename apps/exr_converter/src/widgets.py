@@ -54,6 +54,7 @@ from .constants import (
 )
 from .ocio_utils import list_builtin_configs, resolve_ocio_config
 from .sequence import probe_exr_colorspace, probe_exr_metadata, scan_exr_sequences
+from .slate_widgets import SlateDialog
 from .style import DESC_STYLE, HINT_STYLE, STATUS_DIM, STATUS_ERR, STATUS_OK
 from .video import probe_video_metadata, scan_video_files
 
@@ -1380,6 +1381,24 @@ class ConvertTab(QWidget):
             self.codec_combo = None
 
         layout.addWidget(opts_group)
+
+        # -- Slate row --
+        slate_row = QHBoxLayout()
+        slate_row.setSpacing(8)
+        self._slate_check = QCheckBox("Prepend slate")
+        self._slate_check.setToolTip("Add a 1-frame slate image before the converted output")
+        self._slate_check.setChecked(bool(settings.value(f"{mode}/slate_enabled", False)))
+        self._edit_slate_btn = QPushButton("Edit Slate\u2026")
+        self._edit_slate_btn.setEnabled(self._slate_check.isChecked())
+        slate_row.addWidget(self._slate_check)
+        slate_row.addWidget(self._edit_slate_btn)
+        slate_row.addStretch()
+        layout.addLayout(slate_row)
+
+        self._slate_data: dict | None = None
+        self._slate_check.toggled.connect(self._on_slate_toggled)
+        self._edit_slate_btn.clicked.connect(self._open_slate_dialog)
+
         layout.addStretch()
 
         # -- Tab order --
@@ -1504,6 +1523,78 @@ class ConvertTab(QWidget):
         if key == "ffv1":
             return {"slicecrc": "1"}
         return {}
+
+    def slate_enabled(self) -> bool:
+        return self._slate_check.isChecked()
+
+    def get_slate_data(self) -> dict | None:
+        """Return the last-edited slate data, or None if slate is disabled."""
+        if not self._slate_check.isChecked():
+            return None
+        return self._slate_data
+
+    def get_slate_resolution(self) -> tuple[int, int] | None:
+        """Return the slate resolution if slate is enabled."""
+        if not self._slate_check.isChecked() or self._slate_data is None:
+            return None
+        res_str = self._slate_data.get("resolution", "")
+        if "\u00d7" in res_str:
+            parts = res_str.split("\u00d7")
+            try:
+                return int(parts[0]), int(parts[1])
+            except (ValueError, IndexError):
+                pass
+        return None
+
+    def _on_slate_toggled(self, checked: bool) -> None:
+        self._edit_slate_btn.setEnabled(checked)
+        self._settings.setValue(f"{self._mode}/slate_enabled", checked)
+        if checked and self._slate_data is None:
+            self._open_slate_dialog()
+
+    def _open_slate_dialog(self) -> None:
+        locked_w, locked_h = self._detect_input_resolution()
+        dlg = SlateDialog(
+            self._settings,
+            locked_width=locked_w,
+            locked_height=locked_h,
+            parent=self,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._slate_data = dlg.slate_data()
+            self.log_message.emit("Slate data updated")
+
+    def _detect_input_resolution(self) -> tuple[int, int]:
+        """Probe the input to determine resolution for the slate.
+
+        Returns (0, 0) if no input is set or probing fails.
+        """
+        inp = self.get_input_path()
+        if not inp:
+            return 0, 0
+        try:
+            if self._mode == "video2exr":
+                from .video import probe_video
+
+                w, h, _fps, _total = probe_video(inp)
+                return w, h
+            else:
+                import OpenImageIO as oiio
+
+                from .sequence import find_exr_sequence_info
+
+                _paths, _seq_name, _frames, _pad_len, seq = find_exr_sequence_info(inp)
+                first_frame = sorted(seq.frameSet())[0]
+                first_path = seq.frame(first_frame)
+                inp_img = oiio.ImageInput.open(first_path)
+                if inp_img:
+                    spec = inp_img.spec()
+                    w, h = spec.width, spec.height
+                    inp_img.close()
+                    return w, h
+        except Exception:
+            pass
+        return 0, 0
 
     def _update_comp_btn_state(self) -> None:
         comp = self.get_compression()

@@ -1,6 +1,0 @@
-/* Slate Maker — minimal overrides on Fusion defaults */
-
-QPushButton#renderBtn {
-    font-weight: 700;
-    padding: 8px 20px;
-}

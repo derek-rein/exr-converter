@@ -81,6 +81,24 @@ def _configure_stream(stream, codec_key: str) -> None:
         stream.options = {"slicecrc": "1"}
 
 
+def _encode_slate_video_frame(
+    slate_frame: np.ndarray,
+    stream,
+    container,
+    ow: int,
+    oh: int,
+    do_resize: bool,
+) -> None:
+    """Encode a pre-rendered slate (float32 RGBA) as the first video frame."""
+    rgb = slate_frame[:, :, :3]
+    rgb_u16 = np.clip(rgb * 65535.0, 0.0, 65535.0).astype(np.uint16)
+    vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
+    if do_resize:
+        vf = vf.reformat(width=ow, height=oh)
+    for packet in stream.encode(vf):
+        container.mux(packet)
+
+
 # ---- video -> exr ----------------------------------------------------------
 
 
@@ -101,6 +119,7 @@ def run_video_to_exr(
     padding: int = 4,
     start_frame: int = 1001,
     frame_set: set[int] | None = None,
+    slate_frame: np.ndarray | None = None,
 ) -> None:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -111,6 +130,16 @@ def run_video_to_exr(
         res_info = f"{w}x{h}" if scale >= 1.0 else f"{w}x{h} \u2192 {ow}x{oh}"
         range_info = f", range trimmed to {render_total}" if frame_set else ""
         log(f"Input: {video_path}  ({res_info}, ~{total} frames{range_info})")
+
+    if slate_frame is not None:
+        stem = Path(video_path).stem
+        fmt = f"0{padding}d"
+        slate_num = start_frame - 1
+        slate_path = str(output_dir / f"{stem}.{slate_num:{fmt}}.exr")
+        rgb3 = np.ascontiguousarray(slate_frame[:, :, :3], dtype=np.float32)
+        write_exr(slate_path, rgb3, compression=compression)
+        if log:
+            log(f"Slate frame written \u2192 {slate_path}")
 
     n_workers = workers if workers > 0 else _DEFAULT_WORKERS
 
@@ -305,6 +334,7 @@ def run_exr_to_video(
     scale: float = 1.0,
     codec_key: str = "h264",
     frame_set: set[int] | None = None,
+    slate_frame: np.ndarray | None = None,
 ) -> None:
     paths, basename = find_exr_sequence(input_spec)
 
@@ -342,6 +372,7 @@ def run_exr_to_video(
             total,
             scale,
             codec_key,
+            slate_frame=slate_frame,
         )
         return
 
@@ -363,6 +394,11 @@ def run_exr_to_video(
     do_resize = scale < 1.0
 
     try:
+        if slate_frame is not None:
+            _encode_slate_video_frame(slate_frame, stream, container, ow, oh, do_resize)
+            if log:
+                log("Slate frame encoded as first video frame")
+
         with ProcessPoolExecutor(max_workers=n_workers) as pool:
             pending = {}
             ready: dict[int, np.ndarray] = {}
@@ -438,6 +474,7 @@ def _e2v_serial(
     total: int,
     scale: float = 1.0,
     codec_key: str = "h264",
+    slate_frame: np.ndarray | None = None,
 ) -> None:
     cpu = make_cpu_processor(ocio_cfg, src_space, dst_space)
     if log:
@@ -457,6 +494,11 @@ def _e2v_serial(
     do_resize = scale < 1.0
 
     try:
+        if slate_frame is not None:
+            _encode_slate_video_frame(slate_frame, stream, container, w, h, do_resize)
+            if log:
+                log("Slate frame encoded as first video frame")
+
         for idx, path in enumerate(paths, 1):
             if cancel_check and cancel_check():
                 raise RuntimeError("Cancelled")

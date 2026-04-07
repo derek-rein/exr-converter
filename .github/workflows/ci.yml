@@ -12,7 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       exr_converter: ${{ steps.filter.outputs.exr_converter }}
-      slate_maker: ${{ steps.filter.outputs.slate_maker }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -21,8 +20,6 @@ jobs:
           filters: |
             exr_converter:
               - 'apps/exr_converter/**'
-            slate_maker:
-              - 'apps/slate_maker/**'
 
   # ---------- lint exr_converter ----------
   lint-exr-converter:
@@ -32,34 +29,6 @@ jobs:
     defaults:
       run:
         working-directory: apps/exr_converter
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "latest"
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Ruff check
-        run: uv run ruff check src/ main.py
-
-      - name: Ruff format check
-        run: uv run ruff format --check src/ main.py
-
-  # ---------- lint slate_maker ----------
-  lint-slate-maker:
-    needs: changes
-    if: needs.changes.outputs.slate_maker == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/slate_maker
     steps:
       - uses: actions/checkout@v6
 

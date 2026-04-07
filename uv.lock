@@ -5,7 +5,6 @@ requires-python = "==3.13.*"
 [manifest]
 members = [
     "exr-converter",
-    "slate-maker",
     "vfx-tools",
 ]
 
@@ -259,35 +258,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/72/f7/44c0c42c3f5f29dec457fd46ea0552174bcb8aa75becf03bbd90308ba07b/shiboken6-6.11.0-cp310-abi3-win_amd64.whl", hash = "sha256:483ff78a73c7b3189ca924abc694318084f078bcfeaffa68e32024ff2d025ee1", size = 1222132, upload-time = "2026-03-23T12:47:10.143Z" },
     { url = "https://files.pythonhosted.org/packages/fb/99/6e5ee21db2d6af84bbbd7d871d441dafeb069c6de5667b1aa49891a77c66/shiboken6-6.11.0-cp310-abi3-win_arm64.whl", hash = "sha256:3bd76cf56105ab2d62ecaff630366f11264f69b88d488f10f048da9a065781f4", size = 1783186, upload-time = "2026-03-23T12:47:11.832Z" },
 ]
-
-[[package]]
-name = "slate-maker"
-version = "0.1.5"
-source = { virtual = "apps/slate_maker" }
-dependencies = [
-    { name = "nuitka", extra = ["onefile"] },
-    { name = "numpy" },
-    { name = "oiio-python" },
-    { name = "opencolorio" },
-    { name = "pyside6" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "nuitka", extras = ["onefile"], specifier = ">=4.0" },
-    { name = "numpy", specifier = ">=2.2.0" },
-    { name = "oiio-python", specifier = ">=3.0.10.0.1" },
-    { name = "opencolorio", specifier = ">=2.5.0" },
-    { name = "pyside6", specifier = ">=6.8.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.11.0" }]
 
 [[package]]
 name = "vfx-tools"

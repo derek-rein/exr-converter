@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bump [project].version in an app pyproject.toml and sync APP_VERSION in src/constants.py.
 
-Used by the repo root Makefile for namespaced tags: exr_converter/v1.2.3, slate_maker/v0.4.0.
+Used by the repo root Makefile for namespaced tags: exr_converter/v1.2.3.
 """
 from __future__ import annotations
 
@@ -23,11 +23,6 @@ APPS: dict[str, dict[str, Path | str]] = {
         "tag_prefix": "exr_converter",
         "pyproject": REPO_ROOT / "apps/exr_converter/pyproject.toml",
         "constants": REPO_ROOT / "apps/exr_converter/src/constants.py",
-    },
-    "slate_maker": {
-        "tag_prefix": "slate_maker",
-        "pyproject": REPO_ROOT / "apps/slate_maker/pyproject.toml",
-        "constants": REPO_ROOT / "apps/slate_maker/src/constants.py",
     },
 }
 
