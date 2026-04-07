@@ -104,9 +104,7 @@ def extract_thumbnail_b64(input_path: str, mode: str) -> str:
             inp.close()
             rgb = buf[..., :3]
             rgb = np.clip(rgb, 0, None)
-            srgb = np.where(
-                rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, 1.0 / 2.4) - 0.055
-            )
+            srgb = np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, 1.0 / 2.4) - 0.055)
             srgb = np.clip(srgb * 255, 0, 255).astype(np.uint8)
             from PIL import Image
 
@@ -332,9 +330,7 @@ class SlateFormPanel(QWidget):
         """
         edit = QLineEdit()
         edit.setPlaceholderText(placeholder)
-        edit.setValidator(
-            QRegularExpressionValidator(QRegularExpression(r"[A-Za-z0-9_]*"))
-        )
+        edit.setValidator(QRegularExpressionValidator(QRegularExpression(r"[A-Za-z0-9_]*")))
         val = _env_default(env_var, key, self._settings)
         if val:
             edit.setText(val)

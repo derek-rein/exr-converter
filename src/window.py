@@ -407,9 +407,7 @@ class MainWindow(QMainWindow):
                 thumb_b64 = tab.get_slate_thumbnail_b64()
                 self._append_log(f"Rendering slate frame ({sw}\u00d7{sh})\u2026")
                 try:
-                    slate_np = render_slate_frame(
-                        slate_data, sw, sh, thumbnail_b64=thumb_b64
-                    )
+                    slate_np = render_slate_frame(slate_data, sw, sh, thumbnail_b64=thumb_b64)
                     slate_np = self._ocio_transform_slate(slate_np, SLATE_COLORSPACE, dst)
                     self._append_log("Slate frame rendered successfully")
                 except Exception as e:
