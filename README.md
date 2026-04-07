@@ -4,6 +4,19 @@ Desktop app and CLI for converting between **video** and **OpenEXR** sequences w
 
 Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-platform): Python 3.13, Qt/PySide 6.8, OpenColorIO 2.5, OpenEXR 3.4, NumPy 2.3.
 
+## Downloads
+
+[![Latest release](https://img.shields.io/github/v/release/derek-rein/vfx-tools?label=latest)](https://github.com/derek-rein/vfx-tools/releases)
+
+| Platform | Download |
+|----------|----------|
+| Windows x64 | [**Installer (.exe)**](https://github.com/derek-rein/vfx-tools/releases/latest/download/exr_converter-windows-x86_64-setup.exe) |
+| macOS Apple Silicon | [**DMG**](https://github.com/derek-rein/vfx-tools/releases/latest/download/exr_converter-macos-arm64.dmg) |
+| macOS Intel | [**DMG**](https://github.com/derek-rein/vfx-tools/releases/latest/download/exr_converter-macos-x86_64.dmg) |
+| Linux x86_64 | [**AppImage**](https://github.com/derek-rein/vfx-tools/releases/latest/download/exr_converter-linux-x86_64.AppImage) |
+
+All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) — see the [releases page](https://github.com/derek-rein/vfx-tools/releases) for verification instructions.
+
 ## Tech stack
 
 | Layer | Notes |
@@ -15,20 +28,6 @@ Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-p
 | **Slate rendering** | Qt **WebEngine** for HTML/CSS slate preview and capture, [Tailwind CSS](https://tailwindcss.com/) in the slate template |
 
 CI runs on **GitHub Actions**; releases publish binaries for Linux, macOS (Apple Silicon + Intel), and Windows.
-All release artifacts are signed with [Sigstore Cosign](https://docs.sigstore.dev/) for supply-chain provenance.
-
-## Downloads
-
-[![Latest release](https://img.shields.io/github/v/release/derek-rein/vfx-tools?label=latest)](https://github.com/derek-rein/vfx-tools/releases)
-
-Pre-built binaries are available on the [releases page](https://github.com/derek-rein/vfx-tools/releases):
-
-| Platform | Format |
-|----------|--------|
-| Windows x64 | Installer (`.exe`) via Inno Setup |
-| macOS Apple Silicon | `.dmg` |
-| macOS Intel | `.dmg` |
-| Linux x86_64 | `.AppImage` |
 
 ## Screenshot
 
