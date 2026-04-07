@@ -192,7 +192,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.1
 
       - uses: actions/download-artifact@v7
         with:
