@@ -262,7 +262,7 @@ wheels = [
 
 [[package]]
 name = "slate-maker"
-version = "0.1.4"
+version = "0.1.5"
 source = { virtual = "apps/slate_maker" }
 dependencies = [
     { name = "nuitka", extra = ["onefile"] },
