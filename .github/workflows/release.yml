@@ -131,6 +131,7 @@ jobs:
           create-dmg \
             --volname "EXR Converter" \
             --volicon "public/icon.icns" \
+            --format ULMO \
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
