@@ -102,7 +102,6 @@ jobs:
             --output-filename=exr_converter \
             --assume-yes-for-downloads \
             --python-flag=-OO \
-            --lto=yes \
             --enable-plugin=pyside6 \
             --nofollow-import-to=tkinter \
             --nofollow-import-to=unittest \
@@ -111,10 +110,6 @@ jobs:
             --noinclude-qt-translations \
             --noinclude-qt-plugins=printsupport,mediaservice,iconengines \
             --noinclude-data-files='*/qtwebengine_devtools_resources.pak' \
-            --noinclude-dlls='*Qt6Svg*' \
-            --noinclude-dlls='*Qt6Pdf*' \
-            --noinclude-dlls='*Qt6Positioning*' \
-            --noinclude-dlls='*Qt6PrintSupport*' \
             --include-package-data=av \
             --include-package=OpenImageIO \
             --include-package-data=OpenImageIO \
@@ -143,6 +138,18 @@ jobs:
       - name: Install EGL (Linux smoke-test dependency)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y libegl1
+
+      - name: List dist contents (debug)
+        if: failure() || success()
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            find dist/exr_converter.app -type f -name '*.dylib' -o -name '*.so' | sort
+          else
+            ls -la dist/main.dist/*.dll dist/main.dist/*.pyd dist/main.dist/*.so 2>/dev/null | sort || true
+            echo "--- OpenImageIO dir ---"
+            ls -la dist/main.dist/OpenImageIO/ 2>/dev/null || true
+          fi
 
       - name: Smoke test
         shell: bash
@@ -200,7 +207,7 @@ jobs:
             "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool
           ARCH=x86_64 VERSION="${VERSION}" ./appimagetool \
-            --no-appstream --comp zstd -Xcompression-level 19 \
+            --no-appstream --comp zstd \
             "${APPDIR}" "${{ matrix.artifact }}.${{ matrix.ext }}"
 
       - name: Rename standalone folder (Windows)
