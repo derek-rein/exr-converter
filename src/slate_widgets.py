@@ -80,7 +80,9 @@ def extract_thumbnail_b64(input_path: str, mode: str) -> str:
             container.close()
             if frame is None:
                 return ""
-            img = frame.to_image()
+            import numpy as np
+
+            arr = frame.to_ndarray(format="rgb24")
         else:
             from .sequence import find_exr_sequence_info
 
@@ -105,21 +107,22 @@ def extract_thumbnail_b64(input_path: str, mode: str) -> str:
             rgb = buf[..., :3]
             rgb = np.clip(rgb, 0, None)
             srgb = np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, 1.0 / 2.4) - 0.055)
-            srgb = np.clip(srgb * 255, 0, 255).astype(np.uint8)
-            from PIL import Image
+            arr = np.clip(srgb * 255, 0, 255).astype(np.uint8)
 
-            img = Image.fromarray(srgb)
+        from PySide6.QtCore import QBuffer, QIODevice
+        from PySide6.QtGui import QImage
+
+        h, w = arr.shape[:2]
+        qimg = QImage(arr.data, w, h, 3 * w, QImage.Format.Format_RGB888)
 
         max_w = 640
-        if img.width > max_w:
-            ratio = max_w / img.width
-            img = img.resize((max_w, int(img.height * ratio)))
+        if w > max_w:
+            qimg = qimg.scaledToWidth(max_w, Qt.TransformationMode.SmoothTransformation)
 
-        import io
-
-        buf_io = io.BytesIO()
-        img.save(buf_io, format="JPEG", quality=85)
-        return base64.b64encode(buf_io.getvalue()).decode("ascii")
+        qbuf = QBuffer()
+        qbuf.open(QIODevice.OpenModeFlag.WriteOnly)
+        qimg.save(qbuf, "JPEG", 85)
+        return base64.b64encode(qbuf.data().data()).decode("ascii")
     except Exception:
         return ""
 

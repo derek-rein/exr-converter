@@ -79,6 +79,7 @@ bundle: resources
 		--nofollow-import-to=tkinter \
 		--nofollow-import-to=unittest \
 		--nofollow-import-to=pydoc \
+		--nofollow-import-to=PIL \
 		--nofollow-import-to='PySide6.QtWebEngineQuick*' \
 		--noinclude-qt-translations \
 		--noinclude-qt-plugins=printsupport,mediaservice,iconengines \
