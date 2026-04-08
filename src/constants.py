@@ -2,7 +2,7 @@ from __future__ import annotations
 
 APP_ORG = "VFXTools"
 APP_NAME = "EXRConverter"
-APP_VERSION = "0.1.13"
+APP_VERSION = "0.1.14"
 
 DEFAULT_SRC_V2E = "Output - Rec.709"
 DEFAULT_DST_V2E = "ACEScg"
