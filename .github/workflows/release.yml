@@ -125,15 +125,58 @@ jobs:
         if: runner.os == 'macOS'
         run: mv dist/main.app dist/exr_converter.app
 
-      - name: Strip debug symbols (macOS)
+      - name: Slim macOS bundle
         if: runner.os == 'macOS'
         shell: bash
-        run: find dist/exr_converter.app -type f \( -name '*.dylib' -o -name '*.so' \) -exec strip -x {} +
+        run: |
+          APP="dist/exr_converter.app"
+          ARCH="${{ runner.arch == 'ARM64' && 'arm64' || 'x86_64' }}"
 
-      - name: Strip debug symbols (Linux)
+          # Thin universal2 frameworks to single arch
+          find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) -exec \
+            sh -c 'lipo -info "$1" 2>/dev/null | grep -q "universal\|two arch" && lipo -thin '"$ARCH"' "$1" -output "$1.thin" && mv "$1.thin" "$1" || true' _ {} \;
+          find "$APP/Contents/Resources/PySide6/Qt/lib" -type f ! -name '*.plist' ! -name '*.pri' -exec \
+            sh -c 'lipo -info "$1" 2>/dev/null | grep -q "universal\|two arch" && lipo -thin '"$ARCH"' "$1" -output "$1.thin" && mv "$1.thin" "$1" || true' _ {} \;
+
+          # Remove devtools pak
+          find "$APP" -name 'qtwebengine_devtools_resources.pak' -delete
+
+          # Remove duplicate icudtl.dat (keep only MacOS/ copy)
+          find "$APP/Contents/Resources" -name 'icudtl.dat' -delete
+
+          # Strip locales to en-US only
+          find "$APP" -path '*/qtwebengine_locales/*' ! -name 'en-US.pak' -delete
+
+          # Strip debug symbols
+          find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) -exec strip -x {} +
+
+          echo "Bundle size after slimming:"
+          du -sh "$APP"
+
+      - name: Slim Linux bundle
         if: runner.os == 'Linux'
         shell: bash
-        run: find dist/main.dist -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) -exec strip --strip-unneeded {} +
+        run: |
+          DIST="dist/main.dist"
+          find "$DIST" -name 'qtwebengine_devtools_resources.pak' -delete
+          find "$DIST" -path '*/qtwebengine_locales/*' ! -name 'en-US.pak' -delete
+          # Keep one icudtl.dat, remove duplicates buried in PySide6
+          find "$DIST/PySide6" -name 'icudtl.dat' -delete 2>/dev/null || true
+          find "$DIST" -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) -exec strip --strip-unneeded {} +
+          echo "Bundle size after slimming:"
+          du -sh "$DIST"
+
+      - name: Slim Windows bundle
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          DIST="dist/main.dist"
+          find "$DIST" -name 'qtwebengine_devtools_resources.pak' -delete
+          find "$DIST" -path '*/qtwebengine_locales/*' ! -name 'en-US.pak' -delete
+          # Keep one icudtl.dat, remove duplicates buried in PySide6
+          find "$DIST/PySide6" -name 'icudtl.dat' -delete 2>/dev/null || true
+          echo "Bundle size after slimming:"
+          du -sh "$DIST"
 
       - name: Install EGL (Linux smoke-test dependency)
         if: runner.os == 'Linux'
