@@ -4,8 +4,8 @@
 #   make help
 #   make run                              # launch the GUI
 #   make bump PART=minor                  # bump semver + sync APP_VERSION + uv lock
-#   make release PART=patch               # bump + lock + commit + tag
-#   make release PUSH=1                   # … + git push branch + push tag (triggers CI)
+#   make release PART=patch               # bump + lock + commit + tag + push (triggers Release workflow)
+#   make release PUSH=0                   # … local only; push branch + tag yourself to trigger CI
 
 .PHONY: help run lint fmt resources bundle clean bump release
 
@@ -16,6 +16,8 @@ PYTHON   := $(UV) run python
 RCC      := $(UV) run pyside6-rcc
 BUMP     := python3 scripts/bump_app_version.py
 PART     ?= patch
+# PUSH=1 (default): push branch + tag so GitHub receives the tag and runs .github/workflows/release.yml
+PUSH     ?= 1
 
 export NUITKA_ASSUME_YES_FOR_DOWNLOADS := 1
 
@@ -31,8 +33,8 @@ help:
 	@echo "  make clean                             # remove build artifacts"
 	@echo ""
 	@echo "  make bump PART=patch|minor|major       # bump version (no git)"
-	@echo "  make release PART=patch                # bump + commit + tag"
-	@echo "  make release PUSH=1                    # … + git push + push tag"
+	@echo "  make release PART=patch                # bump + commit + tag + push (Release workflow)"
+	@echo "  make release PUSH=0                    # bump + commit + tag only (push manually for CI)"
 	@echo ""
 	@echo "Current tags: git tag -l 'v*' --sort=-v:refname | head"
 
@@ -69,6 +71,7 @@ bundle: resources
 		--output-filename=$(APP_NAME) \
 		--assume-yes-for-downloads \
 		--python-flag=-OO \
+		--lto=yes \
 		--enable-plugin=pyside6 \
 		--macos-create-app-bundle \
 		--macos-app-name="EXR Converter" \
@@ -76,6 +79,10 @@ bundle: resources
 		--nofollow-import-to=tkinter \
 		--nofollow-import-to=unittest \
 		--nofollow-import-to=pydoc \
+		--nofollow-import-to='PySide6.QtWebEngineQuick*' \
+		--noinclude-qt-translations \
+		--noinclude-qt-plugins=printsupport,mediaservice,iconengines \
+		--noinclude-data-files='*/qtwebengine_devtools_resources.pak' \
 		--include-package-data=av \
 		--include-package=OpenImageIO \
 		--include-package-data=OpenImageIO \
@@ -114,7 +121,7 @@ release:
 	if [ "$(PUSH)" = "1" ]; then \
 	  git push origin HEAD; \
 	  git push origin "$${TAG}"; \
-	  echo "Pushed branch and tag $${TAG}."; \
+	  echo "Pushed branch and tag $${TAG} (Release workflow runs on tag push)."; \
 	else \
-	  echo "Push when ready: git push origin HEAD && git push origin $${TAG}"; \
+	  echo "PUSH=0: tag is local only. To run Release workflow: git push origin HEAD && git push origin $${TAG}"; \
 	fi

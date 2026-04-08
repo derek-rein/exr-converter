@@ -34,6 +34,12 @@ def main() -> int:
 
     win = MainWindow()
     win.show()
+
+    if args.smoke_test:
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(3000, app.quit)
+
     return app.exec()
 
 

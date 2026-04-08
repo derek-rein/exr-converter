@@ -86,12 +86,13 @@ jobs:
         shell: bash
         run: |
           MODE="--onefile"
+          MODE="--standalone"
           EXTRA_FLAGS=()
           if [ "$RUNNER_OS" == "macOS" ]; then
-            MODE="--standalone"
             EXTRA_FLAGS+=(--macos-create-app-bundle "--macos-app-name=EXR Converter" "--macos-app-icon=${{ steps.icon.outputs.path }}")
+            EXTRA_FLAGS+=("--macos-target-arch=native")
+            EXTRA_FLAGS+=("--noinclude-dlls=libcrypto*" "--noinclude-dlls=libssl*")
           elif [ "$RUNNER_OS" == "Windows" ]; then
-            MODE="--standalone"
             EXTRA_FLAGS+=("--windows-icon-from-ico=${{ steps.icon.outputs.path }}" --windows-console-mode=disable)
           else
             EXTRA_FLAGS+=("--linux-icon=${{ steps.icon.outputs.path }}")
@@ -102,10 +103,15 @@ jobs:
             --output-filename=exr_converter \
             --assume-yes-for-downloads \
             --python-flag=-OO \
+            --lto=yes \
             --enable-plugin=pyside6 \
             --nofollow-import-to=tkinter \
             --nofollow-import-to=unittest \
             --nofollow-import-to=pydoc \
+            --nofollow-import-to='PySide6.QtWebEngineQuick*' \
+            --noinclude-qt-translations \
+            --noinclude-qt-plugins=printsupport,mediaservice,iconengines \
+            --noinclude-data-files='*/qtwebengine_devtools_resources.pak' \
             --include-package-data=av \
             --include-package=OpenImageIO \
             --include-package-data=OpenImageIO \
@@ -113,8 +119,6 @@ jobs:
             --include-package-data=PyOpenColorIO \
             --include-package=fileseq \
             --include-data-dir=templates=templates \
-            --noinclude-dlls='libcrypto*' \
-            --noinclude-dlls='libssl*' \
             --quiet \
             "${EXTRA_FLAGS[@]}" \
             main.py
@@ -122,6 +126,32 @@ jobs:
       - name: Rename macOS app bundle
         if: runner.os == 'macOS'
         run: mv dist/main.app dist/exr_converter.app
+
+      - name: Strip debug symbols (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: find dist/exr_converter.app -type f \( -name '*.dylib' -o -name '*.so' \) -exec strip -x {} +
+
+      - name: Strip debug symbols (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: find dist/main.dist -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) -exec strip --strip-unneeded {} +
+
+      - name: Install xvfb (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y xvfb libxcb-cursor0 libegl1
+
+      - name: Smoke test
+        shell: bash
+        timeout-minutes: 1
+        run: |
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            dist/exr_converter.app/Contents/MacOS/exr_converter --smoke-test
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            QT_QPA_PLATFORM=offscreen dist/main.dist/exr_converter.exe --smoke-test
+          else
+            xvfb-run --auto-servernum dist/main.dist/exr_converter --smoke-test
+          fi
 
       - name: Create DMG (macOS)
         if: runner.os == 'macOS'
@@ -149,7 +179,7 @@ jobs:
           APPDIR="${{ matrix.artifact }}.AppDir"
           mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
 
-          cp dist/exr_converter "${APPDIR}/usr/bin/exr_converter"
+          cp -a dist/main.dist/. "${APPDIR}/usr/bin/"
           chmod +x "${APPDIR}/usr/bin/exr_converter"
           cp public/icon.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/exr_converter.png"
           cp public/icon.png "${APPDIR}/exr_converter.png"
@@ -164,8 +194,9 @@ jobs:
           curl -fSL -o appimagetool \
             "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool
-          ARCH=x86_64 VERSION="${VERSION}" ./appimagetool --no-appstream "${APPDIR}" \
-            "${{ matrix.artifact }}.${{ matrix.ext }}"
+          ARCH=x86_64 VERSION="${VERSION}" ./appimagetool \
+            --no-appstream --comp zstd -Xcompression-level 19 \
+            "${APPDIR}" "${{ matrix.artifact }}.${{ matrix.ext }}"
 
       - name: Rename standalone folder (Windows)
         if: runner.os == 'Windows'

@@ -54,7 +54,6 @@ from .constants import (
 )
 from .ocio_utils import list_builtin_configs, resolve_ocio_config
 from .sequence import probe_exr_colorspace, probe_exr_metadata, scan_exr_sequences
-from .slate_widgets import SlateDialog
 from .style import DESC_STYLE, HINT_STYLE, STATUS_DIM, STATUS_ERR, STATUS_OK
 from .video import probe_video_metadata, scan_video_files
 
@@ -1554,6 +1553,8 @@ class ConvertTab(QWidget):
             self._open_slate_dialog()
 
     def _open_slate_dialog(self) -> None:
+        from .slate_widgets import SlateDialog
+
         locked_w, locked_h = self._detect_input_resolution()
         inp = self.get_input_path()
         inferred_fps = self._infer_fps_from_input()

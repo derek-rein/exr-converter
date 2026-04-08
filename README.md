@@ -120,8 +120,8 @@ Tags use plain semver: `v1.2.3`. Pushing a tag runs [`.github/workflows/release.
 
 ```bash
 make help
-make release PART=patch        # bump + commit + tag
-make release PUSH=1            # … + git push + push tag (triggers CI)
+make release PART=patch        # bump + commit + tag + push (triggers Release workflow)
+make release PUSH=0            # local only; push branch + tag yourself when ready
 ```
 
 CI for lint: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).

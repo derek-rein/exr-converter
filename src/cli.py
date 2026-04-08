@@ -44,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--headless", action="store_true", help="Synonym for CLI mode.")
     p.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Launch the GUI, verify it initializes, then exit.",
+    )
+    p.add_argument(
         "--workers",
         type=int,
         default=0,
