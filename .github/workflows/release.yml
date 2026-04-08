@@ -140,16 +140,22 @@ jobs:
         shell: bash
         run: find dist/main.dist -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) -exec strip --strip-unneeded {} +
 
+      - name: Install EGL (Linux smoke-test dependency)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libegl1
+
       - name: Smoke test
         shell: bash
         timeout-minutes: 1
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           if [ "$RUNNER_OS" == "macOS" ]; then
             dist/exr_converter.app/Contents/MacOS/exr_converter --smoke-test
           elif [ "$RUNNER_OS" == "Windows" ]; then
-            QT_QPA_PLATFORM=offscreen dist/main.dist/exr_converter.exe --smoke-test
+            dist/main.dist/exr_converter.exe --smoke-test
           else
-            QT_QPA_PLATFORM=offscreen dist/main.dist/exr_converter --smoke-test
+            dist/main.dist/exr_converter --smoke-test
           fi
 
       - name: Create DMG (macOS)
