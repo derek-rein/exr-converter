@@ -83,6 +83,10 @@ bundle: resources
 		--noinclude-qt-translations \
 		--noinclude-qt-plugins=printsupport,mediaservice,iconengines \
 		--noinclude-data-files='*/qtwebengine_devtools_resources.pak' \
+		--noinclude-dlls='*Qt6Svg*' \
+		--noinclude-dlls='*Qt6Pdf*' \
+		--noinclude-dlls='*Qt6Positioning*' \
+		--noinclude-dlls='*Qt6PrintSupport*' \
 		--include-package-data=av \
 		--include-package=OpenImageIO \
 		--include-package-data=OpenImageIO \

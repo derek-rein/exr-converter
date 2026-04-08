@@ -85,12 +85,11 @@ jobs:
       - name: Build with Nuitka
         shell: bash
         run: |
-          MODE="--onefile"
           MODE="--standalone"
           EXTRA_FLAGS=()
           if [ "$RUNNER_OS" == "macOS" ]; then
             EXTRA_FLAGS+=(--macos-create-app-bundle "--macos-app-name=EXR Converter" "--macos-app-icon=${{ steps.icon.outputs.path }}")
-            EXTRA_FLAGS+=("--macos-target-arch=native")
+            EXTRA_FLAGS+=("--macos-target-arch=${{ runner.arch == 'ARM64' && 'arm64' || 'x86_64' }}")
             EXTRA_FLAGS+=("--noinclude-dlls=libcrypto*" "--noinclude-dlls=libssl*")
           elif [ "$RUNNER_OS" == "Windows" ]; then
             EXTRA_FLAGS+=("--windows-icon-from-ico=${{ steps.icon.outputs.path }}" --windows-console-mode=disable)
@@ -112,6 +111,10 @@ jobs:
             --noinclude-qt-translations \
             --noinclude-qt-plugins=printsupport,mediaservice,iconengines \
             --noinclude-data-files='*/qtwebengine_devtools_resources.pak' \
+            --noinclude-dlls='*Qt6Svg*' \
+            --noinclude-dlls='*Qt6Pdf*' \
+            --noinclude-dlls='*Qt6Positioning*' \
+            --noinclude-dlls='*Qt6PrintSupport*' \
             --include-package-data=av \
             --include-package=OpenImageIO \
             --include-package-data=OpenImageIO \
@@ -137,10 +140,6 @@ jobs:
         shell: bash
         run: find dist/main.dist -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) -exec strip --strip-unneeded {} +
 
-      - name: Install xvfb (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y xvfb libxcb-cursor0 libegl1
-
       - name: Smoke test
         shell: bash
         timeout-minutes: 1
@@ -150,7 +149,7 @@ jobs:
           elif [ "$RUNNER_OS" == "Windows" ]; then
             QT_QPA_PLATFORM=offscreen dist/main.dist/exr_converter.exe --smoke-test
           else
-            xvfb-run --auto-servernum dist/main.dist/exr_converter --smoke-test
+            QT_QPA_PLATFORM=offscreen dist/main.dist/exr_converter --smoke-test
           fi
 
       - name: Create DMG (macOS)
