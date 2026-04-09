@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QRegularExpression, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QRegularExpressionValidator
+from PySide6.QtCore import (
+    QDir,
+    QObject,
+    QRegularExpression,
+    QSettings,
+    QStandardPaths,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QAction, QIcon, QPainter, QPixmap, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -20,6 +30,8 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMenu,
     QPlainTextEdit,
     QPushButton,
@@ -379,6 +391,473 @@ class OcioConfigPanel(QGroupBox):
 
 
 # ---------------------------------------------------------------------------
+# Shared places sidebar for browser dialogs
+# ---------------------------------------------------------------------------
+
+_OS_PLACES: list[tuple[str, str, QStandardPaths.StandardLocation]] = [
+    ("\U0001f3e0", "Home", QStandardPaths.StandardLocation.HomeLocation),
+    ("\U0001f5a5\ufe0f", "Desktop", QStandardPaths.StandardLocation.DesktopLocation),
+    ("\U0001f4c4", "Documents", QStandardPaths.StandardLocation.DocumentsLocation),
+    ("\u2b07\ufe0f", "Downloads", QStandardPaths.StandardLocation.DownloadLocation),
+    ("\U0001f3ac", "Movies", QStandardPaths.StandardLocation.MoviesLocation),
+]
+
+
+class _PlacesSidebar(QWidget):
+    """Sidebar listing OS locations and user-defined favorite directories."""
+
+    navigate_requested = Signal(str)
+    _FAVORITES_KEY = "browser/favorites"
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setFixedWidth(140)
+        self._current_dir = ""
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._list = QListWidget()
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._ctx_menu)
+
+        for icon, name, location in _OS_PLACES:
+            path = QStandardPaths.writableLocation(location)
+            if not path or not Path(path).is_dir():
+                continue
+            item = QListWidgetItem(f"{icon}  {name}")
+            item.setData(Qt.ItemDataRole.UserRole, path)
+            item.setToolTip(path)
+            self._list.addItem(item)
+
+        divider = QListWidgetItem()
+        divider.setFlags(Qt.ItemFlag.NoItemFlags)
+        divider.setSizeHint(divider.sizeHint().expandedTo(QWidget().sizeHint()))
+        self._list.addItem(divider)
+
+        from .style import _PALETTE
+
+        frame = QWidget()
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(4, 6, 4, 4)
+        frame_layout.setSpacing(0)
+        line = QWidget()
+        line.setFixedHeight(1)
+        line.setStyleSheet(f"background: {_PALETTE['BORDER']};")
+        frame_layout.addWidget(line)
+        self._list.setItemWidget(divider, frame)
+
+        header = QListWidgetItem("\u2605  Favorites")
+        header.setFlags(Qt.ItemFlag.NoItemFlags)
+        font = header.font()
+        font.setBold(True)
+        header.setFont(font)
+        self._list.addItem(header)
+        self._fav_start = self._list.count()
+
+        settings = QSettings()
+        saved = settings.value(self._FAVORITES_KEY, [])
+        if isinstance(saved, str):
+            saved = [saved] if saved else []
+        for fav_path in saved:
+            if Path(fav_path).is_dir():
+                self._add_fav_item(fav_path)
+
+        layout.addWidget(self._list, 1)
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(2, 2, 2, 2)
+        btn_row.setSpacing(2)
+        add_btn = QToolButton()
+        add_btn.setText("+")
+        add_btn.setToolTip("Add current folder to favorites")
+        add_btn.setAutoRaise(True)
+        add_btn.clicked.connect(self._add_current)
+        rm_btn = QToolButton()
+        rm_btn.setText("\u2212")
+        rm_btn.setToolTip("Remove selected favorite")
+        rm_btn.setAutoRaise(True)
+        rm_btn.clicked.connect(self._remove_selected)
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(rm_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._list.itemClicked.connect(self._on_clicked)
+
+    def set_current_dir(self, path: str) -> None:
+        self._current_dir = path
+
+    def _add_fav_item(self, path: str) -> None:
+        name = Path(path).name or path
+        item = QListWidgetItem(f"\U0001f4c1  {name}")
+        item.setData(Qt.ItemDataRole.UserRole, path)
+        item.setToolTip(path)
+        self._list.addItem(item)
+
+    def _on_clicked(self, item: QListWidgetItem) -> None:
+        path = item.data(Qt.ItemDataRole.UserRole)
+        if path and Path(path).is_dir():
+            self.navigate_requested.emit(path)
+
+    def _add_current(self) -> None:
+        if not self._current_dir or not Path(self._current_dir).is_dir():
+            return
+        for i in range(self._fav_start, self._list.count()):
+            if self._list.item(i).data(Qt.ItemDataRole.UserRole) == self._current_dir:
+                return
+        self._add_fav_item(self._current_dir)
+        self._save_favorites()
+
+    def _remove_selected(self) -> None:
+        row = self._list.currentRow()
+        if row >= self._fav_start:
+            self._list.takeItem(row)
+            self._list.setCurrentRow(-1)
+            self._save_favorites()
+
+    def _ctx_menu(self, pos) -> None:
+        item = self._list.itemAt(pos)
+        if not item:
+            return
+        row = self._list.row(item)
+        if row < self._fav_start:
+            return
+        menu = QMenu(self)
+        menu.addAction("Remove from Favorites", lambda: self._remove_row(row))
+        menu.exec(self._list.viewport().mapToGlobal(pos))
+
+    def _remove_row(self, row: int) -> None:
+        if row >= self._fav_start:
+            self._list.takeItem(row)
+            self._list.setCurrentRow(-1)
+            self._save_favorites()
+
+    def _save_favorites(self) -> None:
+        favs = []
+        for i in range(self._fav_start, self._list.count()):
+            path = self._list.item(i).data(Qt.ItemDataRole.UserRole)
+            if path:
+                favs.append(path)
+        QSettings().setValue(self._FAVORITES_KEY, favs)
+
+
+# ---------------------------------------------------------------------------
+# Directory search: background worker + searchable tree panel
+# ---------------------------------------------------------------------------
+
+_SEARCH_SKIP_DIRS = frozenset({
+    # VCS
+    ".git", ".svn", ".hg", ".bzr",
+    # Python
+    "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    "node_modules", ".venv", "venv", ".env", ".tox", ".nox",
+    "build", "dist", ".eggs", "site-packages",
+    # IDE
+    ".idea", ".vscode", ".vs",
+    # Temp / cache
+    ".cache", ".tmp", ".temp", "tmp", "temp",
+    # macOS
+    ".Trash", ".Spotlight-V100", ".fseventsd", ".DocumentRevisions-V100",
+    ".TemporaryItems", ".VolumeIcon.icns",
+    # System / library dirs (by name — catches nested occurrences too)
+    "System", "Library", "private",
+    "usr", "bin", "sbin", "etc", "var", "opt",
+    # Windows
+    "Windows", "ProgramData", "Program Files", "Program Files (x86)",
+    "$Recycle.Bin", "System Volume Information",
+    "AppData", "Recovery", "PerfLogs",
+    # Linux
+    "proc", "sys", "dev", "run", "snap", "lost+found",
+    # Package / app internals
+    ".app", ".framework", ".bundle", ".plugin", ".kext",
+    "__MACOSX", "Frameworks", "PlugIns",
+})
+
+_SEARCH_SKIP_ABSPATHS: set[str] = set()
+for _d in (
+    "/System", "/Library", "/private", "/usr", "/bin", "/sbin", "/etc",
+    "/var", "/opt", "/cores", "/dev", "/proc", "/sys", "/run", "/snap",
+    "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
+    "C:\\ProgramData", "C:\\$Recycle.Bin", "C:\\Recovery",
+):
+    _SEARCH_SKIP_ABSPATHS.add(_d)
+_SEARCH_SKIP_ABSPATHS = frozenset(_SEARCH_SKIP_ABSPATHS)
+
+_SEARCH_SKIP_FILES = frozenset({
+    ".DS_Store", "Thumbs.db", "desktop.ini", "Icon\r",
+    ".localized", ".CFUserTextEncoding", ".com.apple.timemachine.donotpresent",
+})
+_SEARCH_SKIP_SUFFIXES = frozenset({
+    ".pyc", ".pyo", ".o", ".obj", ".class",
+    ".swp", ".swo", ".swn",
+    ".tmp", ".bak", ".orig",
+})
+
+_VIDEO_EXTS = frozenset({
+    ".mp4", ".mov", ".mkv", ".avi", ".mxf", ".webm", ".m4v", ".ts",
+    ".wmv", ".flv", ".f4v", ".vob", ".ogv", ".ogg",
+    ".3gp", ".3g2", ".m2ts", ".mts", ".mpg", ".mpeg", ".m2v",
+    ".divx", ".rm", ".rmvb", ".asf",
+    ".dv", ".r3d", ".braw", ".ari", ".arx", ".mj2",
+})
+
+_MAX_SEARCH_DEPTH = 15
+_SEARCH_BATCH_SIZE = 60
+_MAX_SEARCH_RESULTS = 500
+_SEARCH_DEBOUNCE_MS = 200
+
+
+class _DirSearchWorker(QObject):
+    """Runs recursive directory searches on a background thread.
+
+    Each call to ``start_search`` cancels any in-flight search, creates a
+    fresh ``threading.Event``, and spawns a daemon thread.  Results stream
+    back via ``batch_ready`` in chunks for minimal signal overhead.
+    """
+
+    batch_ready = Signal(list)
+    search_finished = Signal(int)
+
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        ext_filter: frozenset[str] | None = None,
+        dirs_only: bool = False,
+    ):
+        super().__init__(parent)
+        self._cancel: threading.Event = threading.Event()
+        self._ext_filter = ext_filter
+        self._dirs_only = dirs_only
+
+    def start_search(self, root: str, query: str) -> None:
+        self._cancel.set()
+        cancel = threading.Event()
+        self._cancel = cancel
+        threading.Thread(
+            target=self._run, args=(root, query, cancel), daemon=True
+        ).start()
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    def _run(
+        self, root: str, query: str, cancel: threading.Event
+    ) -> None:
+        query_lower = query.lower()
+        root_stripped = root.rstrip(os.sep)
+        root_len = len(root_stripped) + 1
+        batch: list[tuple[str, str, str, bool]] = []
+        total = 0
+
+        stack: list[tuple[str, int]] = [(root_stripped, 0)]
+        while stack:
+            if cancel.is_set():
+                return
+            dirpath, depth = stack.pop()
+            try:
+                scanner = os.scandir(dirpath)
+            except OSError:
+                continue
+            with scanner:
+                for entry in scanner:
+                    if cancel.is_set():
+                        return
+                    name = entry.name
+                    try:
+                        is_dir = entry.is_dir(follow_symlinks=False)
+                    except OSError:
+                        continue
+
+                    name_lower = name.lower()
+                    ext_lower = os.path.splitext(name_lower)[1]
+
+                    if not is_dir and (
+                        self._dirs_only
+                        or name in _SEARCH_SKIP_FILES
+                        or ext_lower in _SEARCH_SKIP_SUFFIXES
+                        or (self._ext_filter is not None
+                            and ext_lower not in self._ext_filter)
+                    ):
+                        pass
+                    elif query_lower in name_lower or query_lower == ext_lower:
+                        rel = entry.path[root_len:]
+                        batch.append((name, entry.path, rel, is_dir))
+                        total += 1
+                        if len(batch) >= _SEARCH_BATCH_SIZE:
+                            self.batch_ready.emit(batch)
+                            batch = []
+                        if total >= _MAX_SEARCH_RESULTS:
+                            if batch:
+                                self.batch_ready.emit(batch)
+                            self.search_finished.emit(total)
+                            return
+
+                    if (
+                        is_dir
+                        and depth < _MAX_SEARCH_DEPTH
+                        and name not in _SEARCH_SKIP_DIRS
+                        and not name.startswith(".")
+                        and entry.path not in _SEARCH_SKIP_ABSPATHS
+                    ):
+                        stack.append((entry.path, depth + 1))
+
+        if batch:
+            self.batch_ready.emit(batch)
+        self.search_finished.emit(total)
+
+
+class _SearchableTree(QWidget):
+    """Search bar + directory tree, with inline search results that replace
+    the tree while a query is active.
+
+    Typing in the search field triggers a debounced background scan.
+    Clicking a result emits ``result_navigated`` with the directory path.
+    Clearing the field (or pressing Escape) restores the tree.
+    """
+
+    result_navigated = Signal(str)
+
+    def __init__(
+        self,
+        tree: QTreeView,
+        parent: QWidget | None = None,
+        ext_filter: frozenset[str] | None = None,
+        dirs_only: bool = False,
+    ):
+        super().__init__(parent)
+        self._tree = tree
+        self._search_root = ""
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self._search_edit = QLineEdit()
+        self._search_edit.setPlaceholderText("\U0001f50d  Search folders\u2026")
+        self._search_edit.setClearButtonEnabled(True)
+        layout.addWidget(self._search_edit)
+
+        self._spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        self._spinner_idx = 0
+        self._spinner_action = QAction(self._search_edit)
+        self._search_edit.addAction(
+            self._spinner_action, QLineEdit.ActionPosition.TrailingPosition
+        )
+        self._spinner_action.setVisible(False)
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.setInterval(80)
+        self._spinner_timer.timeout.connect(self._advance_spinner)
+
+        layout.addWidget(tree, 1)
+
+        self._results = QListWidget()
+        self._results.setVisible(False)
+        layout.addWidget(self._results, 1)
+
+        self._search_status = QLabel()
+        self._search_status.setVisible(False)
+        self._search_status.setStyleSheet(STATUS_DIM)
+        layout.addWidget(self._search_status)
+
+        self._worker = _DirSearchWorker(self, ext_filter=ext_filter, dirs_only=dirs_only)
+        self._worker.batch_ready.connect(self._on_batch)
+        self._worker.search_finished.connect(self._on_search_done)
+
+        self._debounce = QTimer(self)
+        self._debounce.setSingleShot(True)
+        self._debounce.setInterval(_SEARCH_DEBOUNCE_MS)
+        self._debounce.timeout.connect(self._fire_search)
+
+        self._search_edit.textChanged.connect(self._on_text_changed)
+        self._results.itemClicked.connect(self._on_result_clicked)
+        self._results.itemDoubleClicked.connect(self._on_result_clicked)
+
+    def set_search_root(self, path: str) -> None:
+        self._search_root = path
+
+    def _advance_spinner(self) -> None:
+        ch = self._spinner_frames[self._spinner_idx % len(self._spinner_frames)]
+        self._spinner_idx += 1
+        size = self._search_edit.fontMetrics().height()
+        pix = QPixmap(size, size)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setPen(self._search_edit.palette().text().color())
+        p.setFont(self._search_edit.font())
+        p.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, ch)
+        p.end()
+        self._spinner_action.setIcon(QIcon(pix))
+
+    def _start_spinner(self) -> None:
+        self._spinner_idx = 0
+        self._spinner_action.setVisible(True)
+        self._advance_spinner()
+        self._spinner_timer.start()
+
+    def _stop_spinner(self) -> None:
+        self._spinner_timer.stop()
+        self._spinner_action.setVisible(False)
+
+    def _on_text_changed(self, text: str) -> None:
+        if not text.strip():
+            self._worker.cancel()
+            self._debounce.stop()
+            self._stop_spinner()
+            self._results.setVisible(False)
+            self._tree.setVisible(True)
+            self._search_status.setVisible(False)
+            return
+        self._debounce.start()
+
+    def _fire_search(self) -> None:
+        query = self._search_edit.text().strip()
+        if not query:
+            return
+        self._results.clear()
+        self._results.setVisible(True)
+        self._tree.setVisible(False)
+        self._search_status.setVisible(True)
+        self._search_status.setText("Searching\u2026")
+        self._start_spinner()
+        root = self._search_root or QDir.homePath()
+        self._worker.start_search(root, query)
+
+    def _on_batch(self, items: list) -> None:
+        for name, _full_path, rel_path, is_dir in items:
+            icon = "\U0001f4c1" if is_dir else "\U0001f4c4"
+            parent = os.path.dirname(rel_path)
+            display = f"{icon}  {name}    {parent}" if parent else f"{icon}  {name}"
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, _full_path)
+            item.setToolTip(_full_path)
+            self._results.addItem(item)
+
+    def _on_search_done(self, total: int) -> None:
+        self._stop_spinner()
+        suffix = "s" if total != 1 else ""
+        cap = " (limit reached)" if total >= _MAX_SEARCH_RESULTS else ""
+        self._search_status.setText(f"{total} result{suffix}{cap}")
+
+    def _on_result_clicked(self, item: QListWidgetItem) -> None:
+        path = item.data(Qt.ItemDataRole.UserRole)
+        if not path:
+            return
+        target = path if os.path.isdir(path) else os.path.dirname(path)
+        self.result_navigated.emit(target)
+        self._search_edit.clear()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape and self._search_edit.text():
+            self._search_edit.clear()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
+# ---------------------------------------------------------------------------
 # EXR sequence browser dialog (with metadata inspector)
 # ---------------------------------------------------------------------------
 
@@ -396,13 +875,19 @@ class SequenceBrowserDialog(QDialog):
         "Color Space",
     ]
 
-    def __init__(self, start_dir: str = "", parent: QWidget | None = None):
+    def __init__(
+        self,
+        start_dir: str = "",
+        select_name: str = "",
+        parent: QWidget | None = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Browse EXR Sequences")
-        self.resize(960, 560)
+        self.resize(1060, 450)
         self._selected_dir: str = ""
         self._selected_name: str = ""
         self._seq_data: list[dict] = []
+        self._auto_select_name = select_name
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -419,10 +904,10 @@ class SequenceBrowserDialog(QDialog):
         path_row.addWidget(self._inspect_cb)
         layout.addLayout(path_row)
 
-        # main splitter: [dir tree | sequences table | metadata]
-        self._outer_splitter = QSplitter(Qt.Orientation.Horizontal)
+        # -- left: places sidebar + dir tree (full height) --
+        self._places = _PlacesSidebar()
+        self._places.navigate_requested.connect(self._navigate_to)
 
-        # -- left: dir tree --
         self._fs_model = QFileSystemModel()
         self._fs_model.setRootPath(QDir.rootPath())
         self._fs_model.setFilter(QDir.Filter.Dirs | QDir.Filter.NoDotAndDotDot)
@@ -435,14 +920,23 @@ class SequenceBrowserDialog(QDialog):
         tree_header = self._tree.header()
         tree_header.setStretchLastSection(True)
         tree_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self._outer_splitter.addWidget(self._tree)
+
+        self._searchable_tree = _SearchableTree(self._tree, dirs_only=True)
+        self._searchable_tree.result_navigated.connect(self._navigate_to)
+
+        left_panel = QWidget()
+        left_layout = QHBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(4)
+        left_layout.addWidget(self._places)
+        left_layout.addWidget(self._searchable_tree, 1)
 
         # -- center: sequence table --
         center = QWidget()
         center_layout = QVBoxLayout(center)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(4)
-        center_layout.addWidget(QLabel("<b>EXR Sequences</b>"))
+
 
         self._table = QTableWidget(0, len(self._COLUMNS))
         self._table.setHorizontalHeaderLabels(self._COLUMNS)
@@ -458,12 +952,6 @@ class SequenceBrowserDialog(QDialog):
             th.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         center_layout.addWidget(self._table, 1)
 
-        self._status = QLabel()
-        self._status.setStyleSheet(STATUS_DIM)
-        center_layout.addWidget(self._status)
-
-        self._outer_splitter.addWidget(center)
-
         # -- right: metadata inspector --
         self._meta_panel = QWidget()
         meta_layout = QVBoxLayout(self._meta_panel)
@@ -475,15 +963,28 @@ class SequenceBrowserDialog(QDialog):
         self._meta_text.setMinimumWidth(240)
         self._meta_text.setObjectName("metaPane")
         meta_layout.addWidget(self._meta_text, 1)
-        self._outer_splitter.addWidget(self._meta_panel)
         self._meta_panel.setVisible(False)
 
-        self._outer_splitter.setStretchFactor(0, 2)
-        self._outer_splitter.setStretchFactor(1, 3)
-        self._outer_splitter.setStretchFactor(2, 2)
-        layout.addWidget(self._outer_splitter, 1)
+        # content splitter: table + metadata
+        self._content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._content_splitter.addWidget(center)
+        self._content_splitter.addWidget(self._meta_panel)
+        self._content_splitter.setStretchFactor(0, 3)
+        self._content_splitter.setStretchFactor(1, 2)
+        for i in range(self._content_splitter.count()):
+            self._content_splitter.setCollapsible(i, False)
 
-        # buttons
+        # right side: content splitter + status/buttons row
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(6)
+        right_layout.addWidget(self._content_splitter, 1)
+
+        bottom_row = QHBoxLayout()
+        self._status = QLabel()
+        self._status.setStyleSheet(STATUS_DIM)
+        bottom_row.addWidget(self._status, 1)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Open | QDialogButtonBox.StandardButton.Cancel
         )
@@ -491,7 +992,18 @@ class SequenceBrowserDialog(QDialog):
         buttons.rejected.connect(self.reject)
         self._ok_btn = buttons.button(QDialogButtonBox.StandardButton.Open)
         self._ok_btn.setEnabled(False)
-        layout.addWidget(buttons)
+        bottom_row.addWidget(buttons)
+        right_layout.addLayout(bottom_row)
+
+        # outer splitter: left panel (full height) | right side
+        self._outer_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._outer_splitter.addWidget(left_panel)
+        self._outer_splitter.addWidget(right_widget)
+        self._outer_splitter.setStretchFactor(0, 2)
+        self._outer_splitter.setStretchFactor(1, 5)
+        for i in range(self._outer_splitter.count()):
+            self._outer_splitter.setCollapsible(i, False)
+        layout.addWidget(self._outer_splitter, 1)
         self._tree.clicked.connect(self._on_tree_clicked)
         self._table.itemSelectionChanged.connect(self._on_table_selection)
         self._table.cellDoubleClicked.connect(lambda _r, _c: self.accept())
@@ -511,15 +1023,19 @@ class SequenceBrowserDialog(QDialog):
         idx = self._fs_model.index(directory)
         if idx.isValid():
             self._tree.setCurrentIndex(idx)
-            self._tree.scrollTo(idx)
+            self._tree.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
             self._tree.expand(idx)
         self._path_edit.setText(directory)
+        self._places.set_current_dir(directory)
+        self._searchable_tree.set_search_root(directory)
         self._scan_directory(directory)
 
     def _on_tree_clicked(self, index) -> None:
         path = self._fs_model.filePath(index)
         if path:
             self._path_edit.setText(path)
+            self._places.set_current_dir(path)
+            self._searchable_tree.set_search_root(path)
             self._scan_directory(path)
 
     def _on_path_entered(self) -> None:
@@ -548,7 +1064,8 @@ class SequenceBrowserDialog(QDialog):
         self._seq_data = seqs
         self._table.setRowCount(len(seqs))
         for row, s in enumerate(seqs):
-            name_item = QTableWidgetItem(s["name"])
+            display_name = s.get("pattern", s["name"])
+            name_item = QTableWidgetItem(display_name)
             name_item.setData(Qt.ItemDataRole.UserRole, s["name"])
 
             frames_item = QTableWidgetItem(str(s["frames"]))
@@ -581,7 +1098,15 @@ class SequenceBrowserDialog(QDialog):
             self._table.setItem(row, 5, comp_item)
             self._table.setItem(row, 6, cs_item)
 
-        if len(seqs) == 1:
+        selected = False
+        if self._auto_select_name:
+            for row in range(self._table.rowCount()):
+                item = self._table.item(row, 0)
+                if item and item.data(Qt.ItemDataRole.UserRole) == self._auto_select_name:
+                    self._table.selectRow(row)
+                    selected = True
+                    break
+        if not selected and len(seqs) == 1:
             self._table.selectRow(0)
 
         self._status.setText(f"{len(seqs)} sequence(s) found")
@@ -600,7 +1125,9 @@ class SequenceBrowserDialog(QDialog):
             self._ok_btn.setEnabled(False)
 
     def _toggle_inspect(self, checked: bool) -> None:
+        sizes = self._outer_splitter.sizes()
         self._meta_panel.setVisible(checked)
+        self._outer_splitter.setSizes(sizes)
         if checked:
             rows = self._table.selectionModel().selectedRows()
             if rows:
@@ -650,9 +1177,10 @@ class VideoBrowserDialog(QDialog):
     def __init__(self, start_dir: str = "", parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("Browse Video Files")
-        self.resize(960, 560)
+        self.resize(1060, 450)
         self._selected_path: str = ""
         self._file_data: list[dict[str, str]] = []
+        self._auto_select_path: str = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -668,9 +1196,10 @@ class VideoBrowserDialog(QDialog):
         path_row.addWidget(self._inspect_cb)
         layout.addLayout(path_row)
 
-        self._outer_splitter = QSplitter(Qt.Orientation.Horizontal)
+        # -- left: places sidebar + dir tree (full height) --
+        self._places = _PlacesSidebar()
+        self._places.navigate_requested.connect(self._navigate_to)
 
-        # -- left: dir tree --
         self._fs_model = QFileSystemModel()
         self._fs_model.setRootPath(QDir.rootPath())
         self._fs_model.setFilter(QDir.Filter.Dirs | QDir.Filter.NoDotAndDotDot)
@@ -683,14 +1212,23 @@ class VideoBrowserDialog(QDialog):
         tree_header = self._tree.header()
         tree_header.setStretchLastSection(True)
         tree_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self._outer_splitter.addWidget(self._tree)
+
+        self._searchable_tree = _SearchableTree(self._tree, ext_filter=_VIDEO_EXTS)
+        self._searchable_tree.result_navigated.connect(self._navigate_to)
+
+        left_panel = QWidget()
+        left_layout = QHBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(4)
+        left_layout.addWidget(self._places)
+        left_layout.addWidget(self._searchable_tree, 1)
 
         # -- center: video file table --
         center = QWidget()
         center_layout = QVBoxLayout(center)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(4)
-        center_layout.addWidget(QLabel("<b>Video Files</b>"))
+
 
         self._table = QTableWidget(0, len(self._COLUMNS))
         self._table.setHorizontalHeaderLabels(self._COLUMNS)
@@ -706,12 +1244,6 @@ class VideoBrowserDialog(QDialog):
             th.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         center_layout.addWidget(self._table, 1)
 
-        self._status = QLabel()
-        self._status.setStyleSheet(STATUS_DIM)
-        center_layout.addWidget(self._status)
-
-        self._outer_splitter.addWidget(center)
-
         # -- right: metadata inspector --
         self._meta_panel = QWidget()
         meta_layout = QVBoxLayout(self._meta_panel)
@@ -723,14 +1255,28 @@ class VideoBrowserDialog(QDialog):
         self._meta_text.setMinimumWidth(240)
         self._meta_text.setObjectName("metaPane")
         meta_layout.addWidget(self._meta_text, 1)
-        self._outer_splitter.addWidget(self._meta_panel)
         self._meta_panel.setVisible(False)
 
-        self._outer_splitter.setStretchFactor(0, 2)
-        self._outer_splitter.setStretchFactor(1, 3)
-        self._outer_splitter.setStretchFactor(2, 2)
-        layout.addWidget(self._outer_splitter, 1)
+        # content splitter: table + metadata
+        self._content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._content_splitter.addWidget(center)
+        self._content_splitter.addWidget(self._meta_panel)
+        self._content_splitter.setStretchFactor(0, 3)
+        self._content_splitter.setStretchFactor(1, 2)
+        for i in range(self._content_splitter.count()):
+            self._content_splitter.setCollapsible(i, False)
 
+        # right side: content splitter + status/buttons row
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(6)
+        right_layout.addWidget(self._content_splitter, 1)
+
+        bottom_row = QHBoxLayout()
+        self._status = QLabel()
+        self._status.setStyleSheet(STATUS_DIM)
+        bottom_row.addWidget(self._status, 1)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Open | QDialogButtonBox.StandardButton.Cancel
         )
@@ -738,7 +1284,18 @@ class VideoBrowserDialog(QDialog):
         buttons.rejected.connect(self.reject)
         self._ok_btn = buttons.button(QDialogButtonBox.StandardButton.Open)
         self._ok_btn.setEnabled(False)
-        layout.addWidget(buttons)
+        bottom_row.addWidget(buttons)
+        right_layout.addLayout(bottom_row)
+
+        # outer splitter: left panel (full height) | right side
+        self._outer_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._outer_splitter.addWidget(left_panel)
+        self._outer_splitter.addWidget(right_widget)
+        self._outer_splitter.setStretchFactor(0, 2)
+        self._outer_splitter.setStretchFactor(1, 5)
+        for i in range(self._outer_splitter.count()):
+            self._outer_splitter.setCollapsible(i, False)
+        layout.addWidget(self._outer_splitter, 1)
 
         self._tree.clicked.connect(self._on_tree_clicked)
         self._table.itemSelectionChanged.connect(self._on_table_selection)
@@ -749,6 +1306,7 @@ class VideoBrowserDialog(QDialog):
         if start_dir:
             d = Path(start_dir)
             if d.is_file():
+                self._auto_select_path = str(d)
                 d = d.parent
             if d.is_dir():
                 self._navigate_to(str(d))
@@ -760,15 +1318,19 @@ class VideoBrowserDialog(QDialog):
         idx = self._fs_model.index(directory)
         if idx.isValid():
             self._tree.setCurrentIndex(idx)
-            self._tree.scrollTo(idx)
+            self._tree.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
             self._tree.expand(idx)
         self._path_edit.setText(directory)
+        self._places.set_current_dir(directory)
+        self._searchable_tree.set_search_root(directory)
         self._scan_directory(directory)
 
     def _on_tree_clicked(self, index) -> None:
         path = self._fs_model.filePath(index)
         if path:
             self._path_edit.setText(path)
+            self._places.set_current_dir(path)
+            self._searchable_tree.set_search_root(path)
             self._scan_directory(path)
 
     def _on_path_entered(self) -> None:
@@ -822,7 +1384,15 @@ class VideoBrowserDialog(QDialog):
             self._table.setItem(row, 4, frames_item)
             self._table.setItem(row, 5, dur_item)
 
-        if len(files) == 1:
+        selected = False
+        if self._auto_select_path:
+            for row in range(self._table.rowCount()):
+                item = self._table.item(row, 0)
+                if item and item.data(Qt.ItemDataRole.UserRole) == self._auto_select_path:
+                    self._table.selectRow(row)
+                    selected = True
+                    break
+        if not selected and len(files) == 1:
             self._table.selectRow(0)
 
         self._status.setText(f"{len(files)} video file(s) found")
@@ -841,7 +1411,9 @@ class VideoBrowserDialog(QDialog):
             self._ok_btn.setEnabled(False)
 
     def _toggle_inspect(self, checked: bool) -> None:
+        sizes = self._outer_splitter.sizes()
         self._meta_panel.setVisible(checked)
+        self._outer_splitter.setSizes(sizes)
         if checked:
             rows = self._table.selectionModel().selectedRows()
             if rows:
@@ -1150,18 +1722,6 @@ class VideoCodecSettingsDialog(QDialog):
 # ---------------------------------------------------------------------------
 # Conversion tab
 # ---------------------------------------------------------------------------
-
-_VIDEO_EXTS = {
-    ".mp4",
-    ".mov",
-    ".mkv",
-    ".avi",
-    ".mxf",
-    ".webm",
-    ".m4v",
-    ".ts",
-}
-
 
 class ConvertTab(QWidget):
     log_message = Signal(str)
@@ -1615,7 +2175,8 @@ class ConvertTab(QWidget):
                 inp_img = oiio.ImageInput.open(first_path)
                 if inp_img:
                     spec = inp_img.spec()
-                    w, h = spec.width, spec.height
+                    w = spec.full_width if spec.full_width > 0 else spec.width
+                    h = spec.full_height if spec.full_height > 0 else spec.height
                     inp_img.close()
                     return w, h
         except Exception:
@@ -1664,7 +2225,10 @@ class ConvertTab(QWidget):
                 self._detect_input_range()
         else:
             start = self.get_input_path() or str(Path.home())
-            dlg = SequenceBrowserDialog(start, parent=self)
+            sel_name = ""
+            if self._input_seq is not None:
+                sel_name = self._input_seq.basename().rstrip("._")
+            dlg = SequenceBrowserDialog(start, select_name=sel_name, parent=self)
             if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_directory():
                 sel_dir = dlg.selected_directory()
                 self.input_path.setText(sel_dir)

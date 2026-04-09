@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import platform
+import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 import PyOpenColorIO as OCIO_mod
-from PySide6.QtCore import QSettings, Qt, QThread
+from PySide6.QtCore import QObject, QSettings, Qt, QThread, QUrl, Signal, Slot
 from PySide6.QtGui import (
     QAction,
     QDesktopServices,
@@ -33,11 +38,42 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .constants import APP_NAME, APP_ORG, APP_VERSION
+from .constants import APP_NAME, APP_ORG, APP_VERSION, GITHUB_REPO
 from .ocio_utils import color_space_families, config_source_info
 from .presets import delete_preset, list_presets, load_preset, save_preset
 from .widgets import ConvertTab, OcioConfigPanel
 from .worker import ConvertWorker
+
+
+class _DownloadWorker(QObject):
+    progress = Signal(int, int)
+    finished = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, url: str, dest: str) -> None:
+        super().__init__()
+        self._url = url
+        self._dest = dest
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            with urlopen(self._url, timeout=300) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
+                chunk_size = 64 * 1024
+                downloaded = 0
+                chunks: list[bytes] = []
+                while True:
+                    chunk = resp.read(chunk_size)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    downloaded += len(chunk)
+                    self.progress.emit(downloaded, total)
+            Path(self._dest).write_bytes(b"".join(chunks))
+            self.finished.emit(self._dest)
+        except Exception as e:
+            self.failed.emit(str(e))
 
 
 class AboutDialog(QDialog):
@@ -215,6 +251,12 @@ class MainWindow(QMainWindow):
 
         help_menu = mb.addMenu("&Help")
 
+        update_action = QAction("Check for &Updates\u2026", self)
+        update_action.triggered.connect(self._check_for_updates)
+        help_menu.addAction(update_action)
+
+        help_menu.addSeparator()
+
         about_action = QAction("&About EXR Converter", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
@@ -232,6 +274,148 @@ class MainWindow(QMainWindow):
     def _show_about(self) -> None:
         dlg = AboutDialog(self)
         dlg.exec()
+
+    # -- Updates --
+
+    def _check_for_updates(self) -> None:
+        import json
+
+        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        try:
+            req = Request(api_url, headers={"Accept": "application/vnd.github+json"})
+            with urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+        except (URLError, OSError, ValueError) as e:
+            QMessageBox.warning(self, "Update Check", f"Could not reach GitHub:\n{e}")
+            return
+
+        tag = data.get("tag_name", "")
+        remote_ver = tag.lstrip("v")
+        if not remote_ver:
+            QMessageBox.information(self, "Update Check", "No releases found.")
+            return
+
+        def _ver_tuple(v: str) -> tuple[int, ...]:
+            return tuple(int(x) for x in v.split(".") if x.isdigit())
+
+        try:
+            if _ver_tuple(remote_ver) <= _ver_tuple(APP_VERSION):
+                QMessageBox.information(
+                    self, "Up to date", f"You're on the latest version ({APP_VERSION})."
+                )
+                return
+        except Exception:
+            pass
+
+        asset_name = self._update_asset_name()
+        if not asset_name:
+            html_url = data.get("html_url", "")
+            QMessageBox.information(
+                self,
+                "Update Available",
+                f"Version {remote_ver} is available (you have {APP_VERSION}).\n"
+                f"No installer found for this platform — visit the release page.",
+            )
+            if html_url:
+                QDesktopServices.openUrl(QUrl(html_url))
+            return
+
+        download_url = ""
+        for asset in data.get("assets", []):
+            if asset.get("name", "") == asset_name:
+                download_url = asset.get("browser_download_url", "")
+                break
+
+        if not download_url:
+            QMessageBox.information(
+                self,
+                "Update Available",
+                f"Version {remote_ver} is available but the expected asset\n"
+                f"'{asset_name}' was not found in the release.",
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Update Available",
+            f"Version {remote_ver} is available (you have {APP_VERSION}).\n\n"
+            f"Download and run the installer?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="exr_converter_update_"))
+        installer_path = tmp_dir / asset_name
+
+        self._progress.setValue(0)
+        self._progress.setFormat("Downloading update… %p%")
+        self._statusbar.showMessage("Downloading update…")
+        self._go.setEnabled(False)
+
+        self._dl_thread = QThread()
+        self._dl_worker = _DownloadWorker(download_url, str(installer_path))
+        self._dl_worker.moveToThread(self._dl_thread)
+        self._dl_thread.started.connect(self._dl_worker.run)
+        self._dl_worker.progress.connect(self._on_download_progress)
+        self._dl_worker.finished.connect(self._on_download_finished)
+        self._dl_worker.failed.connect(self._on_download_failed)
+        self._dl_worker.finished.connect(self._dl_thread.quit)
+        self._dl_worker.failed.connect(self._dl_thread.quit)
+        dl_ref = self._dl_worker
+        self._dl_thread.finished.connect(dl_ref.deleteLater)
+        self._dl_thread.start()
+
+    def _on_download_progress(self, downloaded: int, total: int) -> None:
+        if total > 0:
+            self._progress.setValue(int(100 * downloaded / total))
+        else:
+            self._progress.setRange(0, 0)
+
+    def _on_download_finished(self, dest: str) -> None:
+        self._progress.setRange(0, 100)
+        self._progress.setValue(100)
+        self._progress.setFormat("%p%")
+        self._go.setEnabled(True)
+        name = Path(dest).name
+        self._statusbar.showMessage(f"Downloaded {name}", 5000)
+        self._run_installer(Path(dest))
+        self._dl_thread = None
+        self._dl_worker = None
+
+    def _on_download_failed(self, error: str) -> None:
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
+        self._progress.setFormat("%p%")
+        self._go.setEnabled(True)
+        self._statusbar.clearMessage()
+        QMessageBox.warning(self, "Download Failed", error)
+        self._dl_thread = None
+        self._dl_worker = None
+
+    @staticmethod
+    def _update_asset_name() -> str:
+        s = sys.platform
+        machine = platform.machine().lower()
+        if s == "darwin":
+            arch = "arm64" if machine == "arm64" else "x86_64"
+            return f"exr_converter-macos-{arch}.dmg"
+        if s == "win32":
+            return "exr_converter-windows-x86_64-setup.exe"
+        if s.startswith("linux"):
+            return "exr_converter-linux-x86_64.AppImage"
+        return ""
+
+    @staticmethod
+    def _run_installer(path: Path) -> None:
+        s = sys.platform
+        if s == "darwin":
+            subprocess.Popen(["open", str(path)])
+        elif s == "win32":
+            subprocess.Popen([str(path)], creationflags=subprocess.DETACHED_PROCESS)
+        else:
+            path.chmod(path.stat().st_mode | 0o755)
+            subprocess.Popen(["xdg-open", str(path)])
 
     # -- Slate menu --
 
@@ -451,6 +635,9 @@ class MainWindow(QMainWindow):
                 slate_frame=slate_np,
             )
 
+        out_path = Path(out)
+        self._output_folder = str(out_path if out_path.is_dir() else out_path.parent)
+
         self._append_log(f"--- {mode} ---")
         self._thread = QThread()
         self._worker = ConvertWorker(mode, kwargs)
@@ -484,6 +671,9 @@ class MainWindow(QMainWindow):
         self._statusbar.showMessage("Done.", 5000)
         self._go.setEnabled(True)
         self._cancel_btn.setEnabled(False)
+        folder = getattr(self, "_output_folder", None)
+        if folder and Path(folder).is_dir():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
     def _cleanup_thread(self) -> None:
         self._worker = None

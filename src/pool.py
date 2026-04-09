@@ -36,14 +36,23 @@ def _ensure_cpu(
 
 
 def _read_exr_rgb(path: str) -> np.ndarray | None:
-    """Read an EXR and return (H, W, 3) float32, or None on failure."""
+    """Read an EXR and return (H, W, 3) float32, or None on failure.
+
+    Crops to the display window, discarding any overscan from the data window.
+    """
     try:
         buf = oiio.ImageBuf(path)
         if buf.has_error:
             return None
         spec = buf.spec()
+        if spec.full_width > 0 and spec.full_height > 0:
+            dx, dy = spec.full_x, spec.full_y
+            dw, dh = spec.full_width, spec.full_height
+        else:
+            dx, dy = 0, 0
+            dw, dh = spec.width, spec.height
         ch = min(spec.nchannels, 3)
-        roi = oiio.ROI(0, spec.width, 0, spec.height, 0, 1, 0, ch)
+        roi = oiio.ROI(dx, dx + dw, dy, dy + dh, 0, 1, 0, ch)
         pixels = np.ascontiguousarray(buf.get_pixels(oiio.FLOAT, roi), dtype=np.float32)
         if pixels.ndim == 3 and pixels.shape[2] >= 3:
             return pixels[:, :, :3]

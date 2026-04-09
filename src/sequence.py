@@ -6,14 +6,15 @@ import fileseq
 
 
 def _probe_resolution(filepath: str) -> tuple[int, int]:
-    """Read width and height from an EXR header without decoding pixels."""
+    """Read display-window width and height from an EXR header without decoding pixels."""
     try:
         import OpenImageIO as oiio
 
         inp = oiio.ImageInput.open(filepath)
         if inp:
             spec = inp.spec()
-            w, h = spec.width, spec.height
+            w = spec.full_width if spec.full_width > 0 else spec.width
+            h = spec.full_height if spec.full_height > 0 else spec.height
             inp.close()
             return w, h
     except Exception:
@@ -58,7 +59,13 @@ def probe_exr_metadata(filepath: str) -> dict[str, str]:
         if not inp:
             return {"error": "Could not open file"}
         spec = inp.spec()
-        result["Resolution"] = f"{spec.width} \u00d7 {spec.height}"
+        fw = spec.full_width if spec.full_width > 0 else spec.width
+        fh = spec.full_height if spec.full_height > 0 else spec.height
+        result["Resolution"] = f"{fw} \u00d7 {fh}"
+        if spec.width != fw or spec.height != fh:
+            result["Data Window"] = (
+                f"{spec.width} \u00d7 {spec.height} (offset {spec.x}, {spec.y})"
+            )
         result["Channels"] = str(spec.nchannels)
         ch_names = [spec.channel_name(i) for i in range(spec.nchannels)]
         result["Channel names"] = ", ".join(ch_names)
@@ -121,9 +128,13 @@ def scan_exr_sequences(directory: str) -> list[dict]:
             except Exception:
                 pass
 
+        pad = "#" * s.zfill()
+        pattern = f"{s.basename()}{pad}{s.extension()}"
+
         results.append(
             {
                 "name": s.basename().rstrip("._"),
+                "pattern": pattern,
                 "frames": len(frame_list),
                 "range": range_str,
                 "resolution": res_str,

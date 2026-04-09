@@ -4,6 +4,8 @@ APP_ORG = "VFXTools"
 APP_NAME = "EXRConverter"
 APP_VERSION = "0.1.19"
 
+GITHUB_REPO = "derek-rein/vfx-tools"
+
 DEFAULT_SRC_V2E = "Output - Rec.709"
 DEFAULT_DST_V2E = "ACEScg"
 DEFAULT_SRC_E2V = "scene_linear"

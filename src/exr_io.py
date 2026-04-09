@@ -4,10 +4,21 @@ import numpy as np
 import OpenImageIO as oiio
 
 
+def _display_window(spec) -> tuple[int, int, int, int]:
+    """Return (x, y, width, height) of the display window from an OIIO ImageSpec.
+
+    Falls back to data window dimensions when full_width/full_height are unset.
+    """
+    if spec.full_width > 0 and spec.full_height > 0:
+        return spec.full_x, spec.full_y, spec.full_width, spec.full_height
+    return 0, 0, spec.width, spec.height
+
+
 def read_exr(path: str) -> np.ndarray:
     """Read an EXR file and return float32 array (H, W, 3).
 
     Always extracts RGB only, even if the source has alpha or more channels.
+    Crops to the display window, discarding any overscan from the data window.
     Returns a black frame if the file is corrupt or unreadable.
     """
     try:
@@ -15,7 +26,8 @@ def read_exr(path: str) -> np.ndarray:
         if buf.has_error:
             raise RuntimeError(buf.geterror())
         spec = buf.spec()
-        roi = oiio.ROI(0, spec.width, 0, spec.height, 0, 1, 0, min(spec.nchannels, 3))
+        dx, dy, dw, dh = _display_window(spec)
+        roi = oiio.ROI(dx, dx + dw, dy, dy + dh, 0, 1, 0, min(spec.nchannels, 3))
         pixels = np.ascontiguousarray(buf.get_pixels(oiio.FLOAT, roi), dtype=np.float32)
         if pixels.ndim == 3 and pixels.shape[2] >= 3:
             return pixels[:, :, :3]
@@ -27,8 +39,9 @@ def read_exr(path: str) -> np.ndarray:
             inp = oiio.ImageInput.open(path)
             if inp:
                 s = inp.spec()
+                _, _, fw, fh = _display_window(s)
                 inp.close()
-                return np.zeros((s.height, s.width, 3), dtype=np.float32)
+                return np.zeros((fh, fw, 3), dtype=np.float32)
         except Exception:
             pass
         return np.zeros((1080, 1920, 3), dtype=np.float32)

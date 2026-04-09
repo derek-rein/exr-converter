@@ -93,20 +93,30 @@ def extract_thumbnail_b64(input_path: str, mode: str) -> str:
             mid_frame = sorted(frames)[mid_idx]
             mid_path = seq.frame(mid_frame)
 
+            import numpy as np
             import OpenImageIO as oiio
 
-            inp = oiio.ImageInput.open(mid_path)
-            if not inp:
+            img_buf = oiio.ImageBuf(mid_path)
+            if img_buf.has_error:
                 return ""
-            spec = inp.spec()
-            import numpy as np
-
-            buf = np.zeros((spec.height, spec.width, spec.nchannels), dtype=np.float32)
-            inp.read_image(buf)
-            inp.close()
-            rgb = buf[..., :3]
+            spec = img_buf.spec()
+            if spec.full_width > 0 and spec.full_height > 0:
+                dx, dy = spec.full_x, spec.full_y
+                dw, dh = spec.full_width, spec.full_height
+            else:
+                dx, dy = 0, 0
+                dw, dh = spec.width, spec.height
+            roi = oiio.ROI(dx, dx + dw, dy, dy + dh, 0, 1, 0, min(spec.nchannels, 3))
+            pixels = np.ascontiguousarray(
+                img_buf.get_pixels(oiio.FLOAT, roi), dtype=np.float32
+            )
+            rgb = pixels[..., :3] if pixels.shape[2] >= 3 else np.repeat(pixels, 3, axis=2)
             rgb = np.clip(rgb, 0, None)
-            srgb = np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, 1.0 / 2.4) - 0.055)
+            srgb = np.where(
+                rgb <= 0.0031308,
+                rgb * 12.92,
+                1.055 * np.power(rgb, 1.0 / 2.4) - 0.055,
+            )
             arr = np.clip(srgb * 255, 0, 255).astype(np.uint8)
 
         from PySide6.QtCore import QBuffer, QIODevice
