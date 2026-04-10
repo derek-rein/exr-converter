@@ -87,65 +87,6 @@ def burnin_fields_from_slate(
     }
 
 
-def _render_on_bg(
-    width: int,
-    height: int,
-    fields: dict[str, str],
-    bg_color: QColor,
-) -> np.ndarray:
-    """Render the burn-in template on a solid bg and return RGB uint8 array."""
-    js_data = json.dumps(fields)
-
-    loop = QEventLoop()
-    result: list[np.ndarray] = []
-    error: list[str] = []
-
-    view = QWebEngineView()
-    view.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
-    view.resize(width, height)
-    view.page().settings().setAttribute(
-        QWebEngineSettings.WebAttribute.ShowScrollBars, False
-    )
-    view.page().setBackgroundColor(bg_color)
-    view.show()
-
-    def _on_loaded(ok: bool) -> None:
-        if not ok:
-            error.append("Failed to load burn-in HTML template.")
-            loop.quit()
-            return
-        QTimer.singleShot(100, _inject)
-
-    def _inject() -> None:
-        view.page().setZoomFactor(1.0)
-        js = f"updateBurnin({js_data})"
-        view.page().runJavaScript(
-            js, lambda _: QTimer.singleShot(80, _capture)
-        )
-
-    def _capture() -> None:
-        try:
-            pixmap = view.grab(view.rect())
-            result.append(_qimage_to_rgb(pixmap.toImage()))
-        except Exception as exc:
-            error.append(str(exc))
-        finally:
-            loop.quit()
-
-    view.loadFinished.connect(_on_loaded)
-    view.load(QUrl.fromLocalFile(str(BURNIN_TEMPLATE)))
-    loop.exec()
-
-    view.close()
-    view.deleteLater()
-
-    if error:
-        raise RuntimeError(error[0])
-    if not result:
-        raise RuntimeError("Burn-in render produced no output.")
-    return result[0]
-
-
 def render_burnin_overlay(
     width: int,
     height: int,
@@ -153,12 +94,69 @@ def render_burnin_overlay(
 ) -> np.ndarray:
     """Render the burn-in HTML template and return a uint8 RGBA overlay.
 
-    Uses a dual-render difference matte: renders on black then on white,
-    derives alpha from the difference.  Must be called from the main thread.
+    Creates two off-screen WebEngine views (black bg + white bg) in a single
+    event-loop pass, grabs both, and derives alpha via difference matte.
+    Safe to call from inside an existing Qt event loop (no nested loops).
     """
-    on_black = _render_on_bg(width, height, fields, QColor(0, 0, 0))
-    on_white = _render_on_bg(width, height, fields, QColor(255, 255, 255))
-    return difference_matte(on_black, on_white)
+    js_data = json.dumps(fields)
+    tmpl_url = QUrl.fromLocalFile(str(BURNIN_TEMPLATE))
+    loop = QEventLoop()
+    results: dict[str, np.ndarray] = {}
+    errors: list[str] = []
+
+    views: list[QWebEngineView] = []
+    for label, bg in [("black", QColor(0, 0, 0)), ("white", QColor(255, 255, 255))]:
+        v = QWebEngineView()
+        v.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+        v.resize(width, height)
+        v.page().settings().setAttribute(
+            QWebEngineSettings.WebAttribute.ShowScrollBars, False
+        )
+        v.page().setBackgroundColor(bg)
+        v.show()
+        views.append(v)
+
+        def _make_chain(view: QWebEngineView, key: str):
+            def _on_loaded(ok: bool) -> None:
+                if not ok:
+                    errors.append(f"Failed to load burn-in template ({key}).")
+                    if len(results) + len(errors) >= 2:
+                        loop.quit()
+                    return
+                QTimer.singleShot(100, _inject)
+
+            def _inject() -> None:
+                view.page().setZoomFactor(1.0)
+                view.page().runJavaScript(
+                    f"updateBurnin({js_data})",
+                    lambda _: QTimer.singleShot(80, _capture),
+                )
+
+            def _capture() -> None:
+                try:
+                    pix = view.grab(view.rect())
+                    results[key] = _qimage_to_rgb(pix.toImage())
+                except Exception as exc:
+                    errors.append(str(exc))
+                if len(results) + len(errors) >= 2:
+                    loop.quit()
+
+            view.loadFinished.connect(_on_loaded)
+
+        _make_chain(v, label)
+        v.load(tmpl_url)
+
+    loop.exec()
+
+    for v in views:
+        v.close()
+        v.deleteLater()
+
+    if errors:
+        raise RuntimeError(errors[0])
+    if "black" not in results or "white" not in results:
+        raise RuntimeError("Burn-in render produced no output.")
+    return difference_matte(results["black"], results["white"])
 
 
 def composite_burnin(

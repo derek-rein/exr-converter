@@ -2349,6 +2349,7 @@ class ConvertTab(QWidget):
         inp = self.get_input_path()
         inferred_fps = self._infer_fps_from_input()
         dst_cs = self.dst_btn.current_space()
+        src_cs = self.src_btn.current_space()
         dlg = SlateDialog(
             self._settings,
             locked_width=locked_w,
@@ -2358,6 +2359,8 @@ class ConvertTab(QWidget):
             inferred_fps=inferred_fps,
             frame_range=self._full_input_range,
             dst_colorspace=dst_cs,
+            ocio_cfg=self._ocio_cfg,
+            src_colorspace=src_cs,
             parent=self,
         )
         dlg._preview_tabs.setCurrentIndex(start_tab)

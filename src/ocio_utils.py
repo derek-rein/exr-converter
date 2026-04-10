@@ -87,6 +87,48 @@ def make_cpu_processor(config: OCIO.Config, src: str, dst: str) -> OCIO.CPUProce
     return config.getProcessor(src, dst).getDefaultCPUProcessor()
 
 
+def list_displays(config: OCIO.Config) -> list[str]:
+    """Return the display names defined in *config*."""
+    return list(config.getDisplays())
+
+
+def list_views(config: OCIO.Config, display: str) -> list[str]:
+    """Return the view names available for *display*."""
+    return list(config.getViews(display))
+
+
+def make_display_processor(
+    config: OCIO.Config,
+    src_space: str,
+    display: str,
+    view: str,
+    exposure: float = 0.0,
+    gamma: float = 1.0,
+) -> OCIO.CPUProcessor:
+    """Build a CPUProcessor for OCIO DisplayViewTransform with exposure/gamma.
+
+    The resulting processor converts from *src_space* through the given
+    display/view pair, with exposure (in stops) and gamma applied via
+    ``ExposureContrastTransform``.
+    """
+    group = OCIO.GroupTransform()
+
+    if exposure != 0.0 or gamma != 1.0:
+        ec = OCIO.ExposureContrastTransform()
+        ec.setExposure(exposure)
+        ec.setGamma(gamma)
+        ec.setPivot(0.18)
+        group.appendTransform(ec)
+
+    dvt = OCIO.DisplayViewTransform()
+    dvt.setSrc(src_space)
+    dvt.setDisplay(display)
+    dvt.setView(view)
+    group.appendTransform(dvt)
+
+    return config.getProcessor(group).getDefaultCPUProcessor()
+
+
 def config_source_info(source_key: str, file_path: str = "") -> tuple[str, str]:
     """Return (config_source, config_path) suitable for pickling to worker processes.
 

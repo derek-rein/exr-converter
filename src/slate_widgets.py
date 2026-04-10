@@ -13,15 +13,28 @@ import time
 
 from PySide6.QtCore import (
     QEvent,
+    QObject,
     QPointF,
     QRectF,
     QRegularExpression,
     QSettings,
     Qt,
+    QThread,
+    QTimer,
     QUrl,
     Signal,
 )
-from PySide6.QtGui import QBrush, QColor, QPainter, QRegularExpressionValidator, QWheelEvent
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QRegularExpressionValidator,
+    QWheelEvent,
+)
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
@@ -61,6 +74,262 @@ def _env_default(key: str, settings_key: str, settings: QSettings) -> str:
     if saved:
         return saved
     return os.environ.get(key, "")
+
+
+def _extract_full_frame(input_path: str):
+    """Read the mid-frame of an EXR sequence at full resolution as uint16 RGB."""
+    import numpy as np
+
+    try:
+        import OpenImageIO as oiio
+
+        from .sequence import find_exr_sequence_info
+
+        _paths, _name, frames, _pad, seq = find_exr_sequence_info(input_path)
+        if not frames:
+            return None
+        mid_frame = sorted(frames)[len(frames) // 2]
+        mid_path = seq.frame(mid_frame)
+
+        buf = oiio.ImageBuf(mid_path)
+        if buf.has_error:
+            return None
+        spec = buf.spec()
+        if spec.full_width > 0 and spec.full_height > 0:
+            dx, dy = spec.full_x, spec.full_y
+            dw, dh = spec.full_width, spec.full_height
+        else:
+            dx, dy = 0, 0
+            dw, dh = spec.width, spec.height
+        roi = oiio.ROI(dx, dx + dw, dy, dy + dh, 0, 1, 0, min(spec.nchannels, 3))
+        pixels = buf.get_pixels(oiio.UINT16, roi)
+        if pixels.shape[2] < 3:
+            pixels = np.repeat(pixels, 3, axis=2)
+        return np.ascontiguousarray(pixels[:, :, :3])
+    except Exception:
+        return None
+
+
+class _FrameLoaderWorker(QObject):
+    """Loads a full-resolution EXR frame in a background thread."""
+
+    finished = Signal(object)  # numpy array or None
+
+    def __init__(self, input_path: str):
+        super().__init__()
+        self._input_path = input_path
+
+    def run(self) -> None:
+        frame = _extract_full_frame(self._input_path)
+        self.finished.emit(frame)
+
+
+# ---------------------------------------------------------------------------
+# Nuke-style custom-painted slider
+# ---------------------------------------------------------------------------
+
+
+class NukeSlider(QWidget):
+    """A QPainter-drawn slider that mimics Nuke's viewer gain/gamma controls.
+
+    Features:
+    - Dark background with thin groove line
+    - Labelled tick marks at user-defined values
+    - Thin vertical indicator line (accent color) for current position
+    - Log or linear value mapping
+    - Click-and-drag interaction
+    """
+
+    valueChanged = Signal(float)
+
+    _BG = QColor(0x1E, 0x1E, 0x1E)
+    _GROOVE = QColor(0x3C, 0x3C, 0x3C)
+    _TICK = QColor(0x58, 0x58, 0x58)
+    _LABEL_COLOR = QColor(0x88, 0x88, 0x88)
+    _INDICATOR = QColor(0xC8, 0x78, 0x28)  # Nuke orange
+    _DEFAULT_MARK = QColor(0x50, 0x50, 0x50)
+
+    def __init__(
+        self,
+        ticks: list[float],
+        default: float,
+        log_scale: bool = False,
+        val_min: float = 0.0,
+        val_max: float = 1.0,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._ticks = ticks
+        self._default = default
+        self._log_scale = log_scale
+        self._val_min = val_min
+        self._val_max = val_max
+        self._value = default
+        self._dragging = False
+
+        import math
+
+        if log_scale:
+            self._log_min = math.log(max(val_min, 1e-10))
+            self._log_max = math.log(max(val_max, 1e-10))
+        else:
+            self._log_min = 0.0
+            self._log_max = 1.0
+
+        self.setMinimumHeight(22)
+        self.setMaximumHeight(22)
+        self.setMinimumWidth(80)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._font = QFont("monospace", 8)
+        self._font.setStyleHint(QFont.StyleHint.Monospace)
+
+    # -- value <-> x mapping --
+
+    def _value_to_t(self, val: float) -> float:
+        import math
+
+        val = max(self._val_min, min(self._val_max, val))
+        if self._log_scale:
+            return (math.log(max(val, 1e-10)) - self._log_min) / (
+                self._log_max - self._log_min
+            )
+        return (val - self._val_min) / (self._val_max - self._val_min)
+
+    def _t_to_value(self, t: float) -> float:
+        import math
+
+        t = max(0.0, min(1.0, t))
+        if self._log_scale:
+            return math.exp(self._log_min + t * (self._log_max - self._log_min))
+        return self._val_min + t * (self._val_max - self._val_min)
+
+    def _margin_left(self) -> int:
+        return 2
+
+    def _margin_right(self) -> int:
+        return 2
+
+    def _track_x(self) -> tuple[int, int]:
+        ml = self._margin_left()
+        return ml, self.width() - self._margin_right() - ml
+
+    def _t_to_x(self, t: float) -> float:
+        ml, track_w = self._track_x()
+        return ml + t * track_w
+
+    def _x_to_t(self, x: float) -> float:
+        ml, track_w = self._track_x()
+        if track_w <= 0:
+            return 0.0
+        return (x - ml) / track_w
+
+    # -- public interface --
+
+    def value(self) -> float:
+        return self._value
+
+    def setValue(self, val: float) -> None:
+        val = max(self._val_min, min(self._val_max, val))
+        if val != self._value:
+            self._value = val
+            self.update()
+
+    # -- painting --
+
+    def paintEvent(self, _event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+
+        # background
+        p.fillRect(0, 0, w, h, self._BG)
+
+        groove_y = h // 2
+        ml, track_w = self._track_x()
+
+        # groove line
+        p.setPen(QPen(self._GROOVE, 1))
+        p.drawLine(ml, groove_y, ml + track_w, groove_y)
+
+        # default-value mark (thin dim vertical line)
+        def_t = self._value_to_t(self._default)
+        def_x = self._t_to_x(def_t)
+        p.setPen(QPen(self._DEFAULT_MARK, 1))
+        p.drawLine(int(def_x), 2, int(def_x), h - 2)
+
+        # tick marks + labels
+        p.setFont(self._font)
+        fm = QFontMetricsF(self._font)
+        for tick_val in self._ticks:
+            t = self._value_to_t(tick_val)
+            tx = self._t_to_x(t)
+            # tick line
+            p.setPen(QPen(self._TICK, 1))
+            p.drawLine(int(tx), groove_y - 3, int(tx), groove_y + 3)
+            # label
+            if tick_val == int(tick_val) and tick_val >= 0:
+                label = str(int(tick_val))
+            elif tick_val >= 1:
+                label = f"{tick_val:.0f}"
+            elif tick_val >= 0.1:
+                label = f"{tick_val:.1f}"
+            else:
+                label = f"{tick_val:.2f}"
+            lw = fm.horizontalAdvance(label)
+            lx = tx - lw / 2
+            lx = max(0.0, min(float(w) - lw, lx))
+            p.setPen(self._LABEL_COLOR)
+            p.drawText(int(lx), h - 2, label)
+
+        # indicator line (current value)
+        cur_t = self._value_to_t(self._value)
+        cur_x = self._t_to_x(cur_t)
+        p.setPen(QPen(self._INDICATOR, 2))
+        p.drawLine(int(cur_x), 1, int(cur_x), h - 1)
+
+        p.end()
+
+    # -- mouse interaction --
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._set_from_x(event.position().x())
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._dragging:
+            self._set_from_x(event.position().x())
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._dragging:
+            self._dragging = False
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        """Reset to default on double-click."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._value = self._default
+            self.update()
+            self.valueChanged.emit(self._value)
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
+    def _set_from_x(self, x: float) -> None:
+        t = self._x_to_t(x)
+        val = self._t_to_value(t)
+        self._value = val
+        self.update()
+        self.valueChanged.emit(self._value)
 
 
 def extract_thumbnail_b64(input_path: str, mode: str) -> str:
@@ -566,7 +835,6 @@ class SlatePreviewView(QGraphicsView):
                 item.resize(preview_w, preview_h)
                 if hasattr(widget, "page"):
                     widget.page().setZoomFactor(1.0)
-        self.fit_in_view()
 
     def fit_in_view(self) -> None:
         self.fitInView(self._slate_rect, Qt.AspectRatioMode.KeepAspectRatio)
@@ -673,6 +941,10 @@ class SlateDialog(QDialog):
     Right side: A single ``SlatePreviewView`` (one scene, one transform) with
     a ``QTabBar`` that toggles which content layer is visible.  Group 0 is
     the slate HTML; group 1 is the shot thumbnail + burn-in overlay.
+
+    The shot preview frame is loaded asynchronously via ``QThread`` on dialog
+    open.  Burn-in render + OIIO composite + OCIO display transform happen
+    on the main thread but are fast once the frame is cached.
     """
 
     _GROUP_SLATE = 0
@@ -688,11 +960,24 @@ class SlateDialog(QDialog):
         inferred_fps: float = 0.0,
         frame_range: str = "",
         dst_colorspace: str = "",
+        ocio_cfg: object | None = None,
+        src_colorspace: str = "",
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Slate & Overlay Editor")
         self.resize(1400, 850)
+
+        self._input_path = input_path
+        self._ocio_cfg = ocio_cfg
+        self._src_colorspace = src_colorspace
+
+        self._shot_frame_u16 = None
+        self._comp_f32 = None  # cached composited frame (scene-linear float32)
+        self._display_f32 = None  # cached OCIO display-transformed frame
+        self._frame_thread: QThread | None = None
+        self._frame_worker: _FrameLoaderWorker | None = None
+        self._burnin_pixmap_item = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -711,11 +996,9 @@ class SlateDialog(QDialog):
         if locked_width > 0 and locked_height > 0:
             self._form.set_resolution_locked(locked_width, locked_height)
 
-        self._thumb_b64 = ""
         if input_path:
             thumb = extract_thumbnail_b64(input_path, mode)
             if thumb:
-                self._thumb_b64 = thumb
                 self._form.set_thumbnail_b64(thumb)
 
         scroll = QScrollArea()
@@ -725,7 +1008,7 @@ class SlateDialog(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         splitter.addWidget(scroll)
 
-        # --- Right: single preview view + tab bar ---
+        # --- Right: single preview view + tab bar + viewer controls ---
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -736,6 +1019,8 @@ class SlateDialog(QDialog):
         self._preview_tabs.addTab("Shot Preview")
         self._preview_tabs.currentChanged.connect(self._on_tab_changed)
         right_layout.addWidget(self._preview_tabs)
+
+        self._build_viewer_controls(right_layout)
 
         self._preview = SlatePreviewView()
         right_layout.addWidget(self._preview, 1)
@@ -748,10 +1033,7 @@ class SlateDialog(QDialog):
         self._slate_web.page().setBackgroundColor(QColor("#323232"))
         self._preview.add_web_proxy(self._slate_web, self._GROUP_SLATE)
 
-        self._burnin_pixmap_item = None
-
         w, h = self._form.resolution()
-
         self._preview.set_slate_size(w, h)
         self._preview.show_group(self._GROUP_SLATE)
 
@@ -783,10 +1065,203 @@ class SlateDialog(QDialog):
         self._slate_web.loadFinished.connect(self._on_slate_loaded)
         self._slate_web.load(QUrl.fromLocalFile(str(DEFAULT_TEMPLATE)))
 
-        self._input_path = input_path
+        self._shot_timer = QTimer()
+        self._shot_timer.setSingleShot(True)
+        self._shot_timer.setInterval(600)
+        self._shot_timer.timeout.connect(self._composite_shot_preview)
+
         self._form.data_changed.connect(self._push_slate_preview)
-        self._form.data_changed.connect(self._push_burnin_preview)
+        self._form.data_changed.connect(lambda _: self._shot_timer.start())
         self._form.data_changed.connect(self._update_preview_size)
+
+        # Kick off async frame load
+        if input_path:
+            self._load_frame_async()
+
+    # -- Viewer controls (Nuke-style) --
+
+    _GAIN_TICKS = [0.01, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 64.0]
+    _GAMMA_TICKS = [0.0, 0.1, 0.4, 0.7, 1.0, 2.0, 3.0, 4.0]
+    _FSTOP_STEPS = (1, 2, 4, 8, 16, 32, 64)
+
+    def _build_viewer_controls(self, parent_layout: QVBoxLayout) -> None:
+        """Build Nuke-style gain/gamma sliders + display colorspace combo."""
+        strip = QHBoxLayout()
+        strip.setContentsMargins(4, 1, 4, 1)
+        strip.setSpacing(4)
+
+        # --- f-stop step arrows ---
+        self._fstop_idx = 3  # f/8 default
+        fstop_left = QLabel("\u25C4")
+        fstop_left.setCursor(Qt.CursorShape.PointingHandCursor)
+        fstop_left.setFixedWidth(8)
+        fstop_left.setStyleSheet("font-size: 8px; color: #888;")
+        fstop_left.mousePressEvent = lambda _e: self._step_fstop(-1)
+
+        self._fstop_label = QLabel(
+            f"f/{self._FSTOP_STEPS[self._fstop_idx]}"
+        )
+        self._fstop_label.setFixedWidth(24)
+        self._fstop_label.setStyleSheet("font-size: 9px; color: #888;")
+
+        fstop_right = QLabel("\u25BA")
+        fstop_right.setCursor(Qt.CursorShape.PointingHandCursor)
+        fstop_right.setFixedWidth(8)
+        fstop_right.setStyleSheet("font-size: 8px; color: #888;")
+        fstop_right.mousePressEvent = lambda _e: self._step_fstop(1)
+
+        strip.addWidget(fstop_left)
+        strip.addWidget(self._fstop_label)
+        strip.addWidget(fstop_right)
+
+        # --- Gain value label + slider ---
+        self._gain_value_label = QLabel("1")
+        self._gain_value_label.setFixedWidth(28)
+        self._gain_value_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._gain_value_label.setStyleSheet(
+            "font-size: 10px; color: #d4d4d4;"
+        )
+        strip.addWidget(self._gain_value_label)
+
+        self._gain_slider = NukeSlider(
+            ticks=self._GAIN_TICKS,
+            default=1.0,
+            log_scale=True,
+            val_min=0.01,
+            val_max=64.0,
+        )
+        strip.addWidget(self._gain_slider, 1)
+
+        strip.addSpacing(4)
+
+        # --- Gamma label + slider ---
+        gamma_lbl = QLabel("\u03B3")
+        gamma_lbl.setFixedWidth(10)
+        gamma_lbl.setStyleSheet("font-size: 10px; color: #888;")
+        strip.addWidget(gamma_lbl)
+
+        self._gamma_value_label = QLabel("1")
+        self._gamma_value_label.setFixedWidth(22)
+        self._gamma_value_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._gamma_value_label.setStyleSheet(
+            "font-size: 10px; color: #d4d4d4;"
+        )
+        strip.addWidget(self._gamma_value_label)
+
+        self._gamma_slider = NukeSlider(
+            ticks=self._GAMMA_TICKS,
+            default=1.0,
+            log_scale=False,
+            val_min=0.0,
+            val_max=4.0,
+        )
+        strip.addWidget(self._gamma_slider, 1)
+
+        strip.addSpacing(8)
+
+        # --- Display colorspace combo ---
+        self._display_view_combo = QComboBox()
+        self._display_view_combo.setMinimumWidth(120)
+        strip.addWidget(self._display_view_combo)
+
+        parent_layout.addLayout(strip)
+
+        # Populate display/view from OCIO config
+        self._display_view_pairs: list[tuple[str, str]] = []
+        if self._ocio_cfg is not None:
+            self._populate_display_view_combo()
+        else:
+            self._display_view_pairs.append(("sRGB", "Raw"))
+            self._display_view_combo.addItem("sRGB")
+
+        # Wire signals — gain/gamma are fast numpy post-process only;
+        # display/view change re-runs the heavy OCIO pass.
+        self._gain_slider.valueChanged.connect(self._on_gain_changed)
+        self._gamma_slider.valueChanged.connect(self._on_gamma_changed)
+        self._display_view_combo.currentIndexChanged.connect(
+            lambda _: self._invalidate_display_cache()
+        )
+
+        self._gain = 1.0
+        self._gamma = 1.0
+
+    def _populate_display_view_combo(self) -> None:
+        from .ocio_utils import list_displays, list_views
+
+        self._display_view_combo.blockSignals(True)
+        self._display_view_combo.clear()
+        self._display_view_pairs.clear()
+
+        default_display = ""
+        default_view = ""
+        default_idx = 0
+        try:
+            default_display = self._ocio_cfg.getDefaultDisplay()
+            default_view = self._ocio_cfg.getDefaultView(
+                default_display
+            )
+        except Exception:
+            pass
+
+        try:
+            displays = list_displays(self._ocio_cfg)
+            idx = 0
+            for display in displays:
+                views = list_views(self._ocio_cfg, display)
+                for view in views:
+                    self._display_view_pairs.append((display, view))
+                    if len(displays) == 1:
+                        label = view
+                    else:
+                        label = f"{display} / {view}"
+                    self._display_view_combo.addItem(label)
+                    if (
+                        display == default_display
+                        and view == default_view
+                    ):
+                        default_idx = idx
+                    idx += 1
+        except Exception:
+            pass
+
+        if self._display_view_combo.count() > 0:
+            self._display_view_combo.setCurrentIndex(default_idx)
+        self._display_view_combo.blockSignals(False)
+
+    def _step_fstop(self, direction: int) -> None:
+        new = self._fstop_idx + direction
+        self._fstop_idx = max(0, min(len(self._FSTOP_STEPS) - 1, new))
+        self._fstop_label.setText(
+            f"f/{self._FSTOP_STEPS[self._fstop_idx]}"
+        )
+
+    def _on_gain_changed(self, gain: float) -> None:
+        self._gain = gain
+        if gain >= 10:
+            txt = f"{gain:.0f}"
+        elif gain >= 1:
+            txt = f"{gain:.1f}"
+        elif gain >= 0.1:
+            txt = f"{gain:.2f}"
+        else:
+            txt = f"{gain:.3f}"
+        self._gain_value_label.setText(txt)
+        self._refresh_gain_gamma()
+
+    def _on_gamma_changed(self, gamma: float) -> None:
+        self._gamma = gamma
+        if gamma >= 1:
+            txt = f"{gamma:.1f}"
+        else:
+            txt = f"{gamma:.2f}"
+        self._gamma_value_label.setText(txt)
+        self._refresh_gain_gamma()
+
+    # -- Tab switching --
 
     def _on_tab_changed(self, idx: int) -> None:
         self._preview.show_group(idx)
@@ -804,8 +1279,6 @@ class SlateDialog(QDialog):
         if ok:
             self._push_slate_preview(self._form.slate_data())
             self._push_slate_thumbnail()
-            self._set_shot_background()
-            self._push_burnin_preview()
             self._preview.fit_in_view()
 
     def _push_slate_preview(self, data: dict | None = None) -> None:
@@ -823,73 +1296,173 @@ class SlateDialog(QDialog):
         js = f"if(typeof setThumbnail==='function') setThumbnail('{b64}')"
         self._slate_web.page().runJavaScript(js)
 
+    # -- Async frame loading --
+
+    def _load_frame_async(self) -> None:
+        """Start loading the input frame in a background QThread."""
+        self._frame_thread = QThread()
+        self._frame_worker = _FrameLoaderWorker(self._input_path)
+        self._frame_worker.moveToThread(self._frame_thread)
+        self._frame_thread.started.connect(self._frame_worker.run)
+        self._frame_worker.finished.connect(self._on_frame_loaded)
+        self._frame_worker.finished.connect(self._frame_thread.quit)
+        self._frame_thread.start()
+
+    def _on_frame_loaded(self, frame) -> None:
+        """Called on the main thread when the background frame read completes."""
+        self._shot_frame_u16 = frame
+        if frame is not None:
+            self._composite_shot_preview()
+
+    def done(self, result: int) -> None:
+        """Ensure the background frame loader thread is stopped before close."""
+        if self._frame_thread is not None and self._frame_thread.isRunning():
+            self._frame_thread.quit()
+            self._frame_thread.wait()
+        self._frame_worker = None
+        self._frame_thread = None
+        super().done(result)
+
     # -- Shot / burn-in preview --
 
-    def _push_burnin_preview(self, _data: dict | None = None) -> None:
-        """Render burn-in overlay via dual-render matte and show as pixmap."""
-        from PySide6.QtGui import QImage, QPixmap
+    def _composite_shot_preview(self) -> None:
+        """Render burn-in overlay, composite onto cached frame, then display.
 
-        from .burnin import burnin_fields_from_slate, render_burnin_overlay
+        The raw frame is already cached in ``self._shot_frame_u16`` by the
+        background loader.  This method renders the burn-in overlay, composites
+        it via OIIO, stores the scene-linear result in ``self._comp_f32``,
+        then runs the heavy OCIO display transform pass.
+        """
+        import numpy as np
+
+        from .burnin import (
+            burnin_fields_from_slate,
+            composite_burnin,
+            render_burnin_overlay,
+        )
+
+        if self._shot_frame_u16 is None:
+            return
+
+        frame_rgb = self._shot_frame_u16
+        fh, fw = frame_rgb.shape[:2]
 
         fields = burnin_fields_from_slate(
             self._form.slate_data(), self._input_path
         )
-        w, h = self._form.resolution()
-        preview_h = 1080
-        preview_w = int(preview_h * w / max(h, 1))
-        rgba = render_burnin_overlay(preview_w, preview_h, fields)
+        try:
+            overlay_rgba = render_burnin_overlay(fw, fh, fields)
+        except RuntimeError:
+            return
+        comp_u16 = composite_burnin(frame_rgb, overlay_rgba)
+        self._comp_f32 = comp_u16.astype(np.float32) / 65535.0
+        self._display_f32 = None
 
+        self._apply_display_transform()
+
+    def _apply_display_transform(self) -> None:
+        """Heavy pass: run OCIO DisplayViewTransform (no exposure/gamma) once.
+
+        Caches the result in ``self._display_f32``, then chains to
+        ``_refresh_gain_gamma()`` for the fast post-process.
+        """
+        import numpy as np
+
+        if self._comp_f32 is None:
+            return
+
+        if self._ocio_cfg is not None and self._src_colorspace:
+            idx = self._display_view_combo.currentIndex()
+            if 0 <= idx < len(self._display_view_pairs):
+                display, view = self._display_view_pairs[idx]
+                try:
+                    from .ocio_utils import make_display_processor
+
+                    cpu = make_display_processor(
+                        self._ocio_cfg,
+                        self._src_colorspace,
+                        display,
+                        view,
+                        exposure=0.0,
+                        gamma=1.0,
+                    )
+                    h, w = self._comp_f32.shape[:2]
+                    pixels = np.ascontiguousarray(
+                        self._comp_f32.reshape(-1, 3).copy()
+                    )
+                    cpu.applyRGB(pixels)
+                    self._display_f32 = pixels.reshape(h, w, 3)
+                except Exception:
+                    self._display_f32 = self._comp_f32
+            else:
+                self._display_f32 = self._comp_f32
+        else:
+            self._display_f32 = self._comp_f32
+
+        self._refresh_gain_gamma()
+
+    def _invalidate_display_cache(self) -> None:
+        """Called when the display/view combo changes — re-run OCIO."""
+        self._display_f32 = None
+        self._apply_display_transform()
+
+    def _refresh_gain_gamma(self) -> None:
+        """Light pass: apply gain * pow(1/gamma) to the cached display buffer.
+
+        This runs on every gain/gamma slider tick and is effectively instant
+        (~5ms for 4K) since it's just a numpy multiply + power.
+        """
+        import numpy as np
+        from PySide6.QtGui import QImage, QPixmap
+
+        if self._display_f32 is None:
+            return
+
+        gain = getattr(self, "_gain", 1.0)
+        gamma = getattr(self, "_gamma", 1.0)
+
+        out = self._display_f32
+        if gain != 1.0:
+            out = out * gain
+        if gamma != 1.0:
+            out = np.clip(out, 0.0, None)
+            out = np.power(out, 1.0 / gamma)
+
+        comp_u8 = (np.clip(out, 0.0, 1.0) * 255 + 0.5).astype(np.uint8)
+
+        fh, fw = comp_u8.shape[:2]
         qimg = QImage(
-            rgba.data, preview_w, preview_h,
-            preview_w * 4, QImage.Format.Format_RGBA8888,
+            comp_u8.data, fw, fh, fw * 3, QImage.Format.Format_RGB888
         )
         pix = QPixmap.fromImage(qimg.copy())
 
         scene = self._preview._scene
         group_items = self._preview._groups.setdefault(self._GROUP_SHOT, [])
+
         if self._burnin_pixmap_item is not None:
             scene.removeItem(self._burnin_pixmap_item)
             if self._burnin_pixmap_item in group_items:
                 group_items.remove(self._burnin_pixmap_item)
+
         self._burnin_pixmap_item = scene.addPixmap(pix)
-        self._burnin_pixmap_item.setZValue(1)
+        self._burnin_pixmap_item.setZValue(0)
         group_items.append(self._burnin_pixmap_item)
-        cur = self._preview_tabs.currentIndex()
-        self._burnin_pixmap_item.setVisible(cur == self._GROUP_SHOT)
 
-    def _set_shot_background(self) -> None:
-        """Place the input thumbnail behind the burn-in web view in the scene."""
-        if not self._thumb_b64:
-            return
-        import base64
-
-        from PySide6.QtGui import QPixmap
-
-        raw = base64.b64decode(self._thumb_b64)
-        pix = QPixmap()
-        pix.loadFromData(raw)
-        if pix.isNull():
-            return
-        scene = self._preview._scene
-        bg_item = scene.addPixmap(pix)
-        bg_item.setZValue(-1)
-        self._preview._groups.setdefault(self._GROUP_SHOT, []).append(
-            bg_item
-        )
         w, h = self._form.resolution()
         preview_h = 1080
         preview_w = int(preview_h * w / max(h, 1))
         if pix.width() > 0 and pix.height() > 0:
             sx = preview_w / pix.width()
             sy = preview_h / pix.height()
-            bg_item.setScale(min(sx, sy))
-            scaled_w = pix.width() * min(sx, sy)
-            scaled_h = pix.height() * min(sx, sy)
-            bg_item.setPos(
-                (preview_w - scaled_w) / 2, (preview_h - scaled_h) / 2
+            s = min(sx, sy)
+            self._burnin_pixmap_item.setScale(s)
+            self._burnin_pixmap_item.setPos(
+                (preview_w - pix.width() * s) / 2,
+                (preview_h - pix.height() * s) / 2,
             )
-        cur_group = self._preview_tabs.currentIndex()
-        bg_item.setVisible(cur_group == self._GROUP_SHOT)
+
+        cur = self._preview_tabs.currentIndex()
+        self._burnin_pixmap_item.setVisible(cur == self._GROUP_SHOT)
 
     # -- Shared --
 
