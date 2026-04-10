@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGraphicsProxyWidget,
     QGraphicsScene,
@@ -39,16 +40,44 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QSpinBox,
     QSplitter,
     QStatusBar,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from .slate import DEFAULT_TEMPLATE
+from .slate import DEFAULT_TEMPLATE, TEMPLATES_DIR
 
 COMMON_FPS: list[float] = [23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 60.0]
+
+BURNIN_TEMPLATE = TEMPLATES_DIR / "burnin.html"
+
+_BURNIN_POSITIONS = [
+    ("top_left", "Top-left"),
+    ("top_center", "Top-center"),
+    ("top_right", "Top-right"),
+    ("bottom_left", "Bottom-left"),
+    ("bottom_center", "Bottom-center"),
+    ("bottom_right", "Bottom-right"),
+]
+
+_BURNIN_DEFAULTS = {
+    "top_left": "{vendor}",
+    "top_center": "{show_full}",
+    "top_right": "{date}",
+    "bottom_left": "{version_name}",
+    "bottom_center": "",
+    "bottom_right": "{frames}",
+}
+
+_BURNIN_TOKENS = (
+    "{vendor}  {show}  {show_full}  {seq}  {shot}  {version}  "
+    "{version_name}  {artist}  {date}  {frames}  {fps}  "
+    "{resolution}  {colorspace}  {frame}"
+)
 
 ZOOM_MIN = 0.05
 ZOOM_MAX = 5.0
@@ -658,11 +687,13 @@ class SlatePreviewView(QGraphicsView):
 
 
 class SlateDialog(QDialog):
-    """Modal dialog for editing slate data with a live preview.
+    """Modal dialog for editing slate + burn-in overlay data with live preview.
 
-    Left side: ``SlateFormPanel`` in a scroll area.
-    Right side: ``SlatePreviewView`` with a WebEngine preview.
-    Bottom: OK / Cancel buttons.
+    Left side: ``SlateFormPanel`` in a scroll area (slate fields + burn-in fields).
+    Right side: ``QTabWidget`` with two tabs:
+      - **Slate**: WebEngine preview of the static slate frame.
+      - **Shot Preview**: Thumbnail background with the burn-in text overlay.
+    Bottom: Status bar with OK / Cancel.
     """
 
     def __init__(
@@ -678,7 +709,7 @@ class SlateDialog(QDialog):
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Edit Slate")
+        self.setWindowTitle("Slate & Overlay Editor")
         self.resize(1400, 850)
 
         layout = QVBoxLayout(self)
@@ -698,9 +729,11 @@ class SlateDialog(QDialog):
         if locked_width > 0 and locked_height > 0:
             self._form.set_resolution_locked(locked_width, locked_height)
 
+        self._thumb_b64 = ""
         if input_path:
             thumb = extract_thumbnail_b64(input_path, mode)
             if thumb:
+                self._thumb_b64 = thumb
                 self._form.set_thumbnail_b64(thumb)
 
         scroll = QScrollArea()
@@ -710,17 +743,38 @@ class SlateDialog(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         splitter.addWidget(scroll)
 
-        # --- Right: web preview ---
-        self._web = QWebEngineView()
-        self._web.page().settings().setAttribute(
+        # --- Right: tabbed preview ---
+        self._preview_tabs = QTabWidget()
+
+        # Tab 1: Slate preview
+        self._slate_web = QWebEngineView()
+        self._slate_web.page().settings().setAttribute(
             QWebEngineSettings.WebAttribute.ShowScrollBars, False
         )
-        self._web.page().setBackgroundColor(QColor("#323232"))
-
-        self._preview = SlatePreviewView(self._web)
+        self._slate_web.page().setBackgroundColor(QColor("#323232"))
+        self._slate_preview = SlatePreviewView(self._slate_web)
         w, h = self._form.resolution()
-        self._preview.set_slate_size(w, h)
-        splitter.addWidget(self._preview)
+        self._slate_preview.set_slate_size(w, h)
+        self._preview_tabs.addTab(self._slate_preview, "Slate")
+
+        # Tab 2: Shot preview (thumbnail bg + burn-in overlay)
+        self._shot_container = QWidget()
+        shot_layout = QVBoxLayout(self._shot_container)
+        shot_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._burnin_web = QWebEngineView()
+        self._burnin_web.page().settings().setAttribute(
+            QWebEngineSettings.WebAttribute.ShowScrollBars, False
+        )
+        self._burnin_web.page().setBackgroundColor(Qt.GlobalColor.transparent)
+        self._shot_preview = SlatePreviewView(self._burnin_web)
+        self._shot_preview.set_slate_size(w, h)
+        # Dark background; the thumbnail is composited behind via the scene
+        self._shot_preview.setBackgroundBrush(QBrush(QColor("#1a1a1a")))
+        shot_layout.addWidget(self._shot_preview)
+        self._preview_tabs.addTab(self._shot_container, "Shot Preview")
+
+        splitter.addWidget(self._preview_tabs)
 
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -741,11 +795,19 @@ class SlateDialog(QDialog):
         self._status_bar.addPermanentWidget(buttons)
         layout.addWidget(self._status_bar)
 
-        # --- Load template + live preview ---
-        self._load_template()
-        self._form.data_changed.connect(self._push_preview)
+        # --- Load templates + live preview ---
+        self._slate_loaded = False
+        self._burnin_loaded = False
+
+        self._slate_web.loadFinished.connect(self._on_slate_loaded)
+        self._slate_web.load(QUrl.fromLocalFile(str(DEFAULT_TEMPLATE)))
+
+        self._burnin_web.loadFinished.connect(self._on_burnin_loaded)
+        self._burnin_web.load(QUrl.fromLocalFile(str(BURNIN_TEMPLATE)))
+
+        self._form.data_changed.connect(self._push_slate_preview)
         self._form.data_changed.connect(self._update_preview_size)
-        self._web.loadFinished.connect(self._on_template_loaded)
+        self._form.burnin_changed.connect(self._push_burnin_preview)
 
     def event(self, ev: QEvent) -> bool:
         if ev.type() == QEvent.Type.StatusTip:
@@ -753,36 +815,91 @@ class SlateDialog(QDialog):
             return True
         return super().event(ev)
 
-    def _load_template(self) -> None:
-        url = QUrl.fromLocalFile(str(DEFAULT_TEMPLATE))
-        self._web.load(url)
+    # -- Slate preview --
 
-    def _on_template_loaded(self, ok: bool) -> None:
+    def _on_slate_loaded(self, ok: bool) -> None:
+        self._slate_loaded = ok
         if ok:
-            self._push_preview(self._form.slate_data())
-            self._push_thumbnail()
-            self._preview.fit_in_view()
+            self._push_slate_preview(self._form.slate_data())
+            self._push_slate_thumbnail()
+            self._slate_preview.fit_in_view()
 
-    def _push_preview(self, data: dict | None = None) -> None:
+    def _push_slate_preview(self, data: dict | None = None) -> None:
+        if not self._slate_loaded:
+            return
         if data is None:
             data = self._form.slate_data()
         js = f"if(typeof updateSlate==='function') updateSlate({json.dumps(data)})"
-        self._web.page().runJavaScript(js)
+        self._slate_web.page().runJavaScript(js)
 
-    def _push_thumbnail(self) -> None:
+    def _push_slate_thumbnail(self) -> None:
         b64 = self._form.thumbnail_b64()
         if not b64:
             return
         js = f"if(typeof setThumbnail==='function') setThumbnail('{b64}')"
-        self._web.page().runJavaScript(js)
+        self._slate_web.page().runJavaScript(js)
+
+    # -- Shot / burn-in preview --
+
+    def _on_burnin_loaded(self, ok: bool) -> None:
+        self._burnin_loaded = ok
+        if ok:
+            self._push_burnin_preview(self._form.burnin_data())
+            self._set_shot_background()
+            self._shot_preview.fit_in_view()
+
+    def _push_burnin_preview(self, data: dict | None = None) -> None:
+        if not self._burnin_loaded:
+            return
+        if data is None:
+            data = self._form.burnin_data()
+        js = f"if(typeof updateBurnin==='function') updateBurnin({json.dumps(data)})"
+        self._burnin_web.page().runJavaScript(js)
+
+    def _set_shot_background(self) -> None:
+        """Place the input thumbnail behind the burn-in web view in the scene."""
+        if not self._thumb_b64:
+            return
+        import base64
+
+        raw = base64.b64decode(self._thumb_b64)
+        from PySide6.QtGui import QPixmap
+
+        pix = QPixmap()
+        pix.loadFromData(raw)
+        if pix.isNull():
+            return
+        scene = self._shot_preview._scene
+        # Insert pixmap behind the web proxy (z=0 for bg, proxy is higher)
+        bg_item = scene.addPixmap(pix)
+        bg_item.setZValue(-1)
+        # Scale to match the web view size
+        web_w = self._burnin_web.width()
+        web_h = self._burnin_web.height()
+        if pix.width() > 0 and pix.height() > 0:
+            sx = web_w / pix.width()
+            sy = web_h / pix.height()
+            bg_item.setScale(min(sx, sy))
+            # Center if aspect ratio differs
+            scaled_w = pix.width() * min(sx, sy)
+            scaled_h = pix.height() * min(sx, sy)
+            bg_item.setPos((web_w - scaled_w) / 2, (web_h - scaled_h) / 2)
+        self._shot_bg_item = bg_item
+
+    # -- Shared --
 
     def _update_preview_size(self, _data: dict | None = None) -> None:
         w, h = self._form.resolution()
-        self._preview.set_slate_size(w, h)
+        self._slate_preview.set_slate_size(w, h)
+        self._shot_preview.set_slate_size(w, h)
 
     def slate_data(self) -> dict:
-        """Return the form data."""
+        """Return the slate form data."""
         return self._form.slate_data()
+
+    def burnin_data(self) -> dict:
+        """Return the burn-in configuration."""
+        return self._form.burnin_data()
 
     def thumbnail_b64(self) -> str:
         """Return the raw base64 thumbnail string."""

@@ -2281,7 +2281,7 @@ class ConvertTab(QWidget):
         if checked and self._burnin_data is None:
             self._open_burnin_dialog()
 
-    def _open_slate_dialog(self) -> None:
+    def _open_slate_dialog(self, start_tab: int = 0) -> None:
         from .slate_widgets import SlateDialog
 
         locked_w, locked_h = self._detect_input_resolution()
@@ -2299,16 +2299,15 @@ class ConvertTab(QWidget):
             dst_colorspace=dst_cs,
             parent=self,
         )
+        dlg._preview_tabs.setCurrentIndex(start_tab)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._slate_data = dlg.slate_data()
             self._slate_thumbnail_b64 = dlg.thumbnail_b64()
-            self.log_message.emit("Slate data updated")
+            self._burnin_data = dlg.burnin_data()
+            self.log_message.emit("Slate & overlay data updated")
 
     def _open_burnin_dialog(self) -> None:
-        dlg = BurnInDialog(self._settings, parent=self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self._burnin_data = dlg.burnin_data()
-            self.log_message.emit("Burn-in data updated")
+        self._open_slate_dialog(start_tab=1)
 
     def _infer_fps_from_input(self) -> float:
         """Probe the input to infer frame rate. Returns 0.0 if unavailable."""
@@ -2677,138 +2676,3 @@ class ConvertTab(QWidget):
     def get_frame_range(self) -> str:
         """Return the user-specified frame range string, or '' for all frames."""
         return self._frame_range_edit.text().strip()
-
-
-# ---------------------------------------------------------------------------
-# Burn-in overlay editor
-# ---------------------------------------------------------------------------
-
-_BURNIN_POSITIONS = [
-    ("top_left", "Top-left"),
-    ("top_center", "Top-center"),
-    ("top_right", "Top-right"),
-    ("bottom_left", "Bottom-left"),
-    ("bottom_center", "Bottom-center"),
-    ("bottom_right", "Bottom-right"),
-]
-
-_BURNIN_TOKENS = [
-    ("{vendor}", "Vendor name"),
-    ("{show}", "Show code"),
-    ("{show_full}", "Full show title"),
-    ("{seq}", "Sequence"),
-    ("{shot}", "Shot"),
-    ("{version}", "Version (e.g. v001)"),
-    ("{version_name}", "Full version name"),
-    ("{artist}", "Artist name"),
-    ("{date}", "Date (YYYY-MM-DD)"),
-    ("{frames}", "Frame range"),
-    ("{fps}", "Frame rate"),
-    ("{resolution}", "Resolution"),
-    ("{colorspace}", "Color space"),
-    ("{frame}", "Current frame number"),
-]
-
-
-class BurnInDialog(QDialog):
-    """Editor for configuring overlay / burn-in text positions."""
-
-    def __init__(self, settings: QSettings, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setWindowTitle("Burn-in Overlay Editor")
-        self.resize(560, 480)
-        self._settings = settings
-
-        layout = QVBoxLayout(self)
-
-        # Positions form
-        pos_group = QGroupBox("Overlay Fields")
-        form = QFormLayout(pos_group)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-
-        self._fields: dict[str, QLineEdit] = {}
-        defaults = {
-            "top_left": "{vendor}",
-            "top_center": "{show_full}",
-            "top_right": "{date}",
-            "bottom_left": "{version_name}",
-            "bottom_center": "",
-            "bottom_right": "{frames}",
-        }
-        for key, label in _BURNIN_POSITIONS:
-            edit = QLineEdit()
-            saved = settings.value(f"burnin/{key}", defaults.get(key, ""))
-            edit.setText(saved)
-            edit.setPlaceholderText("Empty = hidden")
-            edit.setToolTip(
-                "Use tokens like {vendor}, {show}, {frame}, etc.\n"
-                "Plain text is also allowed."
-            )
-            form.addRow(label, edit)
-            self._fields[key] = edit
-
-        layout.addWidget(pos_group)
-
-        # Token reference
-        ref_group = QGroupBox("Available Tokens")
-        ref_layout = QVBoxLayout(ref_group)
-        token_text = "  ".join(f"{tok}" for tok, _desc in _BURNIN_TOKENS)
-        ref_label = QLabel(token_text)
-        ref_label.setWordWrap(True)
-        ref_label.setStyleSheet("color: #888; font-size: 11px;")
-        ref_layout.addWidget(ref_label)
-        layout.addWidget(ref_group)
-
-        # Appearance
-        appear_group = QGroupBox("Appearance")
-        af = QFormLayout(appear_group)
-        af.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-
-        self._opacity_slider = QSlider(Qt.Orientation.Horizontal)
-        self._opacity_slider.setRange(10, 90)
-        self._opacity_slider.setValue(int(settings.value("burnin/opacity", 50)))
-        self._opacity_label = QLabel(f"{self._opacity_slider.value()}%")
-        self._opacity_slider.valueChanged.connect(
-            lambda v: self._opacity_label.setText(f"{v}%")
-        )
-        opacity_row = QHBoxLayout()
-        opacity_row.addWidget(self._opacity_slider, 1)
-        opacity_row.addWidget(self._opacity_label)
-        af.addRow("Opacity", opacity_row)
-
-        self._font_size_spin = QDoubleSpinBox()
-        self._font_size_spin.setRange(0.5, 5.0)
-        self._font_size_spin.setSingleStep(0.1)
-        self._font_size_spin.setSuffix("% of height")
-        self._font_size_spin.setValue(
-            float(settings.value("burnin/font_pct", 2.5))
-        )
-        af.addRow("Font Size", self._font_size_spin)
-
-        layout.addWidget(appear_group)
-
-        layout.addStretch()
-
-        # Buttons
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._save_and_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def _save_and_accept(self) -> None:
-        for key, edit in self._fields.items():
-            self._settings.setValue(f"burnin/{key}", edit.text())
-        self._settings.setValue("burnin/opacity", self._opacity_slider.value())
-        self._settings.setValue("burnin/font_pct", self._font_size_spin.value())
-        self.accept()
-
-    def burnin_data(self) -> dict:
-        """Return the burn-in configuration."""
-        fields = {key: edit.text() for key, edit in self._fields.items()}
-        return {
-            "fields": fields,
-            "opacity": self._opacity_slider.value() / 100.0,
-            "font_pct": self._font_size_spin.value(),
-        }

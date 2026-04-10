@@ -249,13 +249,9 @@ class MainWindow(QMainWindow):
         self._presets_menu.aboutToShow.connect(self._populate_presets_menu)
 
         slate_menu = mb.addMenu("&Slate")
-        edit_slate_action = QAction("Edit Slate\u2026", self)
+        edit_slate_action = QAction("Edit Slate && Overlays\u2026", self)
         edit_slate_action.triggered.connect(self._open_slate_dialog)
         slate_menu.addAction(edit_slate_action)
-
-        edit_burnin_action = QAction("Edit Burn-in\u2026", self)
-        edit_burnin_action.triggered.connect(self._open_burnin_dialog)
-        slate_menu.addAction(edit_burnin_action)
 
         help_menu = mb.addMenu("&Help")
 
@@ -437,10 +433,6 @@ class MainWindow(QMainWindow):
     def _open_slate_dialog(self) -> None:
         tab = self._active_tab()
         tab._open_slate_dialog()
-
-    def _open_burnin_dialog(self) -> None:
-        tab = self._active_tab()
-        tab._open_burnin_dialog()
 
     # -- Presets --
 
