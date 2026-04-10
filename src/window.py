@@ -615,15 +615,13 @@ class MainWindow(QMainWindow):
         # -- Burn-in overlay (EXR→Video only) --
         burnin_overlay_np = None
         if mode == "exr2video" and tab.burnin_enabled():
-            burnin_data = tab.get_burnin_data()
-            if burnin_data is not None:
-                from .burnin import render_burnin_overlay
+            from .burnin import burnin_fields_from_slate, render_burnin_overlay
 
-                bw, bh = self._detect_slate_resolution(mode, inp)
-                slate_data = tab.get_slate_data() or {}
-                context = self._build_burnin_context(tab, slate_data, dst)
-                burnin_overlay_np = render_burnin_overlay(bw, bh, burnin_data, context)
-                self._append_log("Burn-in overlay rendered")
+            bw, bh = self._detect_slate_resolution(mode, inp)
+            slate_data = tab.get_slate_data() or {}
+            fields = burnin_fields_from_slate(slate_data, inp)
+            burnin_overlay_np = render_burnin_overlay(bw, bh, fields)
+            self._append_log("Burn-in overlay rendered")
 
         if mode == "video2exr":
             kwargs = dict(
@@ -776,50 +774,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return 1920, 1080
-
-    @staticmethod
-    def _build_burnin_context(tab, slate_data: dict, dst_cs: str) -> dict[str, str]:
-        """Build the token context dict for burn-in text replacement."""
-        import datetime
-
-        inp = tab.get_input_path()
-        stem = Path(inp).stem if inp else ""
-        settings = tab._settings
-        show = settings.value("slate/show", "")
-        seq = settings.value("slate/sequence", "")
-        shot = settings.value("slate/shot", "")
-        ver_num = int(settings.value("slate/version_num", 1))
-        vendor = settings.value("slate/vendor", "")
-        artist = settings.value("slate/artist", "")
-
-        version = f"v{ver_num:03d}"
-        version_name = f"{show}_{seq}_{shot}_{stem}_{vendor}_{version}" if show else stem
-
-        w, h = 0, 0
-        slate_res = slate_data.get("resolution", "")
-        if "\u00d7" in slate_res:
-            parts = slate_res.split("\u00d7")
-            try:
-                w, h = int(parts[0]), int(parts[1])
-            except (ValueError, IndexError):
-                pass
-
-        return {
-            "vendor": vendor,
-            "show": show,
-            "show_full": slate_data.get("show", show),
-            "seq": seq,
-            "shot": shot,
-            "version": version,
-            "version_name": version_name,
-            "artist": artist,
-            "date": datetime.date.today().isoformat(),
-            "frames": slate_data.get("frameRange", tab.get_frame_range()),
-            "fps": str(slate_data.get("fps", "")),
-            "resolution": f"{w}\u00d7{h}" if w and h else "",
-            "colorspace": dst_cs,
-            "frame": "",  # static overlay — frame token left blank
-        }
 
     # -- State snapshot/restore (for presets) --
 

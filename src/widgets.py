@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple
+
+if TYPE_CHECKING:
+    import fileseq
 
 from PySide6.QtCore import (
     QDir,
@@ -1827,6 +1831,16 @@ class VideoCodecSettingsDialog(QDialog):
 # ---------------------------------------------------------------------------
 
 
+class VideoInput(NamedTuple):
+    """Validated video probe result — the *model* behind the video input field."""
+
+    path: str
+    width: int
+    height: int
+    fps: float
+    frame_count: int
+
+
 class ConvertTab(QWidget):
     log_message = Signal(str)
     readiness_changed = Signal(bool)
@@ -1836,7 +1850,11 @@ class ConvertTab(QWidget):
         self._mode = mode
         self._settings = settings
         self._ocio_cfg: object | None = None
-        self._input_seq: object | None = None
+
+        # Input model objects — the source of truth for what is loaded.
+        # The QLineEdit is a *view* on these; is_ready() gates on them.
+        self._input_seq: fileseq.FileSequence | None = None
+        self._video_info: VideoInput | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -1961,6 +1979,16 @@ class ConvertTab(QWidget):
                 bool(settings.value(f"{mode}/watermark_enabled", False))
             )
             scale_row.addWidget(self._watermark_check)
+
+            scale_row.addStretch()
+
+            self._edit_slate_btn = QToolButton()
+            self._edit_slate_btn.setText("\u270E")
+            self._edit_slate_btn.setToolTip("Edit Slate & Overlay\u2026")
+            self._edit_slate_btn.setAutoRaise(True)
+            self._edit_slate_btn.setFixedWidth(28)
+            self._edit_slate_btn.clicked.connect(self._open_slate_dialog)
+            scale_row.addWidget(self._edit_slate_btn)
         else:
             self._slate_check = None
             self._burnin_check = None
@@ -1984,8 +2012,9 @@ class ConvertTab(QWidget):
             comp_row = QHBoxLayout()
             comp_row.setSpacing(4)
             comp_row.addWidget(self.compression_combo, 1)
-            self._comp_settings_btn = QPushButton("\U0001f527")
-            self._comp_settings_btn.setObjectName("gearBtn")
+            self._comp_settings_btn = QToolButton()
+            self._comp_settings_btn.setText("\u2699")
+            self._comp_settings_btn.setAutoRaise(True)
             self._comp_settings_btn.setFixedWidth(28)
             self._comp_settings_btn.setToolTip("Compression settings\u2026")
             self._comp_settings_btn.clicked.connect(self._open_compression_settings)
@@ -2053,8 +2082,9 @@ class ConvertTab(QWidget):
             codec_row = QHBoxLayout()
             codec_row.setSpacing(4)
             codec_row.addWidget(self.codec_combo, 1)
-            self._codec_settings_btn = QPushButton("\U0001f527")
-            self._codec_settings_btn.setObjectName("gearBtn")
+            self._codec_settings_btn = QToolButton()
+            self._codec_settings_btn.setText("\u2699")
+            self._codec_settings_btn.setAutoRaise(True)
             self._codec_settings_btn.setFixedWidth(28)
             self._codec_settings_btn.setToolTip("Codec settings\u2026")
             self._codec_settings_btn.clicked.connect(self._open_codec_settings)
@@ -2075,7 +2105,6 @@ class ConvertTab(QWidget):
 
         self._slate_data: dict | None = None
         self._slate_thumbnail_b64: str = ""
-        self._burnin_data: dict | None = None
 
         if self._slate_check is not None:
             self._slate_check.toggled.connect(self._on_slate_toggled)
@@ -2118,9 +2147,7 @@ class ConvertTab(QWidget):
         # -- Connections --
         self._browse_in.clicked.connect(self._pick_input)
         self._browse_out.clicked.connect(self._pick_output)
-        self.input_path.textChanged.connect(
-            lambda t: self._settings.setValue(f"{self._mode}/input", t)
-        )
+        # Input settings are persisted by set_input(); no textChanged hook needed.
         self.output_path.textChanged.connect(
             lambda t: self._settings.setValue(f"{self._mode}/output", t)
         )
@@ -2131,17 +2158,61 @@ class ConvertTab(QWidget):
             lambda n: self._settings.setValue(f"{self._mode}/dst_space", n)
         )
 
-        self.input_path.textChanged.connect(lambda _: self._emit_readiness())
+        self.input_path.textChanged.connect(self._on_input_text_changed)
         self.output_path.textChanged.connect(lambda _: self._emit_readiness())
         self.src_btn.space_changed.connect(lambda _: self._emit_readiness())
         self.dst_btn.space_changed.connect(lambda _: self._emit_readiness())
+
+        # Validate any saved input path once the event loop starts.
+        saved = self.input_path.text().strip()
+        if saved:
+            QTimer.singleShot(0, lambda: self.set_input(saved))
+
+    def _on_input_text_changed(self, text: str) -> None:
+        """React to manual edits (typing / paste) in the input field.
+
+        Clears the model objects and attempts re-validation.  For
+        ``video2exr`` the quick ``Path.is_file()`` + extension check
+        avoids touching the filesystem for partial paths.  For
+        ``exr2video`` the same guard applies to directories / ``.exr``
+        files.  If the text resolves to a valid source, ``set_input``
+        adopts it and updates all dependent fields.
+        """
+        self._video_info = None
+        self._input_seq = None
+
+        text = text.strip()
+        if not text:
+            self._full_input_range = ""
+            self._frame_range_edit.clear()
+            self._reset_range_btn.setEnabled(False)
+            self._settings.setValue(f"{self._mode}/input", "")
+            self._emit_readiness()
+            return
+
+        p = Path(text)
+        if self._mode == "video2exr":
+            if p.is_file() and p.suffix.lower() in _VIDEO_EXTS:
+                self.set_input(text)
+                return
+        else:
+            if p.is_dir() or (p.is_file() and p.suffix.lower() == ".exr"):
+                self.set_input(text)
+                return
+
+        self._full_input_range = ""
+        self._frame_range_edit.clear()
+        self._reset_range_btn.setEnabled(False)
+        self._emit_readiness()
 
     def _emit_readiness(self) -> None:
         self.readiness_changed.emit(self.is_ready())
 
     def is_ready(self) -> bool:
-        """True when minimum required fields are populated."""
-        if not self.input_path.text().strip():
+        """True when all required fields are populated with validated inputs."""
+        if self._mode == "video2exr" and self._video_info is None:
+            return False
+        if self._mode == "exr2video" and self._input_seq is None:
             return False
         if not self.output_path.text().strip():
             return False
@@ -2262,24 +2333,14 @@ class ConvertTab(QWidget):
     def burnin_enabled(self) -> bool:
         return self._burnin_check is not None and self._burnin_check.isChecked()
 
-    def get_burnin_data(self) -> dict | None:
-        """Return burn-in config dict, or None if disabled."""
-        if not self.burnin_enabled():
-            return None
-        return self._burnin_data
-
     def watermark_enabled(self) -> bool:
         return self._watermark_check is not None and self._watermark_check.isChecked()
 
     def _on_slate_toggled(self, checked: bool) -> None:
         self._settings.setValue(f"{self._mode}/slate_enabled", checked)
-        if checked and self._slate_data is None:
-            self._open_slate_dialog()
 
     def _on_burnin_toggled(self, checked: bool) -> None:
         self._settings.setValue(f"{self._mode}/burnin_enabled", checked)
-        if checked and self._burnin_data is None:
-            self._open_burnin_dialog()
 
     def _open_slate_dialog(self, start_tab: int = 0) -> None:
         from .slate_widgets import SlateDialog
@@ -2303,49 +2364,24 @@ class ConvertTab(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._slate_data = dlg.slate_data()
             self._slate_thumbnail_b64 = dlg.thumbnail_b64()
-            self._burnin_data = dlg.burnin_data()
             self.log_message.emit("Slate & overlay data updated")
 
-    def _open_burnin_dialog(self) -> None:
-        self._open_slate_dialog(start_tab=1)
-
     def _infer_fps_from_input(self) -> float:
-        """Probe the input to infer frame rate. Returns 0.0 if unavailable."""
-        inp = self.get_input_path()
-        if not inp:
-            return 0.0
-        try:
-            if self._mode == "video2exr":
-                from .video import probe_video
-
-                _w, _h, fps, _total = probe_video(inp)
-                return fps
-        except Exception:
-            pass
+        """Return frame rate from the validated input. 0.0 if unavailable."""
+        if self._video_info is not None:
+            return self._video_info.fps
         return 0.0
 
     def _detect_input_resolution(self) -> tuple[int, int]:
-        """Probe the input to determine resolution for the slate.
-
-        Returns (0, 0) if no input is set or probing fails.
-        """
-        inp = self.get_input_path()
-        if not inp:
-            return 0, 0
-        try:
-            if self._mode == "video2exr":
-                from .video import probe_video
-
-                w, h, _fps, _total = probe_video(inp)
-                return w, h
-            else:
+        """Return resolution from the validated input, or (0, 0)."""
+        if self._video_info is not None:
+            return self._video_info.width, self._video_info.height
+        if self._input_seq is not None:
+            try:
                 import OpenImageIO as oiio
 
-                from .sequence import find_exr_sequence_info
-
-                _paths, _seq_name, _frames, _pad_len, seq = find_exr_sequence_info(inp)
-                first_frame = sorted(seq.frameSet())[0]
-                first_path = seq.frame(first_frame)
+                first_frame = sorted(self._input_seq.frameSet())[0]
+                first_path = self._input_seq.frame(first_frame)
                 inp_img = oiio.ImageInput.open(first_path)
                 if inp_img:
                     spec = inp_img.spec()
@@ -2353,8 +2389,8 @@ class ConvertTab(QWidget):
                     h = spec.full_height if spec.full_height > 0 else spec.height
                     inp_img.close()
                     return w, h
-        except Exception:
-            pass
+            except Exception:
+                pass
         return 0, 0
 
     def _update_comp_btn_state(self) -> None:
@@ -2392,11 +2428,7 @@ class ConvertTab(QWidget):
             start = self.input_path.text().strip() or str(Path.home())
             dlg = VideoBrowserDialog(start, parent=self)
             if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_path():
-                video_path = dlg.selected_path()
-                self.input_path.setText(video_path)
-                self._auto_fill_exr_output(video_path)
-                self._auto_detect_video_colorspace(video_path)
-                self._detect_input_range()
+                self.set_input(dlg.selected_path())
         else:
             start = self.get_input_path() or str(Path.home())
             sel_name = ""
@@ -2404,11 +2436,7 @@ class ConvertTab(QWidget):
                 sel_name = self._input_seq.basename().rstrip("._")
             dlg = SequenceBrowserDialog(start, select_name=sel_name, parent=self)
             if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_directory():
-                sel_dir = dlg.selected_directory()
-                self.input_path.setText(sel_dir)
-                self._auto_fill_video_output(sel_dir)
-                self._auto_detect_colorspace(sel_dir)
-                self._detect_input_range()
+                self.set_input(dlg.selected_directory())
 
     def _pick_output(self) -> None:
         if self._mode == "video2exr":
@@ -2441,24 +2469,10 @@ class ConvertTab(QWidget):
         p = Path(path)
         if self._mode == "video2exr":
             if p.is_file() and p.suffix.lower() in _VIDEO_EXTS:
-                self.input_path.setText(str(p))
-                self._auto_fill_exr_output(str(p))
-                self._auto_detect_video_colorspace(str(p))
-                self._detect_input_range()
-                return True
+                return self.set_input(str(p))
         else:
-            if p.is_dir():
-                self.input_path.setText(str(p))
-                self._auto_fill_video_output(str(p))
-                self._auto_detect_colorspace(str(p))
-                self._detect_input_range()
-                return True
-            if p.is_file() and p.suffix.lower() == ".exr":
-                self.input_path.setText(str(p.parent))
-                self._auto_fill_video_output(str(p.parent))
-                self._auto_detect_colorspace(str(p.parent))
-                self._detect_input_range()
-                return True
+            if p.is_dir() or (p.is_file() and p.suffix.lower() == ".exr"):
+                return self.set_input(str(p))
         return False
 
     def _codec_ext(self) -> str:
@@ -2598,52 +2612,90 @@ class ConvertTab(QWidget):
         else:
             self.log_message.emit(f'EXR color space "{cs}" not found in current OCIO config')
 
-    # -- Frame range --
+    # -- Input model --
 
-    def _detect_input_range(self) -> None:
-        """Detect the frame range of the current input and populate the field."""
+    def set_input(self, path: str) -> bool:
+        """Validate *path* and adopt it as the current input.
+
+        For ``video2exr`` the file is probed with PyAV and a
+        :class:`VideoInput` is stored.  For ``exr2video`` the path is
+        resolved to a :class:`~fileseq.FileSequence` on disk.
+
+        The ``QLineEdit`` is updated to reflect the validated source and
+        the frame-range, output path, and colorspace fields are
+        auto-populated.  Returns ``True`` on success.
+        """
         from .framerange import format_frame_range
 
-        inp = self.get_input_path()
-        if not inp:
-            self._full_input_range = ""
+        path = path.strip()
+        if not path:
+            self._video_info = None
             self._input_seq = None
+            self._full_input_range = ""
             self._frame_range_edit.clear()
             self._reset_range_btn.setEnabled(False)
-            return
+            self._settings.setValue(f"{self._mode}/input", "")
+            self._emit_readiness()
+            return False
 
         try:
             if self._mode == "video2exr":
                 from .video import probe_video
 
-                _w, _h, _fps, total = probe_video(inp)
-                frames = list(range(1, total + 1))
+                w, h, fps, total = probe_video(path)
+                self._video_info = VideoInput(path, w, h, fps, total)
                 self._input_seq = None
+                frames = list(range(1, total + 1))
+                display = path
             else:
                 from .sequence import find_exr_sequence_info
 
-                _paths, _seq_name, frames, _pad_len, seq = find_exr_sequence_info(inp)
+                _paths, _name, frame_nums, _pad, seq = find_exr_sequence_info(path)
                 self._input_seq = seq
+                self._video_info = None
+                frames = frame_nums
                 pad = "#" * seq.zfill()
                 display = f"{seq.dirname()}{seq.basename()}{pad}{seq.extension()}"
-                self.input_path.blockSignals(True)
-                self.input_path.setText(display)
-                self.input_path.blockSignals(False)
         except Exception:
-            self._full_input_range = ""
+            self._video_info = None
             self._input_seq = None
-            self._reset_range_btn.setEnabled(False)
-            return
-
-        if not frames:
             self._full_input_range = ""
+            self._frame_range_edit.clear()
             self._reset_range_btn.setEnabled(False)
-            return
+            self._emit_readiness()
+            return False
 
-        range_str = format_frame_range(frames)
-        self._full_input_range = range_str
-        self._frame_range_edit.setText(range_str)
-        self._reset_range_btn.setEnabled(True)
+        # Update the view
+        self.input_path.blockSignals(True)
+        self.input_path.setText(display)
+        self.input_path.blockSignals(False)
+
+        # Frame range
+        if frames:
+            range_str = format_frame_range(frames)
+            self._full_input_range = range_str
+            self._frame_range_edit.setText(range_str)
+            self._reset_range_btn.setEnabled(True)
+        else:
+            self._full_input_range = ""
+            self._frame_range_edit.clear()
+            self._reset_range_btn.setEnabled(False)
+
+        # Auto-fill dependent fields
+        if self._mode == "video2exr":
+            self._auto_fill_exr_output(path)
+            self._auto_detect_video_colorspace(path)
+        else:
+            exr_dir = self._input_seq.dirname().rstrip("/")
+            self._auto_fill_video_output(exr_dir)
+            self._auto_detect_colorspace(exr_dir)
+
+        # Persist the real filesystem path (not the display pattern)
+        actual = path if self._video_info is not None else self._input_seq.dirname().rstrip("/")
+        self._settings.setValue(f"{self._mode}/input", actual)
+
+        self._emit_readiness()
+        return True
 
     def _reset_to_source_range(self) -> None:
         """Reset the frame range field to the full source range."""
@@ -2651,14 +2703,12 @@ class ConvertTab(QWidget):
             self._frame_range_edit.setText(self._full_input_range)
 
     def get_input_path(self) -> str:
-        """Return the real filesystem path for the input.
-
-        For EXR sequences, returns the directory (from the stored FileSequence)
-        rather than the display pattern shown in the text field.
-        """
-        if self._mode == "exr2video" and self._input_seq is not None:
+        """Return the validated filesystem path from the model, or ``""``."""
+        if self._video_info is not None:
+            return self._video_info.path
+        if self._input_seq is not None:
             return self._input_seq.dirname().rstrip("/")
-        return self.input_path.text().strip()
+        return ""
 
     def get_output_path(self) -> str:
         """Return the real filesystem path for the output.
