@@ -335,6 +335,7 @@ def run_exr_to_video(
     codec_key: str = "h264",
     frame_set: set[int] | None = None,
     slate_frame: np.ndarray | None = None,
+    burnin_overlay: np.ndarray | None = None,
 ) -> None:
     paths, basename = find_exr_sequence(input_spec)
 
@@ -373,6 +374,7 @@ def run_exr_to_video(
             scale,
             codec_key,
             slate_frame=slate_frame,
+            burnin_overlay=burnin_overlay,
         )
         return
 
@@ -428,6 +430,10 @@ def run_exr_to_video(
                 nonlocal next_encode
                 while next_encode in ready:
                     rgb_u16 = ready.pop(next_encode)
+                    if burnin_overlay is not None:
+                        from .burnin import composite_burnin
+
+                        rgb_u16 = composite_burnin(rgb_u16, burnin_overlay)
                     vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
                     if do_resize:
                         vf = vf.reformat(width=ow, height=oh)
@@ -475,6 +481,7 @@ def _e2v_serial(
     scale: float = 1.0,
     codec_key: str = "h264",
     slate_frame: np.ndarray | None = None,
+    burnin_overlay: np.ndarray | None = None,
 ) -> None:
     cpu = make_cpu_processor(ocio_cfg, src_space, dst_space)
     if log:
@@ -508,6 +515,10 @@ def _e2v_serial(
             desc = OCIO.PackedImageDesc(frame_buf, fw, fh, 3)
             cpu.apply(desc)
             rgb_u16 = np.clip(frame_buf * 65535.0, 0.0, 65535.0).astype(np.uint16)
+            if burnin_overlay is not None:
+                from .burnin import composite_burnin
+
+                rgb_u16 = composite_burnin(rgb_u16, burnin_overlay)
             vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
             if do_resize:
                 vf = vf.reformat(width=w, height=h)

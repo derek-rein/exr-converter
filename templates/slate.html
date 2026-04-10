@@ -6,26 +6,68 @@
 <script src="qrc:///qtwebchannel/qwebchannel.js" onerror=""></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body {
-  width: 100%; height: 100%;
-  overflow: hidden;
-  background: #1c1c1c;
-  font-family: "Helvetica Neue", Arial, sans-serif;
-  color: #ddd;
-}
 
 /*
- * Sizes calibrated to the Netflix Nuke template at 4K (4096×2160).
- * Nuke nominal: label=40px, value=60px, large_value=75px at 2160h.
- * All vh values = (nuke_px / 2160) * 100.
+ * CSS Color Level 4 — wide-gamut film slate.
+ *
+ * Neutrals use oklch() for perceptually uniform grays.
+ * Accents use color(rec2020 ...) for maximum gamut.
+ * Color bars are full rec2020 primaries — SMPTE-grade.
+ *
+ * Viewport units only — proportions are resolution-independent.
+ * Calibrated to the Netflix Nuke template at 4K (4096×2160).
+ * vh values = (nuke_px / 2160) × 100.
  */
+
+:root {
+  color-scheme: dark;
+
+  /* ── Neutrals (oklch perceptually uniform, zero chroma) ── */
+  --bg:          oklch(20% 0 0);   /* pure neutral charcoal */
+  --bg-deep:     oklch(14% 0 0);   /* thumbnail/inset background */
+  --text:        oklch(90% 0 0);   /* primary text */
+  --text-bright: oklch(98% 0 0);   /* headings, values */
+  --text-mid:    oklch(80% 0 0);   /* secondary values */
+  --text-dim:    oklch(58% 0 0);   /* labels, metadata keys */
+  --text-muted:  oklch(40% 0 0);   /* separators, subtle text */
+  --border:      oklch(32% 0 0);   /* hairline borders */
+  --border-faint: oklch(24% 0 0);  /* table row dividers */
+
+  /* ── Accents (rec2020 wide gamut) ── */
+  --accent-red:  color(rec2020 0.72 0.12 0.09);  /* divider — vivid film red */
+
+  /* ── SMPTE color bars (rec2020 primaries) ── */
+  --bar-white:   color(rec2020 0.75 0.75 0.75);
+  --bar-yellow:  color(rec2020 0.75 0.75 0);
+  --bar-cyan:    color(rec2020 0 0.75 0.75);
+  --bar-green:   color(rec2020 0 0.75 0);
+  --bar-magenta: color(rec2020 0.75 0 0.75);
+  --bar-red:     color(rec2020 0.75 0 0);
+  --bar-blue:    color(rec2020 0 0 0.75);
+  --bar-black:   color(rec2020 0 0 0);
+  --bar-full-white: color(rec2020 1 1 1);
+
+  /* PLUGE patches */
+  --pluge-sub:   oklch(2% 0 0);   /* super-black (-4 IRE) */
+  --pluge-ref:   oklch(5.5% 0 0); /* reference black (0 IRE) */
+  --pluge-over:  oklch(9% 0 0);   /* near-black (+4 IRE) */
+}
+
+html, body {
+  width: 100vw; height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  color: var(--text);
+}
+
 #slate {
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #1c1c1c;
-  padding: 3.7vh 2.9vw;
+  background: var(--bg);
+  padding: 2.5vh 2vw;
 }
 
 .slate-body {
@@ -37,74 +79,77 @@ html, body {
 
 .left-col {
   flex: 1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.6vw;
+  row-gap: 0.3vh;
+  align-content: start;
   min-width: 0;
-  padding-right: 1.8vw;
+  padding-right: 1.5vw;
 }
 
 .identity-bar {
+  grid-column: 1 / -1;
   display: flex;
   align-items: baseline;
-  gap: 1.5vw;
-  padding-bottom: 1.2vh;
+  gap: 1.2vw;
+  padding-bottom: 0.8vh;
 }
-.id-cell { display: flex; align-items: baseline; gap: 0.4vw; }
-.id-label { font-size: 1.6vh; color: #666; text-transform: uppercase; letter-spacing: 0.08em; }
-.id-value { font-size: 3.2vh; font-weight: 700; color: #fff; }
-.id-sep { font-size: 2.5vh; color: #444; }
+.id-cell { display: flex; align-items: baseline; gap: 0.3vw; }
+.id-label { font-size: 1.9vh; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.id-value { font-size: 3.8vh; font-weight: 700; color: var(--text-bright); }
+.id-sep { font-size: 3vh; color: var(--text-muted); }
 
 .header-row {
+  grid-column: 1 / -1;
   display: flex;
   align-items: baseline;
-  gap: 3vw;
-  padding-bottom: 1.2vh;
+  gap: 0.4vw;
+  padding-bottom: 0.8vh;
 }
-.header-row .submit-label { font-size: 1.85vh; color: #888; margin-right: 0.4vw; }
-.header-row .submit-value { font-size: 4.6vh; font-weight: 800; color: #fff; letter-spacing: 0.02em; }
+.header-row .submit-label { font-size: 2.2vh; color: var(--text-dim); }
+.header-row .submit-value { font-size: 5.5vh; font-weight: 800; color: var(--text-bright); letter-spacing: 0.02em; }
 
 .red-divider {
-  height: 0.28vh;
-  min-height: 2px;
-  background: #c0392b;
-  margin-bottom: 1.8vh;
+  height: 0.3vh;
+  background: var(--accent-red);
+  margin-bottom: 1.2vh;
 }
 
 .field-row {
-  display: flex;
-  align-items: baseline;
-  padding: 0.55vh 0;
+  display: contents;
 }
 .field-label {
-  width: 7.5vw;
   text-align: right;
-  font-size: 1.85vh;
-  color: #888;
-  padding-right: 0.6vw;
-  flex-shrink: 0;
+  justify-self: end;
+  align-self: baseline;
+  font-size: 2.1vh;
+  color: var(--text-dim);
   line-height: 1.4;
+  padding: 0.3vh 0;
 }
 .field-value {
-  flex: 1;
-  font-size: 2.78vh;
+  justify-self: start;
+  align-self: baseline;
+  font-size: 3.2vh;
   font-weight: 600;
-  color: #e8e8e8;
+  color: var(--text);
   line-height: 1.35;
+  padding: 0.3vh 0;
 }
 .field-value.large {
-  font-size: 3.47vh;
+  font-size: 4vh;
   font-weight: 700;
 }
 .field-value.body {
-  font-size: 2.3vh;
+  font-size: 2.7vh;
   font-weight: 400;
-  color: #ccc;
-  line-height: 1.45;
+  color: var(--text-mid);
+  line-height: 1.4;
 }
 
 .right-col {
-  width: 38%;
-  max-width: 22vw;
+  width: 30vw;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -112,54 +157,76 @@ html, body {
 }
 
 .thumbnail {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  background: #111;
-  border: 1px solid #333;
+  width: 30vw;
+  height: 16.875vw;
+  background: var(--bg-deep);
+  border: 0.05vh solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #444;
-  font-size: 1.85vh;
+  color: var(--text-muted);
+  font-size: 2.1vh;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  margin-bottom: 0;
   overflow: hidden;
 }
 .thumbnail img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
-.color-bars {
+/* ── SMPTE colour-bar assembly (3 rows) ── */
+.smpte-bars {
+  width: 30vw;
   display: flex;
-  width: 100%;
-  height: 2.2vh;
-  min-height: 3px;
+  flex-direction: column;
 }
-.color-bars div { flex: 1; }
+
+/* Row 1 — main 75% bars */
+.bars-main {
+  display: flex;
+  height: 2.6vh;
+}
+.bars-main div { flex: 1; }
+
+/* Row 2 — castellation / reverse strip */
+.bars-cast {
+  display: flex;
+  height: 0.8vh;
+}
+.bars-cast div { flex: 1; }
+
+/* Row 3 — PLUGE + gradient ramp */
+.bars-bottom {
+  display: flex;
+  height: 1.4vh;
+}
+.bars-bottom .pluge     { flex: 1; display: flex; }
+.bars-bottom .pluge div { flex: 1; }
+.bars-bottom .gradient  { flex: 5; }
+.bars-bottom .ref-white { flex: 1; }
 
 .right-fields {
-  width: 100%;
+  width: 30vw;
   border-collapse: collapse;
-  margin-top: 0;
 }
+.right-fields tr:nth-child(odd)  { background: oklch(18% 0 0); }
+.right-fields tr:nth-child(even) { background: oklch(21% 0 0); }
 .right-fields td {
-  padding: 0.37vh 0.5vw;
-  font-size: 1.85vh;
-  line-height: 1.45;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  padding: 0.5vh 0.4vw;
+  font-size: 2.1vh;
+  line-height: 1.4;
+  border-bottom: 0.05vh solid var(--border-faint);
 }
 .right-fields .rl {
-  color: #777;
+  color: var(--text-dim);
   text-align: left;
-  width: 1%;
   white-space: nowrap;
   font-weight: 500;
 }
 .right-fields .rv {
-  color: #ddd;
+  color: var(--text);
   text-align: right;
   font-weight: 600;
 }
@@ -169,15 +236,15 @@ html, body {
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
-  padding-top: 1.2vh;
+  padding-top: 0.8vh;
 }
 .vendor-logo-box {
-  border: 1px solid #444;
-  padding: 1.1vh 1vw;
-  font-size: 2.5vh;
+  border: 0.05vh solid var(--border);
+  padding: 1vh 0.8vw;
+  font-size: 2.8vh;
   font-weight: 700;
   font-style: italic;
-  color: #aaa;
+  color: var(--text-dim);
   letter-spacing: 0.05em;
 }
 </style>
@@ -215,10 +282,8 @@ html, body {
     <div class="left-col">
 
       <div class="header-row">
-        <div style="display:flex; align-items:baseline;">
-          <span class="submit-label">Submitting For:</span>
-          <span class="submit-value" id="submit-for-field">WIP</span>
-        </div>
+        <span class="submit-label">Submitting For:</span>
+        <span class="submit-value" id="submit-for-field">WIP</span>
       </div>
 
       <div class="field-row" id="notes-row" style="display:none;">
@@ -253,15 +318,38 @@ html, body {
 
       <div class="thumbnail" id="thumbnail-area">Thumbnail</div>
 
-      <div class="color-bars">
-        <div style="background:#fff;"></div>
-        <div style="background:#ff0;"></div>
-        <div style="background:#0ff;"></div>
-        <div style="background:#0f0;"></div>
-        <div style="background:#000;"></div>
-        <div style="background:#f0f;"></div>
-        <div style="background:#f00;"></div>
-        <div style="background:#00f;"></div>
+      <!-- SMPTE colour bars (3-section) -->
+      <div class="smpte-bars">
+        <!-- Row 1: main bars — W Y C G M R B -->
+        <div class="bars-main">
+          <div style="background:var(--bar-white);"></div>
+          <div style="background:var(--bar-yellow);"></div>
+          <div style="background:var(--bar-cyan);"></div>
+          <div style="background:var(--bar-green);"></div>
+          <div style="background:var(--bar-magenta);"></div>
+          <div style="background:var(--bar-red);"></div>
+          <div style="background:var(--bar-blue);"></div>
+        </div>
+        <!-- Row 2: castellations (reverse) — B Bk M Bk C Bk W -->
+        <div class="bars-cast">
+          <div style="background:var(--bar-blue);"></div>
+          <div style="background:var(--bar-black);"></div>
+          <div style="background:var(--bar-magenta);"></div>
+          <div style="background:var(--bar-black);"></div>
+          <div style="background:var(--bar-cyan);"></div>
+          <div style="background:var(--bar-black);"></div>
+          <div style="background:var(--bar-white);"></div>
+        </div>
+        <!-- Row 3: PLUGE + gradient ramp + ref white -->
+        <div class="bars-bottom">
+          <div class="pluge">
+            <div style="background:var(--pluge-sub);"></div>
+            <div style="background:var(--pluge-ref);"></div>
+            <div style="background:var(--pluge-over);"></div>
+          </div>
+          <div class="gradient" style="background:linear-gradient(to right, var(--bar-black), var(--bar-full-white));"></div>
+          <div class="ref-white" style="background:var(--bar-full-white);"></div>
+        </div>
       </div>
 
       <table class="right-fields">

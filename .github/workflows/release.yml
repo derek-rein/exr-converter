@@ -14,6 +14,7 @@ permissions:
 
 env:
   NUITKA_ASSUME_YES_FOR_DOWNLOADS: "1"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build:
@@ -351,7 +352,7 @@ jobs:
           merge-multiple: true
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.1
         with:
           tag_name: ${{ github.ref_name }}
           name: "EXR Converter ${{ github.ref_name }}"

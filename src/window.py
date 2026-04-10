@@ -220,8 +220,12 @@ class MainWindow(QMainWindow):
         self._cancel_btn.clicked.connect(self._cancel_run)
         self._clear_log.clicked.connect(self._log.clear)
         self._tabs.currentChanged.connect(lambda i: self._settings.setValue("ui/tab", i))
+        self._tabs.currentChanged.connect(lambda _: self._update_go_state())
         self._v2e_tab.log_message.connect(self._append_log)
         self._e2v_tab.log_message.connect(self._append_log)
+        self._v2e_tab.readiness_changed.connect(lambda _: self._update_go_state())
+        self._e2v_tab.readiness_changed.connect(lambda _: self._update_go_state())
+        self._go.setEnabled(self._active_tab().is_ready())
 
         self._reload_ocio()
 
@@ -248,6 +252,10 @@ class MainWindow(QMainWindow):
         edit_slate_action = QAction("Edit Slate\u2026", self)
         edit_slate_action.triggered.connect(self._open_slate_dialog)
         slate_menu.addAction(edit_slate_action)
+
+        edit_burnin_action = QAction("Edit Burn-in\u2026", self)
+        edit_burnin_action.triggered.connect(self._open_burnin_dialog)
+        slate_menu.addAction(edit_burnin_action)
 
         help_menu = mb.addMenu("&Help")
 
@@ -376,7 +384,7 @@ class MainWindow(QMainWindow):
         self._progress.setRange(0, 100)
         self._progress.setValue(100)
         self._progress.setFormat("%p%")
-        self._go.setEnabled(True)
+        self._update_go_state()
         name = Path(dest).name
         self._statusbar.showMessage(f"Downloaded {name}", 5000)
         self._run_installer(Path(dest))
@@ -387,7 +395,7 @@ class MainWindow(QMainWindow):
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._progress.setFormat("%p%")
-        self._go.setEnabled(True)
+        self._update_go_state()
         self._statusbar.clearMessage()
         QMessageBox.warning(self, "Download Failed", error)
         self._dl_thread = None
@@ -410,6 +418,10 @@ class MainWindow(QMainWindow):
     def _run_installer(path: Path) -> None:
         s = sys.platform
         if s == "darwin":
+            subprocess.run(
+                ["xattr", "-dr", "com.apple.quarantine", str(path)],
+                check=False,
+            )
             subprocess.Popen(["open", str(path)])
         elif s == "win32":
             subprocess.Popen([str(path)], creationflags=subprocess.DETACHED_PROCESS)
@@ -425,6 +437,10 @@ class MainWindow(QMainWindow):
     def _open_slate_dialog(self) -> None:
         tab = self._active_tab()
         tab._open_slate_dialog()
+
+    def _open_burnin_dialog(self) -> None:
+        tab = self._active_tab()
+        tab._open_burnin_dialog()
 
     # -- Presets --
 
@@ -538,6 +554,10 @@ class MainWindow(QMainWindow):
     def _active_tab(self) -> ConvertTab:
         return self._v2e_tab if self._tabs.currentIndex() == 0 else self._e2v_tab
 
+    def _update_go_state(self) -> None:
+        """Enable Convert button only when the active tab has valid setup."""
+        self._go.setEnabled(self._active_tab().is_ready())
+
     def _start(self) -> None:
         if self._ocio_cfg is None:
             QMessageBox.warning(self, "OCIO", "No valid OCIO config loaded.")
@@ -575,7 +595,7 @@ class MainWindow(QMainWindow):
                 frame_set = set(parse_frame_range(frame_range_str))
             except ValueError as e:
                 QMessageBox.warning(self, "Frame range", f"Invalid frame range: {e}")
-                self._go.setEnabled(True)
+                self._update_go_state()
                 self._cancel_btn.setEnabled(False)
                 return
             if not frame_set:
@@ -596,9 +616,22 @@ class MainWindow(QMainWindow):
                     self._append_log("Slate frame rendered successfully")
                 except Exception as e:
                     QMessageBox.warning(self, "Slate Error", f"Failed to render slate: {e}")
-                    self._go.setEnabled(True)
+                    self._update_go_state()
                     self._cancel_btn.setEnabled(False)
                     return
+
+        # -- Burn-in overlay (EXR→Video only) --
+        burnin_overlay_np = None
+        if mode == "exr2video" and tab.burnin_enabled():
+            burnin_data = tab.get_burnin_data()
+            if burnin_data is not None:
+                from .burnin import render_burnin_overlay
+
+                bw, bh = self._detect_slate_resolution(mode, inp)
+                slate_data = tab.get_slate_data() or {}
+                context = self._build_burnin_context(tab, slate_data, dst)
+                burnin_overlay_np = render_burnin_overlay(bw, bh, burnin_data, context)
+                self._append_log("Burn-in overlay rendered")
 
         if mode == "video2exr":
             kwargs = dict(
@@ -633,6 +666,7 @@ class MainWindow(QMainWindow):
                 codec_key=_codec_key,
                 frame_set=frame_set,
                 slate_frame=slate_np,
+                burnin_overlay=burnin_overlay_np,
             )
 
         out_path = Path(out)
@@ -663,13 +697,13 @@ class MainWindow(QMainWindow):
         self._progress.setValue(0)
         self._statusbar.showMessage("Conversion failed.")
         QMessageBox.critical(self, "Error", msg)
-        self._go.setEnabled(True)
+        self._update_go_state()
         self._cancel_btn.setEnabled(False)
 
     def _on_done(self) -> None:
         self._progress.setValue(100)
         self._statusbar.showMessage("Done.", 5000)
-        self._go.setEnabled(True)
+        self._update_go_state()
         self._cancel_btn.setEnabled(False)
         folder = getattr(self, "_output_folder", None)
         if folder and Path(folder).is_dir():
@@ -750,6 +784,50 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return 1920, 1080
+
+    @staticmethod
+    def _build_burnin_context(tab, slate_data: dict, dst_cs: str) -> dict[str, str]:
+        """Build the token context dict for burn-in text replacement."""
+        import datetime
+
+        inp = tab.get_input_path()
+        stem = Path(inp).stem if inp else ""
+        settings = tab._settings
+        show = settings.value("slate/show", "")
+        seq = settings.value("slate/sequence", "")
+        shot = settings.value("slate/shot", "")
+        ver_num = int(settings.value("slate/version_num", 1))
+        vendor = settings.value("slate/vendor", "")
+        artist = settings.value("slate/artist", "")
+
+        version = f"v{ver_num:03d}"
+        version_name = f"{show}_{seq}_{shot}_{stem}_{vendor}_{version}" if show else stem
+
+        w, h = 0, 0
+        slate_res = slate_data.get("resolution", "")
+        if "\u00d7" in slate_res:
+            parts = slate_res.split("\u00d7")
+            try:
+                w, h = int(parts[0]), int(parts[1])
+            except (ValueError, IndexError):
+                pass
+
+        return {
+            "vendor": vendor,
+            "show": show,
+            "show_full": slate_data.get("show", show),
+            "seq": seq,
+            "shot": shot,
+            "version": version,
+            "version_name": version_name,
+            "artist": artist,
+            "date": datetime.date.today().isoformat(),
+            "frames": slate_data.get("frameRange", tab.get_frame_range()),
+            "fps": str(slate_data.get("fps", "")),
+            "resolution": f"{w}\u00d7{h}" if w and h else "",
+            "colorspace": dst_cs,
+            "frame": "",  # static overlay — frame token left blank
+        }
 
     # -- State snapshot/restore (for presets) --
 

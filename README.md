@@ -17,6 +17,8 @@ Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-p
 
 All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) — see the [releases page](https://github.com/derek-rein/vfx-tools/releases) for verification instructions.
 
+> **macOS Gatekeeper:** Like most open-source macOS apps distributed outside the App Store, these builds are not Apple-notarized. On first launch macOS may block the app — right-click it and choose **Open**, or run `xattr -cr /Applications/exr_converter.app`. This is a [standard macOS security prompt](https://support.apple.com/en-us/102445) for apps without a paid Apple Developer signature.
+
 ## Tech stack
 
 | Layer | Notes |

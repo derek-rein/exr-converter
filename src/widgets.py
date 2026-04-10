@@ -548,61 +548,173 @@ class _PlacesSidebar(QWidget):
 # Directory search: background worker + searchable tree panel
 # ---------------------------------------------------------------------------
 
-_SEARCH_SKIP_DIRS = frozenset({
-    # VCS
-    ".git", ".svn", ".hg", ".bzr",
-    # Python
-    "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "node_modules", ".venv", "venv", ".env", ".tox", ".nox",
-    "build", "dist", ".eggs", "site-packages",
-    # IDE
-    ".idea", ".vscode", ".vs",
-    # Temp / cache
-    ".cache", ".tmp", ".temp", "tmp", "temp",
-    # macOS
-    ".Trash", ".Spotlight-V100", ".fseventsd", ".DocumentRevisions-V100",
-    ".TemporaryItems", ".VolumeIcon.icns",
-    # System / library dirs (by name — catches nested occurrences too)
-    "System", "Library", "private",
-    "usr", "bin", "sbin", "etc", "var", "opt",
-    # Windows
-    "Windows", "ProgramData", "Program Files", "Program Files (x86)",
-    "$Recycle.Bin", "System Volume Information",
-    "AppData", "Recovery", "PerfLogs",
-    # Linux
-    "proc", "sys", "dev", "run", "snap", "lost+found",
-    # Package / app internals
-    ".app", ".framework", ".bundle", ".plugin", ".kext",
-    "__MACOSX", "Frameworks", "PlugIns",
-})
+_SEARCH_SKIP_DIRS = frozenset(
+    {
+        # VCS
+        ".git",
+        ".svn",
+        ".hg",
+        ".bzr",
+        # Python
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "node_modules",
+        ".venv",
+        "venv",
+        ".env",
+        ".tox",
+        ".nox",
+        "build",
+        "dist",
+        ".eggs",
+        "site-packages",
+        # IDE
+        ".idea",
+        ".vscode",
+        ".vs",
+        # Temp / cache
+        ".cache",
+        ".tmp",
+        ".temp",
+        "tmp",
+        "temp",
+        # macOS
+        ".Trash",
+        ".Spotlight-V100",
+        ".fseventsd",
+        ".DocumentRevisions-V100",
+        ".TemporaryItems",
+        ".VolumeIcon.icns",
+        # System / library dirs (by name — catches nested occurrences too)
+        "System",
+        "Library",
+        "private",
+        "usr",
+        "bin",
+        "sbin",
+        "etc",
+        "var",
+        "opt",
+        # Windows
+        "Windows",
+        "ProgramData",
+        "Program Files",
+        "Program Files (x86)",
+        "$Recycle.Bin",
+        "System Volume Information",
+        "AppData",
+        "Recovery",
+        "PerfLogs",
+        # Linux
+        "proc",
+        "sys",
+        "dev",
+        "run",
+        "snap",
+        "lost+found",
+        # Package / app internals
+        ".app",
+        ".framework",
+        ".bundle",
+        ".plugin",
+        ".kext",
+        "__MACOSX",
+        "Frameworks",
+        "PlugIns",
+    }
+)
 
 _SEARCH_SKIP_ABSPATHS: set[str] = set()
 for _d in (
-    "/System", "/Library", "/private", "/usr", "/bin", "/sbin", "/etc",
-    "/var", "/opt", "/cores", "/dev", "/proc", "/sys", "/run", "/snap",
-    "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
-    "C:\\ProgramData", "C:\\$Recycle.Bin", "C:\\Recovery",
+    "/System",
+    "/Library",
+    "/private",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/etc",
+    "/var",
+    "/opt",
+    "/cores",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/run",
+    "/snap",
+    "C:\\Windows",
+    "C:\\Program Files",
+    "C:\\Program Files (x86)",
+    "C:\\ProgramData",
+    "C:\\$Recycle.Bin",
+    "C:\\Recovery",
 ):
     _SEARCH_SKIP_ABSPATHS.add(_d)
 _SEARCH_SKIP_ABSPATHS = frozenset(_SEARCH_SKIP_ABSPATHS)
 
-_SEARCH_SKIP_FILES = frozenset({
-    ".DS_Store", "Thumbs.db", "desktop.ini", "Icon\r",
-    ".localized", ".CFUserTextEncoding", ".com.apple.timemachine.donotpresent",
-})
-_SEARCH_SKIP_SUFFIXES = frozenset({
-    ".pyc", ".pyo", ".o", ".obj", ".class",
-    ".swp", ".swo", ".swn",
-    ".tmp", ".bak", ".orig",
-})
+_SEARCH_SKIP_FILES = frozenset(
+    {
+        ".DS_Store",
+        "Thumbs.db",
+        "desktop.ini",
+        "Icon\r",
+        ".localized",
+        ".CFUserTextEncoding",
+        ".com.apple.timemachine.donotpresent",
+    }
+)
+_SEARCH_SKIP_SUFFIXES = frozenset(
+    {
+        ".pyc",
+        ".pyo",
+        ".o",
+        ".obj",
+        ".class",
+        ".swp",
+        ".swo",
+        ".swn",
+        ".tmp",
+        ".bak",
+        ".orig",
+    }
+)
 
-_VIDEO_EXTS = frozenset({
-    ".mp4", ".mov", ".mkv", ".avi", ".mxf", ".webm", ".m4v", ".ts",
-    ".wmv", ".flv", ".f4v", ".vob", ".ogv", ".ogg",
-    ".3gp", ".3g2", ".m2ts", ".mts", ".mpg", ".mpeg", ".m2v",
-    ".divx", ".rm", ".rmvb", ".asf",
-    ".dv", ".r3d", ".braw", ".ari", ".arx", ".mj2",
-})
+_VIDEO_EXTS = frozenset(
+    {
+        ".mp4",
+        ".mov",
+        ".mkv",
+        ".avi",
+        ".mxf",
+        ".webm",
+        ".m4v",
+        ".ts",
+        ".wmv",
+        ".flv",
+        ".f4v",
+        ".vob",
+        ".ogv",
+        ".ogg",
+        ".3gp",
+        ".3g2",
+        ".m2ts",
+        ".mts",
+        ".mpg",
+        ".mpeg",
+        ".m2v",
+        ".divx",
+        ".rm",
+        ".rmvb",
+        ".asf",
+        ".dv",
+        ".r3d",
+        ".braw",
+        ".ari",
+        ".arx",
+        ".mj2",
+    }
+)
 
 _MAX_SEARCH_DEPTH = 15
 _SEARCH_BATCH_SIZE = 60
@@ -636,16 +748,12 @@ class _DirSearchWorker(QObject):
         self._cancel.set()
         cancel = threading.Event()
         self._cancel = cancel
-        threading.Thread(
-            target=self._run, args=(root, query, cancel), daemon=True
-        ).start()
+        threading.Thread(target=self._run, args=(root, query, cancel), daemon=True).start()
 
     def cancel(self) -> None:
         self._cancel.set()
 
-    def _run(
-        self, root: str, query: str, cancel: threading.Event
-    ) -> None:
+    def _run(self, root: str, query: str, cancel: threading.Event) -> None:
         query_lower = query.lower()
         root_stripped = root.rstrip(os.sep)
         root_len = len(root_stripped) + 1
@@ -678,8 +786,7 @@ class _DirSearchWorker(QObject):
                         self._dirs_only
                         or name in _SEARCH_SKIP_FILES
                         or ext_lower in _SEARCH_SKIP_SUFFIXES
-                        or (self._ext_filter is not None
-                            and ext_lower not in self._ext_filter)
+                        or (self._ext_filter is not None and ext_lower not in self._ext_filter)
                     ):
                         pass
                     elif query_lower in name_lower or query_lower == ext_lower:
@@ -743,9 +850,7 @@ class _SearchableTree(QWidget):
         self._spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
         self._spinner_idx = 0
         self._spinner_action = QAction(self._search_edit)
-        self._search_edit.addAction(
-            self._spinner_action, QLineEdit.ActionPosition.TrailingPosition
-        )
+        self._search_edit.addAction(self._spinner_action, QLineEdit.ActionPosition.TrailingPosition)
         self._spinner_action.setVisible(False)
         self._spinner_timer = QTimer(self)
         self._spinner_timer.setInterval(80)
@@ -936,7 +1041,6 @@ class SequenceBrowserDialog(QDialog):
         center_layout = QVBoxLayout(center)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(4)
-
 
         self._table = QTableWidget(0, len(self._COLUMNS))
         self._table.setHorizontalHeaderLabels(self._COLUMNS)
@@ -1228,7 +1332,6 @@ class VideoBrowserDialog(QDialog):
         center_layout = QVBoxLayout(center)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(4)
-
 
         self._table = QTableWidget(0, len(self._COLUMNS))
         self._table.setHorizontalHeaderLabels(self._COLUMNS)
@@ -1723,8 +1826,10 @@ class VideoCodecSettingsDialog(QDialog):
 # Conversion tab
 # ---------------------------------------------------------------------------
 
+
 class ConvertTab(QWidget):
     log_message = Signal(str)
+    readiness_changed = Signal(bool)
 
     def __init__(self, mode: str, settings: QSettings, parent: QWidget | None = None):
         super().__init__(parent)
@@ -1835,14 +1940,32 @@ class ConvertTab(QWidget):
             lambda _: self._settings.setValue(f"{self._mode}/scale", self.scale_combo.currentData())
         )
 
-        self._slate_check = QCheckBox("Prepend Slate")
-        self._slate_check.setToolTip("Add a 1-frame slate image before the converted output")
-        self._slate_check.setChecked(bool(settings.value(f"{mode}/slate_enabled", False)))
-
         scale_row = QHBoxLayout()
         scale_row.setSpacing(12)
         scale_row.addWidget(self.scale_combo, 1)
-        scale_row.addWidget(self._slate_check)
+
+        if mode == "exr2video":
+            self._slate_check = QCheckBox("Slate")
+            self._slate_check.setToolTip("Prepend a 1-frame slate image before the video")
+            self._slate_check.setChecked(bool(settings.value(f"{mode}/slate_enabled", False)))
+            scale_row.addWidget(self._slate_check)
+
+            self._burnin_check = QCheckBox("Burn-in")
+            self._burnin_check.setToolTip("Overlay semi-transparent text on every frame")
+            self._burnin_check.setChecked(bool(settings.value(f"{mode}/burnin_enabled", False)))
+            scale_row.addWidget(self._burnin_check)
+
+            self._watermark_check = QCheckBox("Watermark")
+            self._watermark_check.setToolTip("Add a diagonal watermark across every frame")
+            self._watermark_check.setChecked(
+                bool(settings.value(f"{mode}/watermark_enabled", False))
+            )
+            scale_row.addWidget(self._watermark_check)
+        else:
+            self._slate_check = None
+            self._burnin_check = None
+            self._watermark_check = None
+
         opts_layout.addRow("Scale", scale_row)
 
         if mode == "video2exr":
@@ -1952,7 +2075,16 @@ class ConvertTab(QWidget):
 
         self._slate_data: dict | None = None
         self._slate_thumbnail_b64: str = ""
-        self._slate_check.toggled.connect(self._on_slate_toggled)
+        self._burnin_data: dict | None = None
+
+        if self._slate_check is not None:
+            self._slate_check.toggled.connect(self._on_slate_toggled)
+        if self._burnin_check is not None:
+            self._burnin_check.toggled.connect(self._on_burnin_toggled)
+        if self._watermark_check is not None:
+            self._watermark_check.toggled.connect(
+                lambda c: self._settings.setValue(f"{self._mode}/watermark_enabled", c)
+            )
 
         layout.addStretch()
 
@@ -1998,6 +2130,26 @@ class ConvertTab(QWidget):
         self.dst_btn.space_changed.connect(
             lambda n: self._settings.setValue(f"{self._mode}/dst_space", n)
         )
+
+        self.input_path.textChanged.connect(lambda _: self._emit_readiness())
+        self.output_path.textChanged.connect(lambda _: self._emit_readiness())
+        self.src_btn.space_changed.connect(lambda _: self._emit_readiness())
+        self.dst_btn.space_changed.connect(lambda _: self._emit_readiness())
+
+    def _emit_readiness(self) -> None:
+        self.readiness_changed.emit(self.is_ready())
+
+    def is_ready(self) -> bool:
+        """True when minimum required fields are populated."""
+        if not self.input_path.text().strip():
+            return False
+        if not self.output_path.text().strip():
+            return False
+        if not self.src_btn.current_space():
+            return False
+        if not self.dst_btn.current_space():
+            return False
+        return True
 
     def populate_spaces(
         self,
@@ -2080,23 +2232,23 @@ class ConvertTab(QWidget):
         return {}
 
     def slate_enabled(self) -> bool:
-        return self._slate_check.isChecked()
+        return self._slate_check is not None and self._slate_check.isChecked()
 
     def get_slate_data(self) -> dict | None:
         """Return the last-edited slate data, or None if slate is disabled."""
-        if not self._slate_check.isChecked():
+        if not self.slate_enabled():
             return None
         return self._slate_data
 
     def get_slate_thumbnail_b64(self) -> str:
         """Return the base64-encoded thumbnail for the slate, or ''."""
-        if not self._slate_check.isChecked():
+        if not self.slate_enabled():
             return ""
         return self._slate_thumbnail_b64
 
     def get_slate_resolution(self) -> tuple[int, int] | None:
         """Return the slate resolution if slate is enabled."""
-        if not self._slate_check.isChecked() or self._slate_data is None:
+        if not self.slate_enabled() or self._slate_data is None:
             return None
         res_str = self._slate_data.get("resolution", "")
         if "\u00d7" in res_str:
@@ -2107,10 +2259,27 @@ class ConvertTab(QWidget):
                 pass
         return None
 
+    def burnin_enabled(self) -> bool:
+        return self._burnin_check is not None and self._burnin_check.isChecked()
+
+    def get_burnin_data(self) -> dict | None:
+        """Return burn-in config dict, or None if disabled."""
+        if not self.burnin_enabled():
+            return None
+        return self._burnin_data
+
+    def watermark_enabled(self) -> bool:
+        return self._watermark_check is not None and self._watermark_check.isChecked()
+
     def _on_slate_toggled(self, checked: bool) -> None:
         self._settings.setValue(f"{self._mode}/slate_enabled", checked)
         if checked and self._slate_data is None:
             self._open_slate_dialog()
+
+    def _on_burnin_toggled(self, checked: bool) -> None:
+        self._settings.setValue(f"{self._mode}/burnin_enabled", checked)
+        if checked and self._burnin_data is None:
+            self._open_burnin_dialog()
 
     def _open_slate_dialog(self) -> None:
         from .slate_widgets import SlateDialog
@@ -2134,6 +2303,12 @@ class ConvertTab(QWidget):
             self._slate_data = dlg.slate_data()
             self._slate_thumbnail_b64 = dlg.thumbnail_b64()
             self.log_message.emit("Slate data updated")
+
+    def _open_burnin_dialog(self) -> None:
+        dlg = BurnInDialog(self._settings, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._burnin_data = dlg.burnin_data()
+            self.log_message.emit("Burn-in data updated")
 
     def _infer_fps_from_input(self) -> float:
         """Probe the input to infer frame rate. Returns 0.0 if unavailable."""
@@ -2359,6 +2534,8 @@ class ConvertTab(QWidget):
             updated = re.sub(r"#+\.exr$", f"{pat}.exr", current)
             if updated != current:
                 self.output_path.setText(updated)
+                self.output_path.setStyleSheet("background-color: #3a3020;")
+                QTimer.singleShot(500, lambda: self.output_path.setStyleSheet(""))
 
     def _update_output_ext(self) -> None:
         """Update the output path extension to match the current codec."""
@@ -2500,3 +2677,138 @@ class ConvertTab(QWidget):
     def get_frame_range(self) -> str:
         """Return the user-specified frame range string, or '' for all frames."""
         return self._frame_range_edit.text().strip()
+
+
+# ---------------------------------------------------------------------------
+# Burn-in overlay editor
+# ---------------------------------------------------------------------------
+
+_BURNIN_POSITIONS = [
+    ("top_left", "Top-left"),
+    ("top_center", "Top-center"),
+    ("top_right", "Top-right"),
+    ("bottom_left", "Bottom-left"),
+    ("bottom_center", "Bottom-center"),
+    ("bottom_right", "Bottom-right"),
+]
+
+_BURNIN_TOKENS = [
+    ("{vendor}", "Vendor name"),
+    ("{show}", "Show code"),
+    ("{show_full}", "Full show title"),
+    ("{seq}", "Sequence"),
+    ("{shot}", "Shot"),
+    ("{version}", "Version (e.g. v001)"),
+    ("{version_name}", "Full version name"),
+    ("{artist}", "Artist name"),
+    ("{date}", "Date (YYYY-MM-DD)"),
+    ("{frames}", "Frame range"),
+    ("{fps}", "Frame rate"),
+    ("{resolution}", "Resolution"),
+    ("{colorspace}", "Color space"),
+    ("{frame}", "Current frame number"),
+]
+
+
+class BurnInDialog(QDialog):
+    """Editor for configuring overlay / burn-in text positions."""
+
+    def __init__(self, settings: QSettings, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("Burn-in Overlay Editor")
+        self.resize(560, 480)
+        self._settings = settings
+
+        layout = QVBoxLayout(self)
+
+        # Positions form
+        pos_group = QGroupBox("Overlay Fields")
+        form = QFormLayout(pos_group)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self._fields: dict[str, QLineEdit] = {}
+        defaults = {
+            "top_left": "{vendor}",
+            "top_center": "{show_full}",
+            "top_right": "{date}",
+            "bottom_left": "{version_name}",
+            "bottom_center": "",
+            "bottom_right": "{frames}",
+        }
+        for key, label in _BURNIN_POSITIONS:
+            edit = QLineEdit()
+            saved = settings.value(f"burnin/{key}", defaults.get(key, ""))
+            edit.setText(saved)
+            edit.setPlaceholderText("Empty = hidden")
+            edit.setToolTip(
+                "Use tokens like {vendor}, {show}, {frame}, etc.\n"
+                "Plain text is also allowed."
+            )
+            form.addRow(label, edit)
+            self._fields[key] = edit
+
+        layout.addWidget(pos_group)
+
+        # Token reference
+        ref_group = QGroupBox("Available Tokens")
+        ref_layout = QVBoxLayout(ref_group)
+        token_text = "  ".join(f"{tok}" for tok, _desc in _BURNIN_TOKENS)
+        ref_label = QLabel(token_text)
+        ref_label.setWordWrap(True)
+        ref_label.setStyleSheet("color: #888; font-size: 11px;")
+        ref_layout.addWidget(ref_label)
+        layout.addWidget(ref_group)
+
+        # Appearance
+        appear_group = QGroupBox("Appearance")
+        af = QFormLayout(appear_group)
+        af.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self._opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self._opacity_slider.setRange(10, 90)
+        self._opacity_slider.setValue(int(settings.value("burnin/opacity", 50)))
+        self._opacity_label = QLabel(f"{self._opacity_slider.value()}%")
+        self._opacity_slider.valueChanged.connect(
+            lambda v: self._opacity_label.setText(f"{v}%")
+        )
+        opacity_row = QHBoxLayout()
+        opacity_row.addWidget(self._opacity_slider, 1)
+        opacity_row.addWidget(self._opacity_label)
+        af.addRow("Opacity", opacity_row)
+
+        self._font_size_spin = QDoubleSpinBox()
+        self._font_size_spin.setRange(0.5, 5.0)
+        self._font_size_spin.setSingleStep(0.1)
+        self._font_size_spin.setSuffix("% of height")
+        self._font_size_spin.setValue(
+            float(settings.value("burnin/font_pct", 2.5))
+        )
+        af.addRow("Font Size", self._font_size_spin)
+
+        layout.addWidget(appear_group)
+
+        layout.addStretch()
+
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save_and_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _save_and_accept(self) -> None:
+        for key, edit in self._fields.items():
+            self._settings.setValue(f"burnin/{key}", edit.text())
+        self._settings.setValue("burnin/opacity", self._opacity_slider.value())
+        self._settings.setValue("burnin/font_pct", self._font_size_spin.value())
+        self.accept()
+
+    def burnin_data(self) -> dict:
+        """Return the burn-in configuration."""
+        fields = {key: edit.text() for key, edit in self._fields.items()}
+        return {
+            "fields": fields,
+            "opacity": self._opacity_slider.value() / 100.0,
+            "font_pct": self._font_size_spin.value(),
+        }

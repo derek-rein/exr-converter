@@ -63,9 +63,7 @@ def probe_exr_metadata(filepath: str) -> dict[str, str]:
         fh = spec.full_height if spec.full_height > 0 else spec.height
         result["Resolution"] = f"{fw} \u00d7 {fh}"
         if spec.width != fw or spec.height != fh:
-            result["Data Window"] = (
-                f"{spec.width} \u00d7 {spec.height} (offset {spec.x}, {spec.y})"
-            )
+            result["Data Window"] = f"{spec.width} \u00d7 {spec.height} (offset {spec.x}, {spec.y})"
         result["Channels"] = str(spec.nchannels)
         ch_names = [spec.channel_name(i) for i in range(spec.nchannels)]
         result["Channel names"] = ", ".join(ch_names)

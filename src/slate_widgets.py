@@ -11,7 +11,16 @@ import json
 import os
 import time
 
-from PySide6.QtCore import QPointF, QRectF, QRegularExpression, QSettings, Qt, QUrl, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QPointF,
+    QRectF,
+    QRegularExpression,
+    QSettings,
+    Qt,
+    QUrl,
+    Signal,
+)
 from PySide6.QtGui import QBrush, QColor, QPainter, QRegularExpressionValidator, QWheelEvent
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -32,6 +41,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QSplitter,
+    QStatusBar,
     QVBoxLayout,
     QWidget,
 )
@@ -107,9 +117,7 @@ def extract_thumbnail_b64(input_path: str, mode: str) -> str:
                 dx, dy = 0, 0
                 dw, dh = spec.width, spec.height
             roi = oiio.ROI(dx, dx + dw, dy, dy + dh, 0, 1, 0, min(spec.nchannels, 3))
-            pixels = np.ascontiguousarray(
-                img_buf.get_pixels(oiio.FLOAT, roi), dtype=np.float32
-            )
+            pixels = np.ascontiguousarray(img_buf.get_pixels(oiio.FLOAT, roi), dtype=np.float32)
             rgb = pixels[..., :3] if pixels.shape[2] >= 3 else np.repeat(pixels, 3, axis=2)
             rgb = np.clip(rgb, 0, None)
             srgb = np.where(
@@ -326,6 +334,27 @@ class SlateFormPanel(QWidget):
         self.height_spin.valueChanged.connect(self._emit_changed)
         self.notes_edit.textChanged.connect(self._emit_changed)
 
+        # Status tips — shown in the dialog's QStatusBar on hover
+        self.show_edit.setStatusTip("Production or show code (falls back to $SHOW env var)")
+        self.sequence_edit.setStatusTip("Sequence name (falls back to $SEQ env var)")
+        self.shot_edit.setStatusTip("Shot name (falls back to $SHOT env var)")
+        self.version_spin.setStatusTip("Version number — appears as v001, v002, etc.")
+        self.submit_for_combo.setStatusTip("Submission stage: WIP, FINAL, or CBB")
+        self.notes_edit.setStatusTip("Free-form notes displayed on the slate")
+        self.artist_edit.setStatusTip("Artist name — who did the work")
+        self.vendor_edit.setStatusTip("Studio or vendor name")
+        self.take_edit.setStatusTip("Take number for this version")
+        self.shot_types_edit.setStatusTip("e.g. 2D comp, 3D, matte paint, roto…")
+        self.scope_edit.setStatusTip("Description of VFX scope of work for this shot")
+        self.logo_edit.setStatusTip("Text displayed as logo/studio branding (blank to hide)")
+        self.frame_range_edit.setStatusTip("Start – end frame range for the output")
+        self.fps_combo.setStatusTip("Playback frame rate")
+        self.width_spin.setStatusTip("Output resolution width in pixels")
+        self.height_spin.setStatusTip("Output resolution height in pixels")
+        self.colorspace_edit.setStatusTip(
+            "Output color space — inherited from the conversion settings"
+        )
+
     # --- Helpers ---
 
     def _line(self, key: str, placeholder: str) -> QLineEdit:
@@ -467,10 +496,15 @@ class SlateFormPanel(QWidget):
 class SlatePreviewView(QGraphicsView):
     """QGraphicsView with Nuke-style pan/zoom navigation.
 
+    Zoom anchors to the screen-space mouse position (scroll wheel and RMB
+    drag), exactly like Nuke / pyqtgraph.  All navigation is done via the
+    view transform — scroll bars and scene-rect clamping are bypassed so the
+    user can freely pan and zoom without hitting invisible walls.
+
     Controls:
       - MMB drag: pan
       - Scroll wheel: zoom to cursor
-      - RMB drag: zoom (horizontal)
+      - RMB drag: zoom (horizontal, anchored at press position)
       - F key: fit slate in view
     """
 
@@ -491,13 +525,18 @@ class SlatePreviewView(QGraphicsView):
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
         self.setBackgroundBrush(QBrush(QColor("#323232")))
 
+        # Effectively-infinite scene rect prevents Qt from re-centering
+        # the content when the item is smaller than the viewport.
+        self._scene.setSceneRect(-1e6, -1e6, 2e6, 2e6)
+
         self._proxy: QGraphicsProxyWidget = self._scene.addWidget(web_view)
         self._web = web_view
+        self._slate_rect = QRectF(0, 0, 1920, 1080)
 
         self._panning = False
         self._zooming = False
-        self._last_pos = None
-        self._zoom_anchor_scene = None
+        self._last_pos: QPointF | None = None
+        self._zoom_anchor_view: QPointF | None = None
 
     def set_slate_size(self, w: int, h: int) -> None:
         preview_h = 1080
@@ -506,62 +545,74 @@ class SlatePreviewView(QGraphicsView):
         self._proxy.setMinimumSize(preview_w, preview_h)
         self._proxy.setMaximumSize(preview_w, preview_h)
         self._proxy.resize(preview_w, preview_h)
-        self._scene.setSceneRect(QRectF(0, 0, preview_w, preview_h))
+        self._slate_rect = QRectF(0, 0, preview_w, preview_h)
         self._web.page().setZoomFactor(1.0)
         self.fit_in_view()
 
     def fit_in_view(self) -> None:
-        self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self.fitInView(self._slate_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
-    def _view_pos(self, event) -> QPointF:
-        return event.position()
+    # -- zoom-to-cursor (Nuke / pyqtgraph style) --
 
-    def _to_scene(self, view_pt: QPointF) -> QPointF:
-        return self.mapToScene(view_pt.toPoint())
+    def _scale_at(self, factor: float, view_anchor: QPointF) -> None:
+        """Scale around the scene point under *view_anchor* (view coords).
 
-    def _scale_by(self, factor: float, center_scene: QPointF) -> None:
+        Builds T' = T · Translate(cx,cy) · Scale(s) · Translate(-cx,-cy)
+        and applies it atomically via setTransform so Qt cannot re-center.
+        """
         cur = self.transform().m11()
         target = max(ZOOM_MIN, min(ZOOM_MAX, cur * factor))
         s = target / cur
         if abs(s - 1.0) < 1e-7:
             return
-        xf = self.transform()
-        cx, cy = center_scene.x(), center_scene.y()
-        xf.translate(cx, cy)
-        xf.scale(s, s)
-        xf.translate(-cx, -cy)
-        self.setTransform(xf)
+        scene_pt = self.mapToScene(view_anchor.toPoint())
+        cx, cy = scene_pt.x(), scene_pt.y()
+        t = self.transform()
+        t.translate(cx, cy)
+        t.scale(s, s)
+        t.translate(-cx, -cy)
+        self.setTransform(t)
+
+    # -- pan (transform-based, no scroll-bar clamping) --
+
+    def _translate_view(self, dx: float, dy: float) -> None:
+        """Pan by (dx, dy) screen pixels."""
+        t = self.transform()
+        s = t.m11()
+        t.translate(dx / s, dy / s)
+        self.setTransform(t)
+
+    # -- events --
 
     def mousePressEvent(self, event):
         btn = event.button()
         if btn == Qt.MouseButton.MiddleButton:
             self._panning = True
-            self._last_pos = self._view_pos(event)
+            self._last_pos = event.position()
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         if btn == Qt.MouseButton.RightButton:
             self._zooming = True
-            self._last_pos = self._view_pos(event)
-            self._zoom_anchor_scene = self._to_scene(self._last_pos)
+            self._last_pos = event.position()
+            self._zoom_anchor_view = event.position()
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        pos = self._view_pos(event)
+        pos = event.position()
         if self._panning and self._last_pos is not None:
             delta = pos - self._last_pos
             self._last_pos = pos
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(delta.x()))
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
+            self._translate_view(delta.x(), delta.y())
             event.accept()
             return
         if self._zooming and self._last_pos is not None:
             dx = pos.x() - self._last_pos.x()
             self._last_pos = pos
             s = 1.02 ** (dx * 0.5)
-            self._scale_by(s, self._zoom_anchor_scene)
+            self._scale_at(s, self._zoom_anchor_view)
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -577,7 +628,7 @@ class SlatePreviewView(QGraphicsView):
         if btn == Qt.MouseButton.RightButton and self._zooming:
             self._zooming = False
             self._last_pos = None
-            self._zoom_anchor_scene = None
+            self._zoom_anchor_view = None
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -587,8 +638,7 @@ class SlatePreviewView(QGraphicsView):
         if delta == 0:
             return
         s = 1.02 ** (delta * self.WHEEL_SCALE_FACTOR)
-        center = self._to_scene(self._view_pos(event))
-        self._scale_by(s, center)
+        self._scale_at(s, event.position())
         event.accept()
 
     def keyPressEvent(self, event):
@@ -680,22 +730,28 @@ class SlateDialog(QDialog):
 
         layout.addWidget(splitter, 1)
 
-        # --- Bottom: buttons ---
-        btn_layout = QHBoxLayout()
-        btn_layout.setContentsMargins(12, 8, 12, 8)
+        # --- Bottom: status bar with embedded OK / Cancel ---
+        self._status_bar = QStatusBar()
+        self._status_bar.setSizeGripEnabled(True)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        btn_layout.addWidget(buttons)
-        layout.addLayout(btn_layout)
+        self._status_bar.addPermanentWidget(buttons)
+        layout.addWidget(self._status_bar)
 
         # --- Load template + live preview ---
         self._load_template()
         self._form.data_changed.connect(self._push_preview)
         self._form.data_changed.connect(self._update_preview_size)
         self._web.loadFinished.connect(self._on_template_loaded)
+
+    def event(self, ev: QEvent) -> bool:
+        if ev.type() == QEvent.Type.StatusTip:
+            self._status_bar.showMessage(ev.tip())
+            return True
+        return super().event(ev)
 
     def _load_template(self) -> None:
         url = QUrl.fromLocalFile(str(DEFAULT_TEMPLATE))
