@@ -25,9 +25,9 @@ All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.de
 |-------|--------|
 | **Language & tooling** | Python 3.13, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [Nuitka](https://nuitka.net/) for standalone bundles |
 | **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.8), Nuke-inspired dark theme |
-| **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`oiio-python`), [OpenColorIO 2.5](https://opencolorio.org/) for display/render transforms |
+| **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`oiio-python`), [OpenColorIO 2.5](https://opencolorio.org/) display/render transforms with a scene-linear **working space** (resolves to the active config's `scene_linear` role) for all overlay compositing |
 | **Video & sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences & ranges |
-| **Slate rendering** | Native **QPainter** preview and offscreen capture — no embedded browser |
+| **Slate / burn-in / watermark** | Native **QPainter** preview and offscreen capture (no embedded browser); burn-in and watermark are linearised into the working space and alpha-composited per-frame, then OCIO-transformed to display before encode |
 
 CI runs on **GitHub Actions**; releases publish binaries for Linux, macOS (Apple Silicon + Intel), and Windows.
 

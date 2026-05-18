@@ -1963,33 +1963,36 @@ class ConvertTab(QWidget):
         scale_row.addWidget(self.scale_combo, 1)
 
         if mode == "exr2video":
+            from .slate_model import SlateModel
+
+            self._slate_model = SlateModel(settings, mode, parent=self)
+
             self._slate_check = QCheckBox("Slate")
             self._slate_check.setToolTip("Prepend a 1-frame slate image before the video")
-            self._slate_check.setChecked(bool(settings.value(f"{mode}/slate_enabled", False)))
+            self._slate_check.setChecked(self._slate_model.slate_enabled)
             scale_row.addWidget(self._slate_check)
 
             self._burnin_check = QCheckBox("Burn-in")
             self._burnin_check.setToolTip("Overlay semi-transparent text on every frame")
-            self._burnin_check.setChecked(bool(settings.value(f"{mode}/burnin_enabled", False)))
+            self._burnin_check.setChecked(self._slate_model.burnin_enabled)
             scale_row.addWidget(self._burnin_check)
 
             self._watermark_check = QCheckBox("Watermark")
             self._watermark_check.setToolTip("Add a diagonal watermark across every frame")
-            self._watermark_check.setChecked(
-                bool(settings.value(f"{mode}/watermark_enabled", False))
-            )
+            self._watermark_check.setChecked(self._slate_model.watermark_enabled)
             scale_row.addWidget(self._watermark_check)
 
             scale_row.addStretch()
 
             self._edit_slate_btn = QToolButton()
-            self._edit_slate_btn.setText("\u270E")
+            self._edit_slate_btn.setText("\u270e")
             self._edit_slate_btn.setToolTip("Edit Slate & Overlay\u2026")
             self._edit_slate_btn.setAutoRaise(True)
             self._edit_slate_btn.setFixedWidth(28)
             self._edit_slate_btn.clicked.connect(self._open_slate_dialog)
             scale_row.addWidget(self._edit_slate_btn)
         else:
+            self._slate_model = None
             self._slate_check = None
             self._burnin_check = None
             self._watermark_check = None
@@ -2103,17 +2106,18 @@ class ConvertTab(QWidget):
 
         layout.addWidget(opts_group)
 
-        self._slate_data: dict | None = None
-        self._slate_thumbnail_b64: str = ""
-
+        # Two-way binding between the master checkboxes and the model.
+        # The lambdas push view → model; ``_on_model_changed`` reflects
+        # model → view so external writers (the slate dialog, settings
+        # restore, scripts) stay in sync.
         if self._slate_check is not None:
-            self._slate_check.toggled.connect(self._on_slate_toggled)
+            self._slate_check.toggled.connect(self._slate_model.set_slate_enabled)
         if self._burnin_check is not None:
-            self._burnin_check.toggled.connect(self._on_burnin_toggled)
+            self._burnin_check.toggled.connect(self._slate_model.set_burnin_enabled)
         if self._watermark_check is not None:
-            self._watermark_check.toggled.connect(
-                lambda c: self._settings.setValue(f"{self._mode}/watermark_enabled", c)
-            )
+            self._watermark_check.toggled.connect(self._slate_model.set_watermark_enabled)
+        if self._slate_model is not None:
+            self._slate_model.changed.connect(self._on_slate_model_changed)
 
         layout.addStretch()
 
@@ -2302,56 +2306,90 @@ class ConvertTab(QWidget):
             return {"slicecrc": "1"}
         return {}
 
+    def slate_model(self):
+        """Return the per-tab :class:`SlateModel`, or ``None`` for non-slate modes."""
+        return self._slate_model
+
     def slate_enabled(self) -> bool:
-        return self._slate_check is not None and self._slate_check.isChecked()
+        return self._slate_model is not None and self._slate_model.slate_enabled
 
     def get_slate_data(self) -> dict | None:
-        """Return the last-edited slate data, or None if slate is disabled."""
+        """Return the rendered-shape slate data, or None if slate is disabled."""
         if not self.slate_enabled():
             return None
-        return self._slate_data
+        return self._slate_model.slate_data_for_render()
 
     def get_slate_thumbnail_b64(self) -> str:
         """Return the base64-encoded thumbnail for the slate, or ''."""
-        if not self.slate_enabled():
+        if not self.slate_enabled() or self._slate_model is None:
             return ""
-        return self._slate_thumbnail_b64
+        return self._slate_model.thumbnail_b64
 
     def get_slate_resolution(self) -> tuple[int, int] | None:
         """Return the slate resolution if slate is enabled."""
-        if not self.slate_enabled() or self._slate_data is None:
+        if not self.slate_enabled() or self._slate_model is None:
             return None
-        res_str = self._slate_data.get("resolution", "")
-        if "\u00d7" in res_str:
-            parts = res_str.split("\u00d7")
-            try:
-                return int(parts[0]), int(parts[1])
-            except (ValueError, IndexError):
-                pass
-        return None
+        return self._slate_model.slate_resolution
 
     def burnin_enabled(self) -> bool:
-        return self._burnin_check is not None and self._burnin_check.isChecked()
+        return self._slate_model is not None and self._slate_model.burnin_enabled
+
+    def get_burnin_fields(self) -> dict[str, str] | None:
+        """Return the user-typed burn-in fields, or None if burn-in is disabled."""
+        if not self.burnin_enabled() or self._slate_model is None:
+            return None
+        return self._slate_model.burnin_fields
+
+    def get_effective_burnin_fields(self, input_path: str = "") -> dict[str, str] | None:
+        """Return burn-in fields for rendering (manual cells, else slate-derived)."""
+        if not self.burnin_enabled() or self._slate_model is None:
+            return None
+        return self._slate_model.effective_burnin_fields(input_path)
 
     def watermark_enabled(self) -> bool:
-        return self._watermark_check is not None and self._watermark_check.isChecked()
+        return self._slate_model is not None and self._slate_model.watermark_enabled
 
-    def _on_slate_toggled(self, checked: bool) -> None:
-        self._settings.setValue(f"{self._mode}/slate_enabled", checked)
+    def get_watermark_params(self) -> dict | None:
+        """Return watermark styling, or ``None`` if the tab master switch is off.
 
-    def _on_burnin_toggled(self, checked: bool) -> None:
-        self._settings.setValue(f"{self._mode}/burnin_enabled", checked)
+        The tab **Watermark** checkbox is the master switch for export.  The
+        editor's watermark group (``enabled`` inside the dict) is a secondary
+        toggle: both must be on for :meth:`SlateModel.watermark_active` and
+        for overlays to bake into the output.
+        """
+        if not self.watermark_enabled() or self._slate_model is None:
+            return None
+        return self._slate_model.watermark_params
+
+    def _on_slate_model_changed(self, section: str) -> None:
+        """Reflect model changes in the master checkboxes (model → view)."""
+        if section == "slate_enabled" and self._slate_check is not None:
+            self._slate_check.blockSignals(True)
+            self._slate_check.setChecked(self._slate_model.slate_enabled)
+            self._slate_check.blockSignals(False)
+        elif section == "burnin_enabled" and self._burnin_check is not None:
+            self._burnin_check.blockSignals(True)
+            self._burnin_check.setChecked(self._slate_model.burnin_enabled)
+            self._burnin_check.blockSignals(False)
+        elif section == "watermark_enabled" and self._watermark_check is not None:
+            self._watermark_check.blockSignals(True)
+            self._watermark_check.setChecked(self._slate_model.watermark_enabled)
+            self._watermark_check.blockSignals(False)
 
     def _open_slate_dialog(self) -> None:
         from .slate_widgets import SlateDialog
+
+        if self._slate_model is None:
+            return
 
         locked_w, locked_h = self._detect_input_resolution()
         inp = self.get_input_path()
         inferred_fps = self._infer_fps_from_input()
         dst_cs = self.dst_btn.current_space()
         src_cs = self.src_btn.current_space()
+
         dlg = SlateDialog(
-            self._settings,
+            self._slate_model,
             locked_width=locked_w,
             locked_height=locked_h,
             input_path=inp,
@@ -2364,8 +2402,6 @@ class ConvertTab(QWidget):
             parent=self,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            self._slate_data = dlg.slate_data()
-            self._slate_thumbnail_b64 = dlg.thumbnail_b64()
             self.log_message.emit("Slate & overlay data updated")
 
     def _infer_fps_from_input(self) -> float:

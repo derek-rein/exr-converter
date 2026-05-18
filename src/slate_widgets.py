@@ -7,16 +7,12 @@ and a live QPainter-driven preview on the right.
 
 from __future__ import annotations
 
-import os
-import time
-
 from PySide6.QtCore import (
     QEvent,
     QObject,
     QPointF,
     QRectF,
     QRegularExpression,
-    QSettings,
     Qt,
     QThread,
     QTimer,
@@ -45,6 +41,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
@@ -57,18 +54,26 @@ from PySide6.QtWidgets import (
 from .slate import SLATE_COLORSPACE, render_slate_frame
 from .timeline_slider import TimelineSlider
 
-COMMON_FPS: list[float] = [23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 60.0]
-
 ZOOM_MIN = 0.05
 ZOOM_MAX = 5.0
 
 
-def _env_default(key: str, settings_key: str, settings: QSettings) -> str:
-    """Return saved value, falling back to environment variable, then ''."""
-    saved = settings.value(settings_key, "")
-    if saved:
-        return saved
-    return os.environ.get(key, "")
+def _alpha_over_rgb(bg_rgb_f32, overlay_rgba_u8):
+    """Vectorised straight-alpha 'over' composite of an RGBA8 overlay onto an
+    RGB float32 background.  Returns a new float32 RGB array — leaves the
+    input untouched.
+
+    Used by the slate dialog to bake burn-in + watermark on top of the
+    display-space frame, matching what :mod:`convert` does for the final
+    rendered output.
+    """
+    import numpy as np
+
+    if overlay_rgba_u8.shape[2] < 4:
+        return bg_rgb_f32
+    a = overlay_rgba_u8[..., 3:4].astype(np.float32) / 255.0
+    fg = overlay_rgba_u8[..., :3].astype(np.float32) / 255.0
+    return fg * a + bg_rgb_f32 * (1.0 - a)
 
 
 def _read_exr_frame(path: str):
@@ -407,31 +412,29 @@ def extract_thumbnail_b64(input_path: str, mode: str) -> str:
 
 
 class SlateFormPanel(QWidget):
-    """Form collecting all slate metadata fields.
+    """View / editor for the slate metadata, burn-in fields and watermark.
 
-    Top row: show, sequence, shot, version (horizontal).
-    Primary fields: submit notes, artist, frame range, fps, submit for.
-    Collapsible "Additional Details": take, vendor, shot_types, scope, logo.
-    Resolution: width/height spins (disabled when input is present).
+    The form is a thin view over a :class:`~src.slate_model.SlateModel` —
+    every edit pushes the new value into the model, and the model is the
+    canonical source of truth (also persists to ``QSettings``).
     """
 
     data_changed = Signal(dict)
 
     def __init__(
         self,
-        settings: QSettings,
+        model,  # SlateModel
         input_path: str = "",
-        mode: str = "",
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
-        self._settings = settings
-        self._resolution_locked = False
+        self._model = model
         self._input_path = input_path
-        self._mode = mode
-        self._thumbnail_b64 = ""
+        self._suppress_emit = False
         self.setMinimumWidth(280)
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
+
+        fields = model.slate_fields
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -451,16 +454,15 @@ class SlateFormPanel(QWidget):
             col.addWidget(widget)
             return col
 
-        self.show_edit = self._line_env("slate/show", "SHOW", "$SHOW")
-        self.sequence_edit = self._line_env("slate/sequence", "SEQ", "$SEQ")
-        self.shot_edit = self._line_env("slate/shot", "SHOT", "$SHOT")
+        self.show_edit = self._line_validated(fields.get("show", ""), "$SHOW")
+        self.sequence_edit = self._line_validated(fields.get("sequence", ""), "$SEQ")
+        self.shot_edit = self._line_validated(fields.get("shot", ""), "$SHOT")
 
         self.version_spin = QSpinBox()
         self.version_spin.setRange(0, 9999)
         self.version_spin.setPrefix("v")
         self.version_spin.setWrapping(True)
-        saved_ver = int(settings.value("slate/version_num", 1))
-        self.version_spin.setValue(saved_ver)
+        self.version_spin.setValue(model.slate_version)
         self.version_spin.valueChanged.connect(self._emit_changed)
 
         top_layout.addLayout(_labeled_field("Show", self.show_edit), 2)
@@ -484,35 +486,22 @@ class SlateFormPanel(QWidget):
         self.notes_edit = QPlainTextEdit()
         self.notes_edit.setMaximumHeight(80)
         self.notes_edit.setPlaceholderText("Submission notes…")
-        saved_notes = settings.value("slate/notes", "")
-        if saved_notes:
-            self.notes_edit.setPlainText(saved_notes)
+        if fields.get("notes"):
+            self.notes_edit.setPlainText(fields["notes"])
 
         self.submit_for_combo = QComboBox()
         for label in ("WIP", "FINAL", "CBB"):
             self.submit_for_combo.addItem(label)
-        saved_sf = settings.value("slate/submit_for", "WIP")
-        sf_idx = self.submit_for_combo.findText(saved_sf)
+        sf_idx = self.submit_for_combo.findText(fields.get("submit_for", "WIP"))
         if sf_idx >= 0:
             self.submit_for_combo.setCurrentIndex(sf_idx)
 
-        self.artist_edit = self._line("slate/artist", "Artist Name")
-
-        self.frame_range_edit = QLineEdit()
-        self.frame_range_edit.setPlaceholderText("1001 – 1100")
-        self.frame_range_edit.setReadOnly(False)
-
-        self.fps_combo = QComboBox()
-        for fps_val in COMMON_FPS:
-            label = str(int(fps_val)) if fps_val == int(fps_val) else f"{fps_val:.3f}"
-            self.fps_combo.addItem(label, float(fps_val))
-        self._inferred_fps: float | None = None
-        self._apply_fps(settings)
+        self.artist_edit = self._line(fields.get("artist", ""), "Artist Name")
 
         pf.addRow("Submitting For", self.submit_for_combo)
         pf.addRow("Submit Notes", self.notes_edit)
-        self.shot_types_edit = self._line("slate/shot_types", "2d comp, 3d, matte paint…")
-        self.scope_edit = self._line("slate/scope", "VFX scope of work")
+        self.shot_types_edit = self._line(fields.get("shot_types", ""), "2d comp, 3d, matte paint…")
+        self.scope_edit = self._line(fields.get("scope", ""), "VFX scope of work")
         pf.addRow("Shot Types", self.shot_types_edit)
         pf.addRow("Scope of Work", self.scope_edit)
         root.addWidget(primary)
@@ -522,9 +511,9 @@ class SlateFormPanel(QWidget):
         rf = QFormLayout(right_group)
         rf.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        self.vendor_edit = self._line("slate/vendor", "Studio / Vendor name")
-        self.take_edit = self._line("slate/take", "01")
-        self.logo_edit = self._line("slate/logo", "Logo text (blank to hide)")
+        self.vendor_edit = self._line(fields.get("vendor", ""), "Studio / Vendor name")
+        self.take_edit = self._line(fields.get("take", ""), "01")
+        self.logo_edit = self._line(fields.get("logo", ""), "Logo text (blank to hide)")
 
         rf.addRow("Vendor", self.vendor_edit)
         rf.addRow("Artist", self.artist_edit)
@@ -532,41 +521,77 @@ class SlateFormPanel(QWidget):
         rf.addRow("Logo / Studio", self.logo_edit)
         root.addWidget(right_group)
 
-        # --- Output (resolution, frame range, fps, colorspace) ---
-        out_group = QGroupBox("Output")
-        of = QFormLayout(out_group)
-        of.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        # --- Burn-in (six corner cells, manual entry) ---
+        burnin_group = QGroupBox("Burn-in (per-frame overlay)")
+        bf = QFormLayout(burnin_group)
+        bf.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        self.width_spin = QSpinBox()
-        self.width_spin.setRange(64, 16384)
-        self.width_spin.setSuffix(" px")
-        self.height_spin = QSpinBox()
-        self.height_spin.setRange(64, 16384)
-        self.height_spin.setSuffix(" px")
+        burnin = model.burnin_fields
+        self.burnin_top_left = self._line(burnin.get("top_left", ""), "Top left")
+        self.burnin_top_center = self._line(burnin.get("top_center", ""), "Top center")
+        self.burnin_top_right = self._line(burnin.get("top_right", ""), "Top right")
+        self.burnin_bottom_left = self._line(burnin.get("bottom_left", ""), "Bottom left")
+        self.burnin_bottom_center = self._line(burnin.get("bottom_center", ""), "Bottom center")
+        self.burnin_bottom_right = self._line(burnin.get("bottom_right", ""), "Bottom right")
 
-        saved_w = int(settings.value("slate/res_w", 1920))
-        saved_h = int(settings.value("slate/res_h", 1080))
-        self.width_spin.setValue(saved_w)
-        self.height_spin.setValue(saved_h)
+        bf.addRow("Top Left", self.burnin_top_left)
+        bf.addRow("Top Center", self.burnin_top_center)
+        bf.addRow("Top Right", self.burnin_top_right)
+        bf.addRow("Bottom Left", self.burnin_bottom_left)
+        bf.addRow("Bottom Center", self.burnin_bottom_center)
+        bf.addRow("Bottom Right", self.burnin_bottom_right)
 
-        res_row = QHBoxLayout()
-        res_row.addWidget(self.width_spin)
-        res_row.addWidget(QLabel("\u00d7"))
-        res_row.addWidget(self.height_spin)
-        res_row.addStretch()
+        # 'Fill from slate' button — convenience for users who don't want to
+        # type six fields by hand; pulls vendor/show/version/etc. via the
+        # legacy :func:`burnin_fields_from_slate` helper.
+        self._fill_burnin_btn = QPushButton("Fill from slate fields")
+        self._fill_burnin_btn.setToolTip(
+            "Replace burn-in cells with values derived from slate metadata"
+        )
+        self._fill_burnin_btn.clicked.connect(self._on_fill_burnin)
+        bf.addRow("", self._fill_burnin_btn)
 
-        self.colorspace_edit = QLineEdit()
-        self.colorspace_edit.setReadOnly(True)
-        self.colorspace_edit.setEnabled(False)
-        self.colorspace_edit.setPlaceholderText("Set in output color space")
-        self.colorspace_edit.setToolTip("Determined by the output color space selection")
+        root.addWidget(burnin_group)
 
-        of.addRow("Resolution", res_row)
-        of.addRow("Frame Range", self.frame_range_edit)
-        of.addRow("FPS", self.fps_combo)
-        of.addRow("Color Space", self.colorspace_edit)
-        root.addWidget(out_group)
-        self._res_group = out_group
+        # --- Watermark (drawn over every preview & output frame) ---
+        wm_group = QGroupBox("Watermark")
+        wm_group.setCheckable(True)
+        wm_params = model.watermark_params
+        wm_group.setChecked(bool(wm_params.get("enabled")))
+        wmf = QFormLayout(wm_group)
+        wmf.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self.watermark_text_edit = QLineEdit()
+        self.watermark_text_edit.setPlaceholderText("FOR REVIEW ONLY")
+        self.watermark_text_edit.setText(str(wm_params.get("text", "")))
+
+        self.watermark_opacity_spin = QSpinBox()
+        self.watermark_opacity_spin.setRange(0, 100)
+        self.watermark_opacity_spin.setSuffix(" %")
+        self.watermark_opacity_spin.setValue(int(wm_params.get("opacity", 35)))
+
+        self.watermark_size_spin = QSpinBox()
+        self.watermark_size_spin.setRange(1, 30)
+        self.watermark_size_spin.setSuffix(" %")
+        self.watermark_size_spin.setValue(int(wm_params.get("size_pct", 9)))
+        self.watermark_size_spin.setToolTip("Text size as a percentage of frame height")
+
+        self.watermark_angle_spin = QSpinBox()
+        self.watermark_angle_spin.setRange(-90, 90)
+        self.watermark_angle_spin.setSuffix("\u00b0")
+        self.watermark_angle_spin.setValue(int(wm_params.get("angle", 30)))
+
+        wmf.addRow("Text", self.watermark_text_edit)
+        wmf.addRow("Opacity", self.watermark_opacity_spin)
+        wmf.addRow("Size", self.watermark_size_spin)
+        wmf.addRow("Angle", self.watermark_angle_spin)
+        root.addWidget(wm_group)
+        self._watermark_group = wm_group
+
+        self.watermark_text_edit.setStatusTip("Watermark text drawn diagonally across every frame")
+        self.watermark_opacity_spin.setStatusTip("Watermark opacity (0 = invisible)")
+        self.watermark_size_spin.setStatusTip("Watermark text height as % of frame height")
+        self.watermark_angle_spin.setStatusTip("Rotation angle of the watermark text")
 
         root.addStretch()
 
@@ -574,7 +599,6 @@ class SlateFormPanel(QWidget):
             self.show_edit,
             self.shot_edit,
             self.artist_edit,
-            self.frame_range_edit,
             self.sequence_edit,
             self.take_edit,
             self.vendor_edit,
@@ -584,11 +608,28 @@ class SlateFormPanel(QWidget):
         ):
             widget.textChanged.connect(self._emit_changed)
 
-        self.fps_combo.currentIndexChanged.connect(self._emit_changed)
         self.submit_for_combo.currentIndexChanged.connect(self._emit_changed)
-        self.width_spin.valueChanged.connect(self._emit_changed)
-        self.height_spin.valueChanged.connect(self._emit_changed)
         self.notes_edit.textChanged.connect(self._emit_changed)
+
+        # Burn-in fields fan into a single push-to-model handler
+        for w in (
+            self.burnin_top_left,
+            self.burnin_top_center,
+            self.burnin_top_right,
+            self.burnin_bottom_left,
+            self.burnin_bottom_center,
+            self.burnin_bottom_right,
+        ):
+            w.textChanged.connect(self._on_burnin_changed)
+
+        self._watermark_group.toggled.connect(self._on_watermark_changed)
+        self.watermark_text_edit.textChanged.connect(self._on_watermark_changed)
+        self.watermark_opacity_spin.valueChanged.connect(self._on_watermark_changed)
+        self.watermark_size_spin.valueChanged.connect(self._on_watermark_changed)
+        self.watermark_angle_spin.valueChanged.connect(self._on_watermark_changed)
+
+        # Listen for external model changes so multiple views stay in sync.
+        self._model.changed.connect(self._on_model_changed)
 
         # Status tips — shown in the dialog's QStatusBar on hover
         self.show_edit.setStatusTip("Production or show code (falls back to $SHOW env var)")
@@ -603,145 +644,170 @@ class SlateFormPanel(QWidget):
         self.shot_types_edit.setStatusTip("e.g. 2D comp, 3D, matte paint, roto…")
         self.scope_edit.setStatusTip("Description of VFX scope of work for this shot")
         self.logo_edit.setStatusTip("Text displayed as logo/studio branding (blank to hide)")
-        self.frame_range_edit.setStatusTip("Start – end frame range for the output")
-        self.fps_combo.setStatusTip("Playback frame rate")
-        self.width_spin.setStatusTip("Output resolution width in pixels")
-        self.height_spin.setStatusTip("Output resolution height in pixels")
-        self.colorspace_edit.setStatusTip(
-            "Output color space — inherited from the conversion settings"
-        )
 
     # --- Helpers ---
 
-    def _line(self, key: str, placeholder: str) -> QLineEdit:
+    def _line(self, initial: str, placeholder: str) -> QLineEdit:
         edit = QLineEdit()
         edit.setPlaceholderText(placeholder)
-        saved = self._settings.value(key, "")
-        if saved:
-            edit.setText(saved)
+        if initial:
+            edit.setText(initial)
         return edit
 
-    def _line_env(self, key: str, env_var: str, placeholder: str) -> QLineEdit:
-        """Create a QLineEdit that falls back to an environment variable.
-
-        Input is restricted to alphanumeric characters and underscores.
-        """
+    def _line_validated(self, initial: str, placeholder: str) -> QLineEdit:
+        """A QLineEdit restricted to alphanumeric/underscore (for show/seq/shot)."""
         edit = QLineEdit()
         edit.setPlaceholderText(placeholder)
         edit.setValidator(QRegularExpressionValidator(QRegularExpression(r"[A-Za-z0-9_]*")))
-        val = _env_default(env_var, key, self._settings)
-        if val:
-            edit.setText(val)
+        if initial:
+            edit.setText(initial)
         return edit
 
-    def _apply_fps(self, settings: QSettings) -> None:
-        """Set FPS from inferred value, saved value, or default."""
-        if self._inferred_fps is not None:
-            target = self._inferred_fps
-        else:
-            target = float(settings.value("slate/fps", 24.0))
-        for i in range(self.fps_combo.count()):
-            data = self.fps_combo.itemData(i)
-            if data is not None and abs(data - target) < 0.01:
-                self.fps_combo.setCurrentIndex(i)
-                return
-        self.fps_combo.setCurrentIndex(1)
-
-    def set_inferred_fps(self, fps: float) -> None:
-        """Set FPS inferred from the input media (user can still override)."""
-        self._inferred_fps = fps
-        for i in range(self.fps_combo.count()):
-            data = self.fps_combo.itemData(i)
-            if data is not None and abs(data - fps) < 0.01:
-                self.fps_combo.setCurrentIndex(i)
-                return
-
-    def set_frame_range(self, frame_range: str) -> None:
-        """Set the frame range from the input and lock the field."""
-        if frame_range:
-            self.frame_range_edit.setText(frame_range)
-            self.frame_range_edit.setReadOnly(True)
-            self.frame_range_edit.setEnabled(False)
-            self.frame_range_edit.setToolTip("Determined from input source")
-
-    def set_colorspace(self, name: str) -> None:
-        """Display the output colorspace (read-only)."""
-        self.colorspace_edit.setText(name)
-
     def set_thumbnail_b64(self, b64: str) -> None:
-        """Store raw base64 JPEG data for the thumbnail."""
-        self._thumbnail_b64 = b64
+        """Forward the thumbnail to the model (single source of truth)."""
+        self._model.set_thumbnail_b64(b64)
 
-    def resolution(self) -> tuple[int, int]:
-        return self.width_spin.value(), self.height_spin.value()
+    def _push_slate_to_model(self) -> None:
+        """Bulk-update the model with the current widget state."""
+        fields = {
+            "show": self.show_edit.text(),
+            "sequence": self.sequence_edit.text(),
+            "shot": self.shot_edit.text(),
+            "artist": self.artist_edit.text(),
+            "vendor": self.vendor_edit.text(),
+            "take": self.take_edit.text(),
+            "submit_for": self.submit_for_combo.currentText(),
+            "shot_types": self.shot_types_edit.text(),
+            "scope": self.scope_edit.text(),
+            "logo": self.logo_edit.text(),
+            "notes": self.notes_edit.toPlainText(),
+        }
+        self._model.set_slate_fields(fields, version=self.version_spin.value())
 
-    def set_resolution_locked(self, width: int, height: int) -> None:
-        """Lock resolution to input dimensions (disables spins)."""
-        self._resolution_locked = True
-        self.width_spin.setValue(width)
-        self.height_spin.setValue(height)
-        self.width_spin.setEnabled(False)
-        self.height_spin.setEnabled(False)
+    def watermark_params(self) -> dict:
+        """Return the current watermark settings as a plain dict."""
+        return {
+            "enabled": self._watermark_group.isChecked(),
+            "text": self.watermark_text_edit.text(),
+            "opacity": int(self.watermark_opacity_spin.value()),
+            "size_pct": float(self.watermark_size_spin.value()),
+            "angle": float(self.watermark_angle_spin.value()),
+        }
 
-    def set_resolution_unlocked(self) -> None:
-        """Re-enable resolution controls."""
-        self._resolution_locked = False
-        self.width_spin.setEnabled(True)
-        self.height_spin.setEnabled(True)
-
-    def _save_fields(self) -> None:
-        s = self._settings
-        s.setValue("slate/show", self.show_edit.text())
-        s.setValue("slate/shot", self.shot_edit.text())
-        s.setValue("slate/version_num", self.version_spin.value())
-        s.setValue("slate/artist", self.artist_edit.text())
-        s.setValue("slate/frame_range", self.frame_range_edit.text())
-        s.setValue("slate/fps", self.fps_combo.currentData())
-        s.setValue("slate/sequence", self.sequence_edit.text())
-        s.setValue("slate/take", self.take_edit.text())
-        s.setValue("slate/submit_for", self.submit_for_combo.currentText())
-        s.setValue("slate/vendor", self.vendor_edit.text())
-        s.setValue("slate/shot_types", self.shot_types_edit.text())
-        s.setValue("slate/scope", self.scope_edit.text())
-        s.setValue("slate/logo", self.logo_edit.text())
-        s.setValue("slate/notes", self.notes_edit.toPlainText())
-        s.setValue("slate/res_w", self.width_spin.value())
-        s.setValue("slate/res_h", self.height_spin.value())
+    def burnin_fields(self) -> dict[str, str]:
+        return {
+            "top_left": self.burnin_top_left.text(),
+            "top_center": self.burnin_top_center.text(),
+            "top_right": self.burnin_top_right.text(),
+            "bottom_left": self.burnin_bottom_left.text(),
+            "bottom_center": self.burnin_bottom_center.text(),
+            "bottom_right": self.burnin_bottom_right.text(),
+        }
 
     def _emit_changed(self, *_args) -> None:
-        self._save_fields()
+        if self._suppress_emit:
+            return
+        self._push_slate_to_model()
+        self.data_changed.emit(self.slate_data())
+
+    def _on_burnin_changed(self, *_args) -> None:
+        if self._suppress_emit:
+            return
+        self._model.set_burnin_fields(self.burnin_fields())
+        self.data_changed.emit(self.slate_data())
+
+    def _on_watermark_changed(self, *_args) -> None:
+        if self._suppress_emit:
+            return
+        self._model.set_watermark_params(self.watermark_params())
+        self.data_changed.emit(self.slate_data())
+
+    def _on_fill_burnin(self) -> None:
+        """Populate burn-in fields from current slate metadata via the helper."""
+        # Push current slate state to the model first so the helper sees it.
+        self._push_slate_to_model()
+        self._model.reset_burnin_from_slate(self._input_path)
+        # Refresh widgets from the freshly-populated model fields.
+        self._sync_burnin_widgets()
+
+    def _on_model_changed(self, section: str) -> None:
+        """Re-pull state from the model when an *external* writer modifies it.
+
+        The form's own setters are debounced via ``_suppress_emit`` so this
+        only kicks in when another view (e.g. a programmatic update) calls
+        a model setter.
+        """
+        if section == "slate_data":
+            self._sync_slate_widgets()
+        elif section == "burnin_fields":
+            self._sync_burnin_widgets()
+        elif section == "watermark_params":
+            self._sync_watermark_widgets()
+
+    def _sync_slate_widgets(self) -> None:
+        self._suppress_emit = True
+        try:
+            f = self._model.slate_fields
+            for edit, key in (
+                (self.show_edit, "show"),
+                (self.sequence_edit, "sequence"),
+                (self.shot_edit, "shot"),
+                (self.artist_edit, "artist"),
+                (self.vendor_edit, "vendor"),
+                (self.take_edit, "take"),
+                (self.shot_types_edit, "shot_types"),
+                (self.scope_edit, "scope"),
+                (self.logo_edit, "logo"),
+            ):
+                edit.setText(f.get(key, ""))
+            self.notes_edit.setPlainText(f.get("notes", ""))
+            sf_idx = self.submit_for_combo.findText(f.get("submit_for", "WIP"))
+            if sf_idx >= 0:
+                self.submit_for_combo.setCurrentIndex(sf_idx)
+            self.version_spin.setValue(self._model.slate_version)
+        finally:
+            self._suppress_emit = False
+
+    def _sync_burnin_widgets(self) -> None:
+        self._suppress_emit = True
+        try:
+            b = self._model.burnin_fields
+            self.burnin_top_left.setText(b.get("top_left", ""))
+            self.burnin_top_center.setText(b.get("top_center", ""))
+            self.burnin_top_right.setText(b.get("top_right", ""))
+            self.burnin_bottom_left.setText(b.get("bottom_left", ""))
+            self.burnin_bottom_center.setText(b.get("bottom_center", ""))
+            self.burnin_bottom_right.setText(b.get("bottom_right", ""))
+        finally:
+            self._suppress_emit = False
+        self.data_changed.emit(self.slate_data())
+
+    def _sync_watermark_widgets(self) -> None:
+        self._suppress_emit = True
+        try:
+            p = self._model.watermark_params
+            self._watermark_group.setChecked(bool(p.get("enabled")))
+            self.watermark_text_edit.setText(str(p.get("text", "")))
+            self.watermark_opacity_spin.setValue(int(p.get("opacity", 35)))
+            self.watermark_size_spin.setValue(int(p.get("size_pct", 9)))
+            self.watermark_angle_spin.setValue(int(p.get("angle", 30)))
+        finally:
+            self._suppress_emit = False
         self.data_changed.emit(self.slate_data())
 
     def slate_data(self) -> dict:
-        """Return a dict suitable for passing to the JS ``updateSlate()`` function."""
-        w, h = self.resolution()
-        fps = self.fps_combo.currentData() or 24.0
-        version_str = f"v{self.version_spin.value():04d}"
-        data = {
-            "show": self.show_edit.text() or "SHOW",
-            "sequence": self.sequence_edit.text() or "SEQ",
-            "shot": self.shot_edit.text() or "SHOT",
-            "version": version_str,
-            "take": self.take_edit.text(),
-            "submitFor": self.submit_for_combo.currentText(),
-            "artist": self.artist_edit.text() or "\u2014",
-            "vendor": self.vendor_edit.text(),
-            "shotTypes": self.shot_types_edit.text(),
-            "scope": self.scope_edit.text(),
-            "logo": self.logo_edit.text(),
-            "date": time.strftime("%Y-%m-%d"),
-            "fps": str(int(fps)) if fps == int(fps) else f"{fps:.3f}",
-            "resolution": f"{w}\u00d7{h}",
-            "frameRange": self.frame_range_edit.text() or "\u2014",
-            "colorspace": self.colorspace_edit.text() or "\u2014",
-            "bitDepth": "16-bit half",
-            "notes": self.notes_edit.toPlainText(),
-        }
+        """Return a dict suitable for passing to the JS ``updateSlate()`` function.
+
+        Sources the data from the model so this stays in sync with whatever
+        the model sees as canonical.
+        """
+        data = self._model.slate_data_for_render()
+        data["bitDepth"] = "16-bit half"
         return data
 
     def thumbnail_b64(self) -> str:
-        """Return the raw base64 thumbnail string, or ''."""
-        return self._thumbnail_b64
+        """Return the raw base64 thumbnail string from the model."""
+        return self._model.thumbnail_b64
 
 
 # ---------------------------------------------------------------------------
@@ -888,6 +954,126 @@ class SlatePreviewView(QGraphicsView):
 
 
 # ---------------------------------------------------------------------------
+# Transport / shuttle bar
+# ---------------------------------------------------------------------------
+
+
+_SHUTTLE_BTN_STYLE = (
+    "QPushButton { background: #2a2a2a; color: #e0e0e0;"
+    " border: 1px solid #3c3c3c; border-radius: 3px;"
+    " font-size: 12px; padding: 0; }"
+    "QPushButton:hover { background: #3c3c3c; }"
+    "QPushButton:pressed { background: #c87828; }"
+    "QPushButton:checked { background: #c87828; color: #fff; }"
+)
+
+
+class _ShuttleBar(QWidget):
+    """Tiny transport strip: first / step-back / play-pause / step-forward / last.
+
+    Drives a :class:`TimelineSlider` directly — give it the timeline and it
+    handles all wiring including a :class:`QTimer` for playback at *fps*.
+    """
+
+    def __init__(
+        self,
+        timeline: TimelineSlider,
+        fps: float = 24.0,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._timeline = timeline
+        self._fps = max(1.0, fps)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.setSpacing(2)
+
+        self._btn_first = self._make_btn("\u23ee", "Go to first frame")
+        self._btn_back = self._make_btn("\u23ea", "Step back one frame")
+        self._btn_play = self._make_btn("\u25b6", "Play / pause")
+        self._btn_play.setCheckable(True)
+        self._btn_fwd = self._make_btn("\u23e9", "Step forward one frame")
+        self._btn_last = self._make_btn("\u23ed", "Go to last frame")
+
+        for btn in (
+            self._btn_first,
+            self._btn_back,
+            self._btn_play,
+            self._btn_fwd,
+            self._btn_last,
+        ):
+            layout.addWidget(btn)
+
+        self._btn_first.clicked.connect(self._on_first)
+        self._btn_back.clicked.connect(self._on_back)
+        self._btn_play.toggled.connect(self._on_play_toggled)
+        self._btn_fwd.clicked.connect(self._on_fwd)
+        self._btn_last.clicked.connect(self._on_last)
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._advance)
+        self._refresh_timer_interval()
+
+        # If the user grabs the playhead, stop playback so the timer doesn't
+        # fight their drag.
+        self._timeline.value_changed.connect(self._on_user_scrubbed)
+
+    @staticmethod
+    def _make_btn(text: str, tooltip: str) -> QPushButton:
+        b = QPushButton(text)
+        b.setStyleSheet(_SHUTTLE_BTN_STYLE)
+        b.setFixedSize(26, 22)
+        b.setToolTip(tooltip)
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        return b
+
+    def set_fps(self, fps: float) -> None:
+        self._fps = max(1.0, fps)
+        self._refresh_timer_interval()
+
+    def _refresh_timer_interval(self) -> None:
+        self._timer.setInterval(max(10, int(round(1000.0 / self._fps))))
+
+    def _on_first(self) -> None:
+        self._timeline.set_value(self._timeline._first)
+        self._timeline.value_changed.emit(self._timeline.value())
+
+    def _on_last(self) -> None:
+        self._timeline.set_value(self._timeline._last)
+        self._timeline.value_changed.emit(self._timeline.value())
+
+    def _on_back(self) -> None:
+        self._timeline.set_value(self._timeline.value() - 1)
+        self._timeline.value_changed.emit(self._timeline.value())
+
+    def _on_fwd(self) -> None:
+        self._timeline.set_value(self._timeline.value() + 1)
+        self._timeline.value_changed.emit(self._timeline.value())
+
+    def _on_play_toggled(self, checked: bool) -> None:
+        self._btn_play.setText("\u23f8" if checked else "\u25b6")
+        if checked:
+            self._timer.start()
+        else:
+            self._timer.stop()
+
+    def _on_user_scrubbed(self, _frame: int) -> None:
+        # Only stop playback when the user drags the head, not when the
+        # play timer itself fired set_value → value_changed.
+        if self._btn_play.isChecked() and self._timeline._dragging_playhead:
+            self._btn_play.setChecked(False)
+
+    def _advance(self) -> None:
+        cur = self._timeline.value()
+        nxt = cur + 1
+        if nxt > self._timeline._last:
+            nxt = self._timeline._first
+        self._timeline.set_value(nxt)
+        self._timeline.value_changed.emit(nxt)
+
+
+# ---------------------------------------------------------------------------
 # Slate dialog
 # ---------------------------------------------------------------------------
 
@@ -910,7 +1096,7 @@ class SlateDialog(QDialog):
 
     def __init__(
         self,
-        settings: QSettings,
+        model,  # SlateModel
         locked_width: int = 0,
         locked_height: int = 0,
         input_path: str = "",
@@ -926,15 +1112,50 @@ class SlateDialog(QDialog):
         self.setWindowTitle("Slate & Overlay Editor")
         self.resize(1400, 850)
 
+        self._model = model
         self._input_path = input_path
         self._mode = mode
         self._ocio_cfg = ocio_cfg
         self._src_colorspace = src_colorspace
+        self._dst_colorspace = dst_colorspace
 
-        # Pixmap pipeline (single item): comp -> display -> gain/gamma
-        self._comp_f32 = None  # float32 RGB in *current* source space
-        self._comp_src_space = ""  # OCIO source name for _comp_f32 ('' = sRGB slate)
-        self._display_f32 = None  # float32 RGB after OCIO display transform
+        # Output metadata (resolution, fps, frame range, colorspace) comes from
+        # the conversion tab — seed the model once when the dialog opens.
+        init_fields: dict[str, str] = {}
+        if frame_range:
+            init_fields["frame_range"] = frame_range
+        init_fps = inferred_fps if inferred_fps > 0 else None
+        init_res = (
+            (locked_width, locked_height)
+            if locked_width > 0 and locked_height > 0
+            else None
+        )
+        if init_fields or init_fps is not None or init_res is not None:
+            self._model.set_slate_fields(
+                init_fields,
+                fps=init_fps,
+                resolution=init_res,
+            )
+
+        # Preview pipeline mirrors :mod:`convert` (working-space comp):
+        #
+        #   _comp_f32  (source space)
+        #     │  OCIO src → working
+        #     ▼
+        #   _working_f32  (scene-linear, cached)
+        #     │  alpha-over linearised overlays (burn-in / watermark)
+        #     │  OCIO working → display
+        #     ▼
+        #   _display_f32  (cached; gain/gamma applied on top per-frame)
+        #
+        # Caches are invalidated selectively: ``_working_f32`` only on a
+        # frame change, ``_display_f32`` on display/view change, overlay
+        # edits, *or* when ``_working_f32`` rebuilds.
+        self._comp_f32 = None
+        self._comp_src_space = ""
+        self._working_f32 = None
+        self._working_space: str = ""
+        self._display_f32 = None
         self._preview_pixmap_item = None
 
         # Shot frame loader / cache (only used when scrubbing real frames)
@@ -973,15 +1194,7 @@ class SlateDialog(QDialog):
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # --- Left: form ---
-        self._form = SlateFormPanel(settings, input_path=input_path, mode=mode)
-        if inferred_fps > 0:
-            self._form.set_inferred_fps(inferred_fps)
-        if frame_range:
-            self._form.set_frame_range(frame_range)
-        if dst_colorspace:
-            self._form.set_colorspace(dst_colorspace)
-        if locked_width > 0 and locked_height > 0:
-            self._form.set_resolution_locked(locked_width, locked_height)
+        self._form = SlateFormPanel(model, input_path=input_path)
 
         if input_path:
             thumb = extract_thumbnail_b64(input_path, mode)
@@ -1006,11 +1219,13 @@ class SlateDialog(QDialog):
         self._preview = SlatePreviewView()
         right_layout.addWidget(self._preview, 1)
 
-        w, h = self._form.resolution()
+        w, h = self.resolution()
         self._preview.set_slate_size(w, h)
 
-        # Timeline scrubber (only meaningful when there are shot frames)
+        # Timeline scrubber + shuttle controls (only meaningful when there
+        # are shot frames to scrub through).
         self._timeline: TimelineSlider | None = None
+        self._shuttle: _ShuttleBar | None = None
         if self._exr_seq is not None and self._shot_frames:
             self._timeline = TimelineSlider()
             ideal_h = self._timeline._ideal_height()
@@ -1019,7 +1234,16 @@ class SlateDialog(QDialog):
             self._timeline.set_marker_frames({self._slate_frame: "SLATE"})
             self._timeline.set_value(self._slate_frame)
             self._timeline.value_changed.connect(self._on_timeline_changed)
-            right_layout.addWidget(self._timeline)
+
+            self._shuttle = _ShuttleBar(self._timeline, fps=self.fps())
+            self._shuttle.setFixedHeight(ideal_h)
+
+            transport_row = QHBoxLayout()
+            transport_row.setContentsMargins(0, 0, 0, 0)
+            transport_row.setSpacing(0)
+            transport_row.addWidget(self._shuttle)
+            transport_row.addWidget(self._timeline, 1)
+            right_layout.addLayout(transport_row)
 
         splitter.addWidget(right_panel)
 
@@ -1051,7 +1275,6 @@ class SlateDialog(QDialog):
         self._refresh_timer.timeout.connect(self._refresh_current_frame)
 
         self._form.data_changed.connect(lambda _: self._refresh_timer.start())
-        self._form.data_changed.connect(self._update_preview_size)
 
         QTimer.singleShot(0, self._refresh_current_frame)
         QTimer.singleShot(0, self._preview.fit_in_view)
@@ -1256,7 +1479,7 @@ class SlateDialog(QDialog):
         """Render the slate at preview resolution and feed it into the OCIO pass."""
         import numpy as np
 
-        w_full, h_full = self._form.resolution()
+        w_full, h_full = self.resolution()
         preview_h = 1080
         preview_w = max(1, int(preview_h * w_full / max(h_full, 1)))
         try:
@@ -1271,6 +1494,7 @@ class SlateDialog(QDialog):
 
         self._comp_f32 = np.ascontiguousarray(rgba[..., :3].copy(), dtype=np.float32)
         self._comp_src_space = SLATE_COLORSPACE
+        self._working_f32 = None
         self._display_f32 = None
         self._apply_display_transform()
 
@@ -1290,23 +1514,17 @@ class SlateDialog(QDialog):
         self._composite_shot_with_pixels(frame, rgb)
 
     def _composite_shot_with_pixels(self, frame: int, rgb_u16) -> None:
+        """Cache the bare shot frame (no overlays) and run the OCIO pass.
+
+        Burn-in and watermark are *not* baked here — the conversion pipeline
+        composites them in display space *after* OCIO, so the preview does
+        the same in :meth:`_refresh_gain_gamma` to stay WYSIWYG.
+        """
         import numpy as np
 
-        from .burnin import (
-            burnin_fields_from_slate,
-            composite_burnin,
-            render_burnin_overlay,
-        )
-
-        fh, fw = rgb_u16.shape[:2]
-        fields = burnin_fields_from_slate(self._form.slate_data(), self._input_path)
-        try:
-            overlay_rgba = render_burnin_overlay(fw, fh, fields)
-        except RuntimeError:
-            return
-        comp_u16 = composite_burnin(rgb_u16, overlay_rgba)
-        self._comp_f32 = comp_u16.astype(np.float32) / 65535.0
+        self._comp_f32 = rgb_u16.astype(np.float32) / 65535.0
         self._comp_src_space = self._src_colorspace or ""
+        self._working_f32 = None
         self._display_f32 = None
         self._apply_display_transform()
 
@@ -1402,55 +1620,110 @@ class SlateDialog(QDialog):
         self._frame_thread = None
         super().done(result)
 
-    # -- OCIO display transform + pixmap update --
+    # -- Working-space comp pipeline --
 
-    def _apply_display_transform(self) -> None:
-        """Heavy pass: run OCIO ``src → display/view`` once for the current
-        composite, cache the result in ``self._display_f32``, then chain into
-        the fast gain/gamma post-process."""
+    def _resolve_working_space(self) -> str:
+        """Return the OCIO working colorspace, or '' if unavailable."""
+        if self._ocio_cfg is None:
+            return ""
+        if self._working_space:
+            return self._working_space
+        try:
+            from .ocio_utils import get_working_space
+
+            self._working_space = get_working_space(self._ocio_cfg)
+        except Exception:
+            self._working_space = ""
+        return self._working_space
+
+    def _build_working_f32(self):
+        """src → working (scene-linear).  Cached; rebuilds only on frame change."""
         import numpy as np
 
         if self._comp_f32 is None:
+            return None
+        if self._working_f32 is not None:
+            return self._working_f32
+
+        working_space = self._resolve_working_space()
+        src_space = self._comp_src_space
+        if not working_space or not src_space or self._ocio_cfg is None:
+            self._working_f32 = self._comp_f32
+            return self._working_f32
+
+        try:
+            from .ocio_utils import make_cpu_processor
+
+            cpu = make_cpu_processor(self._ocio_cfg, src_space, working_space)
+            h, w = self._comp_f32.shape[:2]
+            buf = np.ascontiguousarray(self._comp_f32.copy(), dtype=np.float32)
+            import PyOpenColorIO as OCIO
+
+            cpu.apply(OCIO.PackedImageDesc(buf, w, h, 3))
+            self._working_f32 = buf
+        except Exception:
+            self._working_f32 = self._comp_f32
+        return self._working_f32
+
+    def _apply_display_transform(self) -> None:
+        """Heavy pass: working-space composite → display.
+
+        Runs ``src → working`` (cached), composites linearised overlays
+        onto the working-space frame, then ``working → display/view`` to
+        produce ``self._display_f32``.  Gain/gamma is applied separately
+        in :meth:`_refresh_gain_gamma`.
+        """
+        import numpy as np
+
+        working = self._build_working_f32()
+        if working is None:
             return
 
-        src_space = self._comp_src_space
-        if self._ocio_cfg is not None and src_space:
-            idx = self._display_view_combo.currentIndex()
-            if 0 <= idx < len(self._display_view_pairs):
-                display, view = self._display_view_pairs[idx]
-                try:
-                    from .ocio_utils import make_display_processor
+        is_shot = self._current_frame != self._slate_frame
+        composed = self._composite_overlays_working_space(working, is_shot)
 
-                    cpu = make_display_processor(
-                        self._ocio_cfg,
-                        src_space,
-                        display,
-                        view,
-                        exposure=0.0,
-                        gamma=1.0,
-                    )
-                    h, w = self._comp_f32.shape[:2]
-                    pixels = np.ascontiguousarray(self._comp_f32.reshape(-1, 3).copy())
-                    cpu.applyRGB(pixels)
-                    self._display_f32 = pixels.reshape(h, w, 3)
-                except Exception:
-                    self._display_f32 = self._comp_f32
-            else:
-                self._display_f32 = self._comp_f32
-        else:
-            self._display_f32 = self._comp_f32
+        if self._ocio_cfg is None:
+            self._display_f32 = composed
+            self._refresh_gain_gamma()
+            return
+
+        idx = self._display_view_combo.currentIndex()
+        if not (0 <= idx < len(self._display_view_pairs)):
+            self._display_f32 = composed
+            self._refresh_gain_gamma()
+            return
+
+        display, view = self._display_view_pairs[idx]
+        working_space = self._resolve_working_space()
+        try:
+            from .ocio_utils import make_display_processor
+
+            cpu = make_display_processor(
+                self._ocio_cfg,
+                working_space or self._comp_src_space,
+                display,
+                view,
+                exposure=0.0,
+                gamma=1.0,
+            )
+            h, w = composed.shape[:2]
+            pixels = np.ascontiguousarray(composed.reshape(-1, 3).copy())
+            cpu.applyRGB(pixels)
+            self._display_f32 = pixels.reshape(h, w, 3)
+        except Exception:
+            self._display_f32 = composed
 
         self._refresh_gain_gamma()
 
     def _invalidate_display_cache(self) -> None:
-        """Display/view combo changed — re-run OCIO on whatever frame is up."""
+        """Display/view combo changed — re-run working→display only."""
         self._display_f32 = None
         self._apply_display_transform()
 
     def _refresh_gain_gamma(self) -> None:
-        """Apply gain * pow(1/gamma) to ``self._display_f32`` and update the
-        single preview pixmap.  Fires on every slider tick — pure numpy,
-        effectively instant.
+        """Apply viewer-only gain / gamma to the cached display-space frame.
+
+        Fires on every slider tick — pure numpy + a small QPainter pass.
         """
         import numpy as np
         from PySide6.QtGui import QImage, QPixmap
@@ -1458,10 +1731,10 @@ class SlateDialog(QDialog):
         if self._display_f32 is None:
             return
 
+        out = self._display_f32
+
         gain = float(getattr(self, "_gain", 1.0))
         gamma = float(getattr(self, "_gamma", 1.0))
-
-        out = self._display_f32
         if gain != 1.0:
             out = out * gain
         if gamma != 1.0:
@@ -1484,7 +1757,7 @@ class SlateDialog(QDialog):
         self._preview_pixmap_item = scene.addPixmap(pix)
         self._preview_pixmap_item.setZValue(0)
 
-        w, h = self._form.resolution()
+        w, h = self.resolution()
         preview_h = 1080
         preview_w = int(preview_h * w / max(h, 1))
         if pix.width() > 0 and pix.height() > 0:
@@ -1497,19 +1770,94 @@ class SlateDialog(QDialog):
                 (preview_h - pix.height() * s) / 2,
             )
 
+    # -- Working-space overlay composite (burn-in + watermark) --
+
+    def _composite_overlays_working_space(self, working_f32, is_shot: bool):
+        """Alpha-over burn-in (shot only) + watermark on the working-space frame.
+
+        Overlays are authored in display-encoded sRGB (QPainter-rendered)
+        and need to be linearised into the working colorspace before
+        compositing — otherwise white text would read as ``1.0`` linear,
+        which is way too hot.  Mirrors :mod:`convert.run_exr_to_video`.
+        """
+        from .burnin import render_burnin_overlay
+        from .ocio_utils import linearize_overlay
+        from .watermark import render_watermark_overlay
+
+        h, w = working_f32.shape[:2]
+        out = working_f32
+        working_space = self._resolve_working_space()
+
+        def _composite_u8(rgba_u8):
+            nonlocal out
+            if rgba_u8 is None or self._ocio_cfg is None or not working_space:
+                # Fall back to linear treatment when OCIO isn't available;
+                # acceptable for non-color-managed previews.
+                if rgba_u8 is not None:
+                    out = _alpha_over_rgb(out, rgba_u8)
+                return
+            try:
+                lin = linearize_overlay(self._ocio_cfg, rgba_u8, working_space=working_space)
+            except Exception:
+                out = _alpha_over_rgb(out, rgba_u8)
+                return
+            a = lin[..., 3:4]
+            fg = lin[..., :3]
+            out = fg * a + out * (1.0 - a)
+
+        if is_shot:
+            fields = self._effective_burnin_fields()
+            if any((v or "").strip() for v in fields.values()):
+                try:
+                    burnin_overlay = render_burnin_overlay(w, h, fields)
+                except RuntimeError:
+                    burnin_overlay = None
+                _composite_u8(burnin_overlay)
+
+        wm_params = self._form.watermark_params()
+        if wm_params.get("enabled") and (wm_params.get("text") or "").strip():
+            wm_overlay = render_watermark_overlay(w, h, wm_params)
+            _composite_u8(wm_overlay)
+
+        return out
+
+    def _effective_burnin_fields(self) -> dict[str, str]:
+        """Return the burn-in cells to render — manual entry first, slate-derived fallback."""
+        from .burnin import burnin_fields_from_slate
+
+        manual = self._model.burnin_fields if self._model is not None else {}
+        if any((v or "").strip() for v in manual.values()):
+            return manual
+        return burnin_fields_from_slate(self._form.slate_data(), self._input_path)
+
     # -- Shared --
 
-    def _update_preview_size(self, _data: dict | None = None) -> None:
-        w, h = self._form.resolution()
-        self._preview.set_slate_size(w, h)
+    def resolution(self) -> tuple[int, int]:
+        return self._model.slate_resolution
+
+    def fps(self) -> float:
+        return self._model.slate_fps
+
+    def _on_overlay_flags_changed(self, section: str) -> None:
+        """Re-preview when tab-level Slate/Burn-in/Watermark toggles change."""
+        if section == "slate_enabled":
+            self._refresh_timer.start()
+            return
+        if section in ("burnin_enabled", "watermark_enabled"):
+            self._display_f32 = None
+            self._apply_display_transform()
+
+    def watermark_params(self) -> dict:
+        """Return the current watermark settings (passes through to the form)."""
+        return self._form.watermark_params()
 
     def slate_data(self) -> dict:
         """Return the slate form data."""
-        return self._form.slate_data()
+        data = self._form.slate_data()
+        data["colorspace"] = self._dst_colorspace or "\u2014"
+        return data
 
     def thumbnail_b64(self) -> str:
         """Return the raw base64 thumbnail string."""
         return self._form.thumbnail_b64()
 
-    def resolution(self) -> tuple[int, int]:
-        return self._form.resolution()

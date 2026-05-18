@@ -10,8 +10,13 @@ import numpy as np
 import PyOpenColorIO as OCIO
 
 from .exr_io import read_exr, read_exr_safe, write_exr
-from .ocio_utils import make_cpu_processor
-from .pool import process_frame_e2v, process_frame_v2e
+from .ocio_utils import (
+    get_overlay_authoring_space,
+    get_working_space,
+    linearize_overlay,
+    make_cpu_processor,
+)
+from .pool import _alpha_over_rgb, process_frame_e2v, process_frame_v2e
 from .sequence import find_exr_sequence
 from .video import probe_video
 
@@ -81,17 +86,48 @@ def _configure_stream(stream, codec_key: str) -> None:
         stream.options = {"slicecrc": "1"}
 
 
+def _bake_slate_to_display(
+    slate_rgba_srgb: np.ndarray,
+    ocio_cfg: OCIO.Config,
+    overlay_authoring_space: str,
+    working_space: str,
+    dst_space: str,
+    slate_overlay_working: np.ndarray | None,
+) -> np.ndarray:
+    """Take a sRGB-encoded slate (float32 RGBA) through the working-space pipeline.
+
+    Steps mirror the per-frame worker:
+
+    1. sRGB → working (linearise the QPainter-rendered slate)
+    2. composite the slate-watermark overlay (already in working space)
+    3. working → display
+
+    Returns float32 RGB in display space, ready for ``rgb48le`` encoding.
+    """
+    rgb = np.ascontiguousarray(slate_rgba_srgb[:, :, :3], dtype=np.float32)
+    h, w = rgb.shape[:2]
+    cpu_to_working = make_cpu_processor(ocio_cfg, overlay_authoring_space, working_space)
+    cpu_to_working.apply(OCIO.PackedImageDesc(rgb, w, h, 3))
+
+    if slate_overlay_working is not None and slate_overlay_working.shape[:2] == (h, w):
+        rgb = _alpha_over_rgb(rgb, slate_overlay_working)
+        rgb = np.ascontiguousarray(rgb, dtype=np.float32)
+
+    cpu_to_display = make_cpu_processor(ocio_cfg, working_space, dst_space)
+    cpu_to_display.apply(OCIO.PackedImageDesc(rgb, w, h, 3))
+    return rgb
+
+
 def _encode_slate_video_frame(
-    slate_frame: np.ndarray,
+    slate_rgb_display: np.ndarray,
     stream,
     container,
     ow: int,
     oh: int,
     do_resize: bool,
 ) -> None:
-    """Encode a pre-rendered slate (float32 RGBA) as the first video frame."""
-    rgb = slate_frame[:, :, :3]
-    rgb_u16 = np.clip(rgb * 65535.0, 0.0, 65535.0).astype(np.uint16)
+    """Encode a slate (float32 RGB **already in display space**) as a video frame."""
+    rgb_u16 = np.clip(slate_rgb_display * 65535.0, 0.0, 65535.0).astype(np.uint16)
     vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
     if do_resize:
         vf = vf.reformat(width=ow, height=oh)
@@ -336,7 +372,33 @@ def run_exr_to_video(
     frame_set: set[int] | None = None,
     slate_frame: np.ndarray | None = None,
     burnin_overlay: np.ndarray | None = None,
+    slate_overlay: np.ndarray | None = None,
 ) -> None:
+    """Encode an EXR sequence (with optional slate / overlays) to a video.
+
+    The encode pipeline runs in a scene-linear *working space*:
+
+    1. EXR src → working (per-worker)
+    2. composite *burnin_overlay* (linearised into working space) on every frame
+    3. working → display
+    4. quantise to uint16 → video stream
+
+    The slate uses the same pipeline but runs in the main process so the
+    parallel worker pool stays full of shot frames.
+
+    Parameters
+    ----------
+    slate_frame
+        Raw float32 RGBA slate **in the overlay-authoring space**
+        (sRGB).  ``run_exr_to_video`` will OCIO-transform it; do **not**
+        pre-transform it.
+    burnin_overlay
+        Combined burn-in + watermark RGBA overlay (uint8) in sRGB.
+        Composited onto every shot frame in working space.
+    slate_overlay
+        Watermark RGBA overlay (uint8) in sRGB.  Composited onto the
+        slate frame only.
+    """
     paths, basename = find_exr_sequence(input_spec)
 
     if frame_set:
@@ -353,6 +415,23 @@ def run_exr_to_video(
         res_info = f"{w}x{h}" if scale >= 1.0 else f"{w}x{h} \u2192 {ow}x{oh}"
         log(f"Sequence: {basename} ({total} frames, {res_info})")
 
+    # Resolve working colorspace and pre-linearise overlays ------------------
+    working_space = get_working_space(ocio_cfg)
+    overlay_auth = get_overlay_authoring_space(ocio_cfg)
+    if log:
+        log(f"Working space: {working_space}  (overlay auth: {overlay_auth})")
+
+    burnin_working: np.ndarray | None = None
+    if burnin_overlay is not None:
+        burnin_working = linearize_overlay(
+            ocio_cfg, burnin_overlay, src_space=overlay_auth, working_space=working_space
+        )
+    slate_overlay_working: np.ndarray | None = None
+    if slate_overlay is not None:
+        slate_overlay_working = linearize_overlay(
+            ocio_cfg, slate_overlay, src_space=overlay_auth, working_space=working_space
+        )
+
     n_workers = workers if workers > 0 else _DEFAULT_WORKERS
 
     if n_workers <= 1 or (not config_source and not config_path):
@@ -361,6 +440,7 @@ def run_exr_to_video(
             output_video,
             ocio_cfg,
             src_space,
+            working_space,
             dst_space,
             fps,
             progress,
@@ -374,12 +454,14 @@ def run_exr_to_video(
             scale,
             codec_key,
             slate_frame=slate_frame,
-            burnin_overlay=burnin_overlay,
+            slate_overlay_working=slate_overlay_working,
+            burnin_working=burnin_working,
+            overlay_auth_space=overlay_auth,
         )
         return
 
     if log:
-        log(f"OCIO: {src_space} \u2192 {dst_space}  ({n_workers} workers)")
+        log(f"OCIO: {src_space} \u2192 {working_space} \u2192 {dst_space}  ({n_workers} workers)")
 
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
@@ -397,7 +479,15 @@ def run_exr_to_video(
 
     try:
         if slate_frame is not None:
-            _encode_slate_video_frame(slate_frame, stream, container, ow, oh, do_resize)
+            slate_display = _bake_slate_to_display(
+                slate_frame,
+                ocio_cfg,
+                overlay_auth,
+                working_space,
+                dst_space,
+                slate_overlay_working,
+            )
+            _encode_slate_video_frame(slate_display, stream, container, ow, oh, do_resize)
             if log:
                 log("Slate frame encoded as first video frame")
 
@@ -422,7 +512,9 @@ def run_exr_to_video(
                         config_source,
                         config_path,
                         src_space,
+                        working_space,
                         dst_space,
+                        burnin_working,
                     )
                     pending[fut] = frame_idx
 
@@ -430,10 +522,6 @@ def run_exr_to_video(
                 nonlocal next_encode
                 while next_encode in ready:
                     rgb_u16 = ready.pop(next_encode)
-                    if burnin_overlay is not None:
-                        from .burnin import composite_burnin
-
-                        rgb_u16 = composite_burnin(rgb_u16, burnin_overlay)
                     vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
                     if do_resize:
                         vf = vf.reformat(width=ow, height=oh)
@@ -468,6 +556,7 @@ def _e2v_serial(
     output_video: Path,
     ocio_cfg: OCIO.Config,
     src_space: str,
+    working_space: str,
     dst_space: str,
     fps: float,
     progress: ProgressCallback | None,
@@ -481,11 +570,14 @@ def _e2v_serial(
     scale: float = 1.0,
     codec_key: str = "h264",
     slate_frame: np.ndarray | None = None,
-    burnin_overlay: np.ndarray | None = None,
+    slate_overlay_working: np.ndarray | None = None,
+    burnin_working: np.ndarray | None = None,
+    overlay_auth_space: str = "",
 ) -> None:
-    cpu = make_cpu_processor(ocio_cfg, src_space, dst_space)
+    cpu_to_working = make_cpu_processor(ocio_cfg, src_space, working_space)
+    cpu_to_display = make_cpu_processor(ocio_cfg, working_space, dst_space)
     if log:
-        log(f"OCIO: {src_space} \u2192 {dst_space}  (single-threaded)")
+        log(f"OCIO: {src_space} \u2192 {working_space} \u2192 {dst_space}  (single-threaded)")
 
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
@@ -502,7 +594,15 @@ def _e2v_serial(
 
     try:
         if slate_frame is not None:
-            _encode_slate_video_frame(slate_frame, stream, container, w, h, do_resize)
+            slate_display = _bake_slate_to_display(
+                slate_frame,
+                ocio_cfg,
+                overlay_auth_space or get_overlay_authoring_space(ocio_cfg),
+                working_space,
+                dst_space,
+                slate_overlay_working,
+            )
+            _encode_slate_video_frame(slate_display, stream, container, w, h, do_resize)
             if log:
                 log("Slate frame encoded as first video frame")
 
@@ -512,13 +612,15 @@ def _e2v_serial(
             rgb = read_exr_safe(path, w, h)
             frame_buf = np.ascontiguousarray(rgb[:, :, :3], dtype=np.float32)
             fh, fw = frame_buf.shape[:2]
-            desc = OCIO.PackedImageDesc(frame_buf, fw, fh, 3)
-            cpu.apply(desc)
-            rgb_u16 = np.clip(frame_buf * 65535.0, 0.0, 65535.0).astype(np.uint16)
-            if burnin_overlay is not None:
-                from .burnin import composite_burnin
+            cpu_to_working.apply(OCIO.PackedImageDesc(frame_buf, fw, fh, 3))
 
-                rgb_u16 = composite_burnin(rgb_u16, burnin_overlay)
+            if burnin_working is not None and burnin_working.shape[:2] == (fh, fw):
+                frame_buf = _alpha_over_rgb(frame_buf, burnin_working)
+                frame_buf = np.ascontiguousarray(frame_buf, dtype=np.float32)
+
+            cpu_to_display.apply(OCIO.PackedImageDesc(frame_buf, fw, fh, 3))
+            rgb_u16 = np.clip(frame_buf * 65535.0, 0.0, 65535.0).astype(np.uint16)
+
             vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
             if do_resize:
                 vf = vf.reformat(width=w, height=h)

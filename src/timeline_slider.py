@@ -20,7 +20,7 @@ import math
 from PySide6.QtCore import QRect, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QColor,
-    QFont,
+    QFontDatabase,
     QFontMetrics,
     QKeyEvent,
     QMouseEvent,
@@ -111,7 +111,7 @@ class TimelineSlider(QWidget):
         self._last_mouse_x: float = 0.0
         self._zoom_anchor_x: float = 0.0
 
-        self._tick_font = QFont()
+        self._tick_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
         self._tick_font.setPointSize(8)
         self._tick_fm = QFontMetrics(self._tick_font)
         self._font_h = self._tick_fm.height()

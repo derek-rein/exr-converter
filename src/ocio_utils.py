@@ -3,10 +3,14 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import PyOpenColorIO as OCIO
 
 from .constants import OCIO_SOURCE_ENV, OCIO_SOURCE_FILE
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 def list_builtin_configs() -> list[tuple[str, str, bool]]:
@@ -85,6 +89,87 @@ def resolve_alias(config: OCIO.Config, name: str) -> str:
 
 def make_cpu_processor(config: OCIO.Config, src: str, dst: str) -> OCIO.CPUProcessor:
     return config.getProcessor(src, dst).getDefaultCPUProcessor()
+
+
+def get_working_space(config: OCIO.Config) -> str:
+    """Return the canonical name of the OCIO ``scene_linear`` role.
+
+    All compositing inside the conversion pipeline happens in this
+    scene-linear "working" colorspace.  Falls back to a few common
+    alternate role / colorspace names so this works on stock ACES,
+    Studio, and CG-Config builds.
+    """
+    candidates = (
+        OCIO.ROLE_SCENE_LINEAR,
+        "scene_linear",
+        "compositing_linear",
+        "ACES - ACEScg",
+        "ACEScg",
+        "Linear Rec.709 (sRGB)",
+        "lin_rec709",
+    )
+    for name in candidates:
+        try:
+            cs = config.getColorSpace(name)
+            if cs is not None:
+                return cs.getName()
+        except Exception:
+            continue
+    raise RuntimeError("Could not resolve a scene-linear working colorspace from the OCIO config.")
+
+
+def get_overlay_authoring_space(config: OCIO.Config) -> str:
+    """Return the colorspace overlays (slate / burnin / watermark) are painted in.
+
+    Overlays are authored in display-encoded sRGB (Qt's standard 8-bit
+    rendering), so this resolves to whatever name the active config uses
+    for sRGB / sRGB-Texture.
+    """
+    candidates = (
+        "sRGB - Texture",
+        "sRGB Texture",
+        "Utility - sRGB - Texture",
+        "sRGB",
+        "Output - sRGB",
+        "srgb",
+    )
+    for name in candidates:
+        try:
+            cs = config.getColorSpace(name)
+            if cs is not None:
+                return cs.getName()
+        except Exception:
+            continue
+    return get_working_space(config)
+
+
+def linearize_overlay(
+    config: OCIO.Config,
+    overlay_u8_rgba: np.ndarray,
+    src_space: str = "",
+    working_space: str = "",
+) -> np.ndarray:
+    """Convert an sRGB-encoded RGBA overlay (uint8) into working-space float32.
+
+    Alpha is preserved unchanged (the OCIO transform only touches RGB).
+    """
+    import numpy as np
+
+    if not src_space:
+        src_space = get_overlay_authoring_space(config)
+    if not working_space:
+        working_space = get_working_space(config)
+
+    rgb = overlay_u8_rgba[..., :3].astype(np.float32) / 255.0
+    rgb = np.ascontiguousarray(rgb)
+    h, w = rgb.shape[:2]
+    cpu = make_cpu_processor(config, src_space, working_space)
+    cpu.apply(OCIO.PackedImageDesc(rgb, w, h, 3))
+
+    out = np.empty(overlay_u8_rgba.shape, dtype=np.float32)
+    out[..., :3] = rgb
+    out[..., 3] = overlay_u8_rgba[..., 3].astype(np.float32) / 255.0
+    return out
 
 
 def list_displays(config: OCIO.Config) -> list[str]:

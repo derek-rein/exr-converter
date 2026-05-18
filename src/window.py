@@ -592,18 +592,18 @@ class MainWindow(QMainWindow):
             if not frame_set:
                 frame_set = None
 
+        # -- Slate (raw sRGB float32 RGBA -- convert.py does the OCIO transit) --
         slate_np = None
         if tab.slate_enabled():
             slate_data = tab.get_slate_data()
             if slate_data is not None:
-                from .slate import SLATE_COLORSPACE, render_slate_frame
+                from .slate import render_slate_frame
 
                 sw, sh = self._detect_slate_resolution(mode, inp)
                 thumb_b64 = tab.get_slate_thumbnail_b64()
                 self._append_log(f"Rendering slate frame ({sw}\u00d7{sh})\u2026")
                 try:
                     slate_np = render_slate_frame(slate_data, sw, sh, thumbnail_b64=thumb_b64)
-                    slate_np = self._ocio_transform_slate(slate_np, SLATE_COLORSPACE, dst)
                     self._append_log("Slate frame rendered successfully")
                 except Exception as e:
                     QMessageBox.warning(self, "Slate Error", f"Failed to render slate: {e}")
@@ -611,18 +611,63 @@ class MainWindow(QMainWindow):
                     self._cancel_btn.setEnabled(False)
                     return
 
-        # -- Burn-in overlay (EXR→Video only) --
-        burnin_overlay_np = None
-        if mode == "exr2video" and tab.burnin_enabled():
-            from .burnin import burnin_fields_from_slate, render_burnin_overlay
+        # -- Burn-in + watermark overlays (EXR→Video only) --
+        # Burn-in goes only on shot frames; watermark goes on every frame
+        # (slate + shots) because that's how the live preview behaves.
+        # Both stay as sRGB uint8 RGBA buffers — convert.py linearises them
+        # once and keeps the linear copy for compositing in working space.
+        overlay_np = None
+        slate_overlay_np = None
+        if mode == "exr2video":
+            bw = bh = 0
+            burnin_overlay = None
+            watermark_overlay = None
 
-            bw, bh = self._detect_slate_resolution(mode, inp)
-            slate_data = tab.get_slate_data() or {}
-            fields = burnin_fields_from_slate(slate_data, inp)
-            burnin_overlay_np = render_burnin_overlay(bw, bh, fields)
-            self._append_log("Burn-in overlay rendered")
+            if tab.burnin_enabled():
+                from .burnin import render_burnin_overlay
+
+                bw, bh = self._detect_slate_resolution(mode, inp)
+                fields = tab.get_effective_burnin_fields(inp) or {}
+                burnin_overlay = render_burnin_overlay(bw, bh, fields)
+                self._append_log("Burn-in overlay rendered")
+
+            wm_params = tab.get_watermark_params()
+            slate_model = tab.slate_model()
+            if wm_params and slate_model is not None and slate_model.watermark_active():
+                from .watermark import render_watermark_overlay
+
+                if not (bw and bh):
+                    bw, bh = self._detect_slate_resolution(mode, inp)
+                watermark_overlay = render_watermark_overlay(bw, bh, wm_params)
+                self._append_log("Watermark overlay rendered")
+
+            # Per-frame overlay (burnin + watermark, baked together)
+            if burnin_overlay is not None and watermark_overlay is not None:
+                import numpy as np
+
+                a = watermark_overlay[..., 3:4].astype(np.float32) / 255.0
+                fg = watermark_overlay[..., :3].astype(np.float32)
+                bg = burnin_overlay[..., :3].astype(np.float32)
+                rgb = fg * a + bg * (1.0 - a)
+                bg_a = burnin_overlay[..., 3:4].astype(np.float32) / 255.0
+                out_a = a + bg_a * (1.0 - a)
+                overlay_np = np.empty_like(burnin_overlay)
+                overlay_np[..., :3] = np.clip(rgb, 0.0, 255.0).astype(np.uint8)
+                overlay_np[..., 3:4] = np.clip(out_a * 255.0, 0.0, 255.0).astype(np.uint8)
+            else:
+                overlay_np = burnin_overlay or watermark_overlay
+
+            # Slate-only overlay: watermark only (burn-in skips the slate).
+            slate_overlay_np = watermark_overlay
 
         if mode == "video2exr":
+            # v2e still pre-transforms the slate to dst space (no overlays
+            # here) — slate becomes one EXR frame on disk in dst colorspace.
+            v2e_slate = slate_np
+            if v2e_slate is not None:
+                from .slate import SLATE_COLORSPACE
+
+                v2e_slate = self._ocio_transform_slate(v2e_slate, SLATE_COLORSPACE, dst)
             kwargs = dict(
                 video_path=inp,
                 output_dir=Path(out),
@@ -636,7 +681,7 @@ class MainWindow(QMainWindow):
                 padding=tab.get_padding(),
                 start_frame=tab.get_start_frame(),
                 frame_set=frame_set,
-                slate_frame=slate_np,
+                slate_frame=v2e_slate,
             )
         else:
             _codec_key, _codec, _pix = tab.get_video_codec_info()
@@ -655,7 +700,8 @@ class MainWindow(QMainWindow):
                 codec_key=_codec_key,
                 frame_set=frame_set,
                 slate_frame=slate_np,
-                burnin_overlay=burnin_overlay_np,
+                burnin_overlay=overlay_np,
+                slate_overlay=slate_overlay_np,
             )
 
         out_path = Path(out)
