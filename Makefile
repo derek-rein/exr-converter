@@ -80,10 +80,10 @@ bundle: resources
 		--nofollow-import-to=unittest \
 		--nofollow-import-to=pydoc \
 		--nofollow-import-to=PIL \
-		--nofollow-import-to='PySide6.QtWebEngineQuick*' \
+		--nofollow-import-to='PySide6.QtWebEngine*' \
 		--noinclude-qt-translations \
 		--noinclude-qt-plugins=printsupport,mediaservice,iconengines \
-		--noinclude-data-files='*/qtwebengine_devtools_resources.pak' \
+		--noinclude-dlls='*Qt6WebEngine*' \
 		--noinclude-dlls='*Qt6Svg*' \
 		--noinclude-dlls='*Qt6Pdf*' \
 		--noinclude-dlls='*Qt6Positioning*' \
@@ -94,7 +94,6 @@ bundle: resources
 		--include-package=PyOpenColorIO \
 		--include-package-data=PyOpenColorIO \
 		--include-package=fileseq \
-		--include-data-dir=templates=templates \
 		--noinclude-dlls='libcrypto*' \
 		--noinclude-dlls='libssl*' \
 		$(ENTRY)

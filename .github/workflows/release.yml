@@ -108,17 +108,16 @@ jobs:
             --nofollow-import-to=unittest \
             --nofollow-import-to=pydoc \
             --nofollow-import-to=PIL \
-            --nofollow-import-to='PySide6.QtWebEngineQuick*' \
+            --nofollow-import-to='PySide6.QtWebEngine*' \
             --noinclude-qt-translations \
             --noinclude-qt-plugins=printsupport,mediaservice,iconengines \
-            --noinclude-data-files='*/qtwebengine_devtools_resources.pak' \
+            --noinclude-dlls='*Qt6WebEngine*' \
             --include-package-data=av \
             --include-package=OpenImageIO \
             --include-package-data=OpenImageIO \
             --include-package=PyOpenColorIO \
             --include-package-data=PyOpenColorIO \
             --include-package=fileseq \
-            --include-data-dir=templates=templates \
             --quiet \
             "${EXTRA_FLAGS[@]}" \
             main.py
@@ -140,15 +139,6 @@ jobs:
           find "$APP/Contents/Resources/PySide6/Qt/lib" -type f ! -name '*.plist' ! -name '*.pri' -exec \
             sh -c 'lipo -info "$1" 2>/dev/null | grep -q "universal\|two arch" && lipo -thin '"$ARCH"' "$1" -output "$1.thin" && mv "$1.thin" "$1" || true' _ {} \;
 
-          # Remove devtools pak
-          find "$APP" -name 'qtwebengine_devtools_resources.pak' -delete
-
-          # Remove duplicate icudtl.dat (keep only MacOS/ copy)
-          find "$APP/Contents/Resources" -name 'icudtl.dat' -delete
-
-          # Strip locales to en-US only
-          find "$APP" -path '*/qtwebengine_locales/*' ! -name 'en-US.pak' -delete
-
           # Strip debug symbols
           find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) -exec strip -x {} +
 
@@ -160,10 +150,6 @@ jobs:
         shell: bash
         run: |
           DIST="dist/main.dist"
-          find "$DIST" -name 'qtwebengine_devtools_resources.pak' -delete
-          find "$DIST" -path '*/qtwebengine_locales/*' ! -name 'en-US.pak' -delete
-          # Keep one icudtl.dat, remove duplicates buried in PySide6
-          find "$DIST/PySide6" -name 'icudtl.dat' -delete 2>/dev/null || true
           find "$DIST" -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) -exec strip --strip-unneeded {} +
           echo "Bundle size after slimming:"
           du -sh "$DIST"
@@ -173,10 +159,6 @@ jobs:
         shell: bash
         run: |
           DIST="dist/main.dist"
-          find "$DIST" -name 'qtwebengine_devtools_resources.pak' -delete
-          find "$DIST" -path '*/qtwebengine_locales/*' ! -name 'en-US.pak' -delete
-          # Keep one icudtl.dat, remove duplicates buried in PySide6
-          find "$DIST/PySide6" -name 'icudtl.dat' -delete 2>/dev/null || true
           echo "Bundle size after slimming:"
           du -sh "$DIST"
 

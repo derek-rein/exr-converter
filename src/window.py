@@ -16,7 +16,7 @@ from PySide6.QtGui import (
     QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
-    QFont,
+    QFontDatabase,
     QIcon,
     QKeySequence,
 )
@@ -202,8 +202,7 @@ class MainWindow(QMainWindow):
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
         self._log.setMaximumBlockCount(5000)
-        mono = QFont("Menlo")
-        mono.setStyleHint(QFont.StyleHint.Monospace)
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         mono.setPointSize(11)
         self._log.setFont(mono)
         self._log.setObjectName("logPane")
@@ -713,9 +712,9 @@ class MainWindow(QMainWindow):
     def _ocio_transform_slate(self, slate, slate_cs: str, dst_space: str):
         """OCIO-transform the slate frame from its native colorspace to *dst_space*.
 
-        The slate is rendered by a web browser and is always sRGB.  This
-        converts it into whatever the pipeline destination is (e.g. ACEScg
-        for EXR output, or Rec.709 for video output).
+        The slate is painted with QPainter and is always sRGB.  This converts it
+        into whatever the pipeline destination is (e.g. ACEScg for EXR output,
+        or Rec.709 for video output).
         """
         import numpy as np
         import PyOpenColorIO as OCIO_mod

@@ -1,65 +1,26 @@
-"""Burn-in (overlay / chyron) renderer.
+"""Burn-in (overlay / chyron) renderer using QPainter.
 
-Renders an HTML overlay template via QWebEngine, then extracts alpha using a
-dual-render difference matte (render on black + render on white, derive alpha
-from the difference).  This correctly handles semi-transparent CSS elements
-since QWebEngineView.grab() does not produce real alpha.
-
-Fixed positions derived from the slate data:
+Renders six fixed text positions onto a transparent buffer:
 
     top_left: vendor        top_center: show        top_right: date
     bottom_left: version    (center empty)          bottom_right: frames
+
+The resulting RGBA overlay has real per-pixel alpha (no difference-matte
+trick required), so it composites cleanly onto rgb48 frames via OIIO.
 """
 
 from __future__ import annotations
 
 import datetime
-import json
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QEventLoop, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QImage
-from PySide6.QtWebEngineCore import QWebEngineSettings
-from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QImage, QPainter
 
-from .slate import TEMPLATES_DIR
-
-BURNIN_TEMPLATE = TEMPLATES_DIR / "burnin.html"
-
-
-def _qimage_to_rgb(img: QImage) -> np.ndarray:
-    """Convert a QImage to a uint8 RGB numpy array (h, w, 3)."""
-    img = img.convertToFormat(QImage.Format.Format_RGBA8888)
-    w, h = img.width(), img.height()
-    ptr = img.constBits()
-    rgba = np.frombuffer(ptr, dtype=np.uint8).reshape((h, w, 4)).copy()
-    return rgba[:, :, :3]
-
-
-def difference_matte(on_black: np.ndarray, on_white: np.ndarray) -> np.ndarray:
-    """Derive RGBA from two RGB renders (on black bg, on white bg).
-
-    For each pixel, alpha = 1 - (white_render - black_render).
-    Where both are identical the content is fully opaque; where they differ
-    maximally it's fully transparent.  Premultiplied RGB = the black render
-    (since rendering on black means RGB is already premultiplied by alpha).
-
-    Returns uint8 RGBA array.
-    """
-    b = on_black.astype(np.float32)
-    w = on_white.astype(np.float32)
-    diff = np.mean(w - b, axis=2)
-    alpha = np.clip(255.0 - diff, 0.0, 255.0)
-    rgba = np.empty((*on_black.shape[:2], 4), dtype=np.uint8)
-    # Un-premultiply to get straight alpha RGBA
-    a_norm = np.clip(alpha, 1.0, 255.0)
-    for c in range(3):
-        rgba[:, :, c] = np.clip(b[:, :, c] / a_norm * 255.0, 0, 255).astype(
-            np.uint8
-        )
-    rgba[:, :, 3] = alpha.astype(np.uint8)
-    return rgba
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def burnin_fields_from_slate(
@@ -92,71 +53,19 @@ def render_burnin_overlay(
     height: int,
     fields: dict[str, str],
 ) -> np.ndarray:
-    """Render the burn-in HTML template and return a uint8 RGBA overlay.
+    """Paint the six burn-in text cells and return a uint8 RGBA overlay."""
+    img = QImage(int(width), int(height), QImage.Format.Format_RGBA8888)
+    img.fill(QColor(0, 0, 0, 0))
 
-    Creates two off-screen WebEngine views (black bg + white bg) in a single
-    event-loop pass, grabs both, and derives alpha via difference matte.
-    Safe to call from inside an existing Qt event loop (no nested loops).
-    """
-    js_data = json.dumps(fields)
-    tmpl_url = QUrl.fromLocalFile(str(BURNIN_TEMPLATE))
-    loop = QEventLoop()
-    results: dict[str, np.ndarray] = {}
-    errors: list[str] = []
+    p = QPainter(img)
+    try:
+        _paint_burnin(p, int(width), int(height), fields)
+    finally:
+        p.end()
 
-    views: list[QWebEngineView] = []
-    for label, bg in [("black", QColor(0, 0, 0)), ("white", QColor(255, 255, 255))]:
-        v = QWebEngineView()
-        v.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
-        v.resize(width, height)
-        v.page().settings().setAttribute(
-            QWebEngineSettings.WebAttribute.ShowScrollBars, False
-        )
-        v.page().setBackgroundColor(bg)
-        v.show()
-        views.append(v)
-
-        def _make_chain(view: QWebEngineView, key: str):
-            def _on_loaded(ok: bool) -> None:
-                if not ok:
-                    errors.append(f"Failed to load burn-in template ({key}).")
-                    if len(results) + len(errors) >= 2:
-                        loop.quit()
-                    return
-                QTimer.singleShot(100, _inject)
-
-            def _inject() -> None:
-                view.page().setZoomFactor(1.0)
-                view.page().runJavaScript(
-                    f"updateBurnin({js_data})",
-                    lambda _: QTimer.singleShot(80, _capture),
-                )
-
-            def _capture() -> None:
-                try:
-                    pix = view.grab(view.rect())
-                    results[key] = _qimage_to_rgb(pix.toImage())
-                except Exception as exc:
-                    errors.append(str(exc))
-                if len(results) + len(errors) >= 2:
-                    loop.quit()
-
-            view.loadFinished.connect(_on_loaded)
-
-        _make_chain(v, label)
-        v.load(tmpl_url)
-
-    loop.exec()
-
-    for v in views:
-        v.close()
-        v.deleteLater()
-
-    if errors:
-        raise RuntimeError(errors[0])
-    if "black" not in results or "white" not in results:
-        raise RuntimeError("Burn-in render produced no output.")
-    return difference_matte(results["black"], results["white"])
+    img = img.convertToFormat(QImage.Format.Format_RGBA8888)
+    ptr = img.constBits()
+    return np.frombuffer(ptr, dtype=np.uint8).reshape((height, width, 4)).copy()
 
 
 def composite_burnin(
@@ -179,9 +88,7 @@ def composite_burnin(
     bg_spec = oiio.ImageSpec(w, h, 4, oiio.FLOAT)
     bg_buf = oiio.ImageBuf(bg_spec)
     frame_f = frame_u16.astype(np.float32) / 65535.0
-    rgba = np.concatenate(
-        [frame_f, np.ones((h, w, 1), dtype=np.float32)], axis=-1
-    )
+    rgba = np.concatenate([frame_f, np.ones((h, w, 1), dtype=np.float32)], axis=-1)
     bg_buf.set_pixels(oiio.ROI.All, rgba)
 
     result_buf = oiio.ImageBufAlgo.over(fg_buf, bg_buf)
@@ -189,3 +96,72 @@ def composite_burnin(
     pixels = result_buf.get_pixels(oiio.FLOAT)
     rgb = pixels[:, :, :3]
     return np.clip(rgb * 65535.0, 0.0, 65535.0).astype(np.uint16)
+
+
+# ---------------------------------------------------------------------------
+# Painter
+# ---------------------------------------------------------------------------
+
+
+_FG = QColor(210, 210, 210, 230)
+_BG = QColor(0, 0, 0, 128)
+
+
+def _mono_font(px: float) -> QFont:
+    f = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+    f.setPixelSize(max(1, int(round(px))))
+    f.setWeight(QFont.Weight.DemiBold)
+    f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 103.0)
+    return f
+
+
+def _paint_burnin(p: QPainter, width: int, height: int, fields: dict[str, str]) -> None:
+    """Draw six corner text cells onto a transparent canvas."""
+    p.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing)
+
+    vh = height / 100.0
+    vw = width / 100.0
+    font = _mono_font(2.5 * vh)
+    fm = QFontMetricsF(font)
+    pad_x = 0.5 * vw
+    pad_y = 0.3 * vh
+
+    cells = (
+        ("top_left", Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop),
+        ("top_center", Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
+        ("top_right", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop),
+        ("bottom_left", Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom),
+        ("bottom_center", Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom),
+        ("bottom_right", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom),
+    )
+
+    for key, align in cells:
+        text = str(fields.get(key) or "")
+        if not text:
+            continue
+        text_w = fm.horizontalAdvance(text)
+        text_h = fm.height()
+        box_w = text_w + 2 * pad_x
+        box_h = text_h + 2 * pad_y
+
+        is_top = bool(align & Qt.AlignmentFlag.AlignTop)
+        if align & Qt.AlignmentFlag.AlignLeft:
+            bx = 0.0
+        elif align & Qt.AlignmentFlag.AlignRight:
+            bx = float(width) - box_w
+        else:
+            bx = (float(width) - box_w) / 2.0
+        by = 0.0 if is_top else float(height) - box_h
+
+        p.fillRect(QRectF(bx, by, box_w, box_h), _BG)
+        p.setFont(font)
+        p.setPen(_FG)
+        baseline = by + pad_y + fm.ascent()
+        p.drawText(int(round(bx + pad_x)), int(round(baseline)), text)
+
+
+__all__ = [
+    "burnin_fields_from_slate",
+    "composite_burnin",
+    "render_burnin_overlay",
+]

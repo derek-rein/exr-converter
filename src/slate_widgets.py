@@ -2,12 +2,11 @@
 
 The ``SlateDialog`` is opened from the conversion tabs when the user checks
 "Prepend slate" and clicks "Edit Slate…".  It contains a form on the left
-and a live WebEngine preview on the right.
+and a live QPainter-driven preview on the right.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import time
 
@@ -21,13 +20,12 @@ from PySide6.QtCore import (
     Qt,
     QThread,
     QTimer,
-    QUrl,
     Signal,
 )
 from PySide6.QtGui import (
     QBrush,
     QColor,
-    QFont,
+    QFontDatabase,
     QFontMetricsF,
     QMouseEvent,
     QPainter,
@@ -35,14 +33,11 @@ from PySide6.QtGui import (
     QRegularExpressionValidator,
     QWheelEvent,
 )
-from PySide6.QtWebEngineCore import QWebEngineSettings
-from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
-    QGraphicsProxyWidget,
     QGraphicsScene,
     QGraphicsView,
     QGroupBox,
@@ -55,12 +50,12 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStatusBar,
-    QTabBar,
     QVBoxLayout,
     QWidget,
 )
 
-from .slate import DEFAULT_TEMPLATE
+from .slate import SLATE_COLORSPACE, render_slate_frame
+from .timeline_slider import TimelineSlider
 
 COMMON_FPS: list[float] = [23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 60.0]
 
@@ -76,22 +71,14 @@ def _env_default(key: str, settings_key: str, settings: QSettings) -> str:
     return os.environ.get(key, "")
 
 
-def _extract_full_frame(input_path: str):
-    """Read the mid-frame of an EXR sequence at full resolution as uint16 RGB."""
+def _read_exr_frame(path: str):
+    """Read a single EXR frame at full resolution as uint16 RGB, or ``None``."""
     import numpy as np
 
     try:
         import OpenImageIO as oiio
 
-        from .sequence import find_exr_sequence_info
-
-        _paths, _name, frames, _pad, seq = find_exr_sequence_info(input_path)
-        if not frames:
-            return None
-        mid_frame = sorted(frames)[len(frames) // 2]
-        mid_path = seq.frame(mid_frame)
-
-        buf = oiio.ImageBuf(mid_path)
+        buf = oiio.ImageBuf(path)
         if buf.has_error:
             return None
         spec = buf.spec()
@@ -111,17 +98,18 @@ def _extract_full_frame(input_path: str):
 
 
 class _FrameLoaderWorker(QObject):
-    """Loads a full-resolution EXR frame in a background thread."""
+    """Loads a single EXR frame at *frame_path* in a background thread."""
 
-    finished = Signal(object)  # numpy array or None
+    finished = Signal(int, object)  # (frame_number, np.ndarray | None)
 
-    def __init__(self, input_path: str):
+    def __init__(self, frame_number: int, frame_path: str) -> None:
         super().__init__()
-        self._input_path = input_path
+        self._frame_number = frame_number
+        self._frame_path = frame_path
 
     def run(self) -> None:
-        frame = _extract_full_frame(self._input_path)
-        self.finished.emit(frame)
+        rgb = _read_exr_frame(self._frame_path)
+        self.finished.emit(self._frame_number, rgb)
 
 
 # ---------------------------------------------------------------------------
@@ -181,8 +169,8 @@ class NukeSlider(QWidget):
         self.setMinimumWidth(80)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self._font = QFont("monospace", 8)
-        self._font.setStyleHint(QFont.StyleHint.Monospace)
+        self._font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        self._font.setPointSize(8)
 
     # -- value <-> x mapping --
 
@@ -191,9 +179,7 @@ class NukeSlider(QWidget):
 
         val = max(self._val_min, min(self._val_max, val))
         if self._log_scale:
-            return (math.log(max(val, 1e-10)) - self._log_min) / (
-                self._log_max - self._log_min
-            )
+            return (math.log(max(val, 1e-10)) - self._log_min) / (self._log_max - self._log_min)
         return (val - self._val_min) / (self._val_max - self._val_min)
 
     def _t_to_value(self, t: float) -> float:
@@ -797,44 +783,16 @@ class SlatePreviewView(QGraphicsView):
         self._scene.setSceneRect(-1e6, -1e6, 2e6, 2e6)
 
         self._slate_rect = QRectF(0, 0, 1920, 1080)
-        self._groups: dict[int, list] = {}
 
         self._panning = False
         self._zooming = False
         self._last_pos: QPointF | None = None
         self._zoom_anchor_view: QPointF | None = None
 
-    def add_web_proxy(
-        self, web_view: QWebEngineView, group: int
-    ) -> QGraphicsProxyWidget:
-        """Add a web view as a proxy widget and assign it to a visibility group."""
-        proxy = self._scene.addWidget(web_view)
-        self._groups.setdefault(group, []).append(proxy)
-        return proxy
-
-    def show_group(self, group: int) -> None:
-        """Show all proxies in *group*, hide everything else."""
-        for g, items in self._groups.items():
-            vis = g == group
-            for item in items:
-                item.setVisible(vis)
-
     def set_slate_size(self, w: int, h: int) -> None:
         preview_h = 1080
         preview_w = int(preview_h * w / max(h, 1))
         self._slate_rect = QRectF(0, 0, preview_w, preview_h)
-        for items in self._groups.values():
-            for item in items:
-                if not isinstance(item, QGraphicsProxyWidget):
-                    continue
-                widget = item.widget()
-                if widget is not None:
-                    widget.setFixedSize(preview_w, preview_h)
-                item.setMinimumSize(preview_w, preview_h)
-                item.setMaximumSize(preview_w, preview_h)
-                item.resize(preview_w, preview_h)
-                if hasattr(widget, "page"):
-                    widget.page().setZoomFactor(1.0)
 
     def fit_in_view(self) -> None:
         self.fitInView(self._slate_rect, Qt.AspectRatioMode.KeepAspectRatio)
@@ -937,18 +895,18 @@ class SlatePreviewView(QGraphicsView):
 class SlateDialog(QDialog):
     """Modal dialog for editing slate + burn-in overlay data with live preview.
 
-    Left side: ``SlateFormPanel`` in a scroll area.
-    Right side: A single ``SlatePreviewView`` (one scene, one transform) with
-    a ``QTabBar`` that toggles which content layer is visible.  Group 0 is
-    the slate HTML; group 1 is the shot thumbnail + burn-in overlay.
+    Left side: :class:`SlateFormPanel` in a scroll area.
+    Right side: a single :class:`SlatePreviewView` (one scene, one transform)
+    with a Nuke-style :class:`TimelineSlider` at the bottom.  Frame
+    ``first - 1`` shows the slate; frames ``first .. last`` show the actual
+    EXR shot frames with the burn-in composited on top.
 
-    The shot preview frame is loaded asynchronously via ``QThread`` on dialog
-    open.  Burn-in render + OIIO composite + OCIO display transform happen
-    on the main thread but are fast once the frame is cached.
+    Shot frames are loaded on demand by a background ``QThread`` and cached
+    in an in-memory LRU.  Slate, burn-in render, OIIO composite, and OCIO
+    display transform run on the main thread; gain/gamma is a fast post pass.
     """
 
-    _GROUP_SLATE = 0
-    _GROUP_SHOT = 1
+    _MAX_SHOT_CACHE = 12
 
     def __init__(
         self,
@@ -969,15 +927,44 @@ class SlateDialog(QDialog):
         self.resize(1400, 850)
 
         self._input_path = input_path
+        self._mode = mode
         self._ocio_cfg = ocio_cfg
         self._src_colorspace = src_colorspace
 
-        self._shot_frame_u16 = None
-        self._comp_f32 = None  # cached composited frame (scene-linear float32)
-        self._display_f32 = None  # cached OCIO display-transformed frame
+        # Pixmap pipeline (single item): comp -> display -> gain/gamma
+        self._comp_f32 = None  # float32 RGB in *current* source space
+        self._comp_src_space = ""  # OCIO source name for _comp_f32 ('' = sRGB slate)
+        self._display_f32 = None  # float32 RGB after OCIO display transform
+        self._preview_pixmap_item = None
+
+        # Shot frame loader / cache (only used when scrubbing real frames)
+        self._exr_seq = None
+        self._shot_frames: list[int] = []
+        self._first_shot: int | None = None
+        self._last_shot: int | None = None
+        self._slate_frame: int = 0
+        self._current_frame: int = 0
+        self._frame_cache: dict[int, object] = {}
+        self._frame_cache_order: list[int] = []
         self._frame_thread: QThread | None = None
         self._frame_worker: _FrameLoaderWorker | None = None
-        self._burnin_pixmap_item = None
+        self._pending_frame: int | None = None
+
+        # Resolve EXR frame range (only available for exr2video mode)
+        if input_path and mode == "exr2video":
+            try:
+                from .sequence import find_exr_sequence_info
+
+                _paths, _name, frames, _pad, seq = find_exr_sequence_info(input_path)
+                if frames:
+                    self._shot_frames = sorted(frames)
+                    self._first_shot = self._shot_frames[0]
+                    self._last_shot = self._shot_frames[-1]
+                    self._exr_seq = seq
+                    self._slate_frame = self._first_shot - 1
+                    self._current_frame = self._slate_frame
+            except Exception:
+                pass
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1008,34 +995,31 @@ class SlateDialog(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         splitter.addWidget(scroll)
 
-        # --- Right: single preview view + tab bar + viewer controls ---
+        # --- Right: viewer controls + preview + timeline ---
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
-
-        self._preview_tabs = QTabBar()
-        self._preview_tabs.addTab("Slate")
-        self._preview_tabs.addTab("Shot Preview")
-        self._preview_tabs.currentChanged.connect(self._on_tab_changed)
-        right_layout.addWidget(self._preview_tabs)
 
         self._build_viewer_controls(right_layout)
 
         self._preview = SlatePreviewView()
         right_layout.addWidget(self._preview, 1)
 
-        # Slate web view (group 0 — lives in the scene as a proxy)
-        self._slate_web = QWebEngineView()
-        self._slate_web.page().settings().setAttribute(
-            QWebEngineSettings.WebAttribute.ShowScrollBars, False
-        )
-        self._slate_web.page().setBackgroundColor(QColor("#323232"))
-        self._preview.add_web_proxy(self._slate_web, self._GROUP_SLATE)
-
         w, h = self._form.resolution()
         self._preview.set_slate_size(w, h)
-        self._preview.show_group(self._GROUP_SLATE)
+
+        # Timeline scrubber (only meaningful when there are shot frames)
+        self._timeline: TimelineSlider | None = None
+        if self._exr_seq is not None and self._shot_frames:
+            self._timeline = TimelineSlider()
+            ideal_h = self._timeline._ideal_height()
+            self._timeline.setFixedHeight(ideal_h)
+            self._timeline.set_range(self._slate_frame, self._last_shot)
+            self._timeline.set_marker_frames({self._slate_frame: "SLATE"})
+            self._timeline.set_value(self._slate_frame)
+            self._timeline.value_changed.connect(self._on_timeline_changed)
+            right_layout.addWidget(self._timeline)
 
         splitter.addWidget(right_panel)
 
@@ -1051,32 +1035,26 @@ class SlateDialog(QDialog):
         self._status_bar = QStatusBar()
         self._status_bar.setSizeGripEnabled(True)
         buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         self._status_bar.addPermanentWidget(buttons)
         layout.addWidget(self._status_bar)
 
-        # --- Load templates + live preview ---
-        self._slate_loaded = False
+        # --- Live preview wiring ---
+        # Form changes (slate metadata + burn-in fields) → invalidate cached
+        # composites and re-render whatever frame the user is currently on.
+        self._refresh_timer = QTimer()
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(120)
+        self._refresh_timer.timeout.connect(self._refresh_current_frame)
 
-        self._slate_web.loadFinished.connect(self._on_slate_loaded)
-        self._slate_web.load(QUrl.fromLocalFile(str(DEFAULT_TEMPLATE)))
-
-        self._shot_timer = QTimer()
-        self._shot_timer.setSingleShot(True)
-        self._shot_timer.setInterval(600)
-        self._shot_timer.timeout.connect(self._composite_shot_preview)
-
-        self._form.data_changed.connect(self._push_slate_preview)
-        self._form.data_changed.connect(lambda _: self._shot_timer.start())
+        self._form.data_changed.connect(lambda _: self._refresh_timer.start())
         self._form.data_changed.connect(self._update_preview_size)
 
-        # Kick off async frame load
-        if input_path:
-            self._load_frame_async()
+        QTimer.singleShot(0, self._refresh_current_frame)
+        QTimer.singleShot(0, self._preview.fit_in_view)
 
     # -- Viewer controls (Nuke-style) --
 
@@ -1092,19 +1070,17 @@ class SlateDialog(QDialog):
 
         # --- f-stop step arrows ---
         self._fstop_idx = 3  # f/8 default
-        fstop_left = QLabel("\u25C4")
+        fstop_left = QLabel("\u25c4")
         fstop_left.setCursor(Qt.CursorShape.PointingHandCursor)
         fstop_left.setFixedWidth(8)
         fstop_left.setStyleSheet("font-size: 8px; color: #888;")
         fstop_left.mousePressEvent = lambda _e: self._step_fstop(-1)
 
-        self._fstop_label = QLabel(
-            f"f/{self._FSTOP_STEPS[self._fstop_idx]}"
-        )
+        self._fstop_label = QLabel(f"f/{self._FSTOP_STEPS[self._fstop_idx]}")
         self._fstop_label.setFixedWidth(24)
         self._fstop_label.setStyleSheet("font-size: 9px; color: #888;")
 
-        fstop_right = QLabel("\u25BA")
+        fstop_right = QLabel("\u25ba")
         fstop_right.setCursor(Qt.CursorShape.PointingHandCursor)
         fstop_right.setFixedWidth(8)
         fstop_right.setStyleSheet("font-size: 8px; color: #888;")
@@ -1120,9 +1096,7 @@ class SlateDialog(QDialog):
         self._gain_value_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
-        self._gain_value_label.setStyleSheet(
-            "font-size: 10px; color: #d4d4d4;"
-        )
+        self._gain_value_label.setStyleSheet("font-size: 10px; color: #d4d4d4;")
         strip.addWidget(self._gain_value_label)
 
         self._gain_slider = NukeSlider(
@@ -1137,7 +1111,7 @@ class SlateDialog(QDialog):
         strip.addSpacing(4)
 
         # --- Gamma label + slider ---
-        gamma_lbl = QLabel("\u03B3")
+        gamma_lbl = QLabel("\u03b3")
         gamma_lbl.setFixedWidth(10)
         gamma_lbl.setStyleSheet("font-size: 10px; color: #888;")
         strip.addWidget(gamma_lbl)
@@ -1147,9 +1121,7 @@ class SlateDialog(QDialog):
         self._gamma_value_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
-        self._gamma_value_label.setStyleSheet(
-            "font-size: 10px; color: #d4d4d4;"
-        )
+        self._gamma_value_label.setStyleSheet("font-size: 10px; color: #d4d4d4;")
         strip.addWidget(self._gamma_value_label)
 
         self._gamma_slider = NukeSlider(
@@ -1201,9 +1173,7 @@ class SlateDialog(QDialog):
         default_idx = 0
         try:
             default_display = self._ocio_cfg.getDefaultDisplay()
-            default_view = self._ocio_cfg.getDefaultView(
-                default_display
-            )
+            default_view = self._ocio_cfg.getDefaultView(default_display)
         except Exception:
             pass
 
@@ -1219,10 +1189,7 @@ class SlateDialog(QDialog):
                     else:
                         label = f"{display} / {view}"
                     self._display_view_combo.addItem(label)
-                    if (
-                        display == default_display
-                        and view == default_view
-                    ):
+                    if display == default_display and view == default_view:
                         default_idx = idx
                     idx += 1
         except Exception:
@@ -1235,9 +1202,7 @@ class SlateDialog(QDialog):
     def _step_fstop(self, direction: int) -> None:
         new = self._fstop_idx + direction
         self._fstop_idx = max(0, min(len(self._FSTOP_STEPS) - 1, new))
-        self._fstop_label.setText(
-            f"f/{self._FSTOP_STEPS[self._fstop_idx]}"
-        )
+        self._fstop_label.setText(f"f/{self._FSTOP_STEPS[self._fstop_idx]}")
 
     def _on_gain_changed(self, gain: float) -> None:
         self._gain = gain
@@ -1263,76 +1228,68 @@ class SlateDialog(QDialog):
 
     # -- Tab switching --
 
-    def _on_tab_changed(self, idx: int) -> None:
-        self._preview.show_group(idx)
-
     def event(self, ev: QEvent) -> bool:
         if ev.type() == QEvent.Type.StatusTip:
             self._status_bar.showMessage(ev.tip())
             return True
         return super().event(ev)
 
-    # -- Slate preview --
+    # -- Frame routing --
 
-    def _on_slate_loaded(self, ok: bool) -> None:
-        self._slate_loaded = ok
-        if ok:
-            self._push_slate_preview(self._form.slate_data())
-            self._push_slate_thumbnail()
-            self._preview.fit_in_view()
-
-    def _push_slate_preview(self, data: dict | None = None) -> None:
-        if not self._slate_loaded:
+    def _on_timeline_changed(self, frame: int) -> None:
+        """User scrubbed the timeline — re-render whatever frame they landed on."""
+        if frame == self._current_frame:
             return
-        if data is None:
-            data = self._form.slate_data()
-        js = f"if(typeof updateSlate==='function') updateSlate({json.dumps(data)})"
-        self._slate_web.page().runJavaScript(js)
+        self._current_frame = frame
+        self._refresh_current_frame()
 
-    def _push_slate_thumbnail(self) -> None:
-        b64 = self._form.thumbnail_b64()
-        if not b64:
+    def _refresh_current_frame(self) -> None:
+        """Render whichever frame the timeline points at (slate or a shot frame)."""
+        if self._current_frame == self._slate_frame:
+            self._composite_slate()
+        else:
+            self._composite_shot(self._current_frame)
+
+    # -- Slate path --
+
+    def _composite_slate(self) -> None:
+        """Render the slate at preview resolution and feed it into the OCIO pass."""
+        import numpy as np
+
+        w_full, h_full = self._form.resolution()
+        preview_h = 1080
+        preview_w = max(1, int(preview_h * w_full / max(h_full, 1)))
+        try:
+            rgba = render_slate_frame(
+                self._form.slate_data(),
+                preview_w,
+                preview_h,
+                thumbnail_b64=self._form.thumbnail_b64(),
+            )
+        except Exception:
             return
-        js = f"if(typeof setThumbnail==='function') setThumbnail('{b64}')"
-        self._slate_web.page().runJavaScript(js)
 
-    # -- Async frame loading --
+        self._comp_f32 = np.ascontiguousarray(rgba[..., :3].copy(), dtype=np.float32)
+        self._comp_src_space = SLATE_COLORSPACE
+        self._display_f32 = None
+        self._apply_display_transform()
 
-    def _load_frame_async(self) -> None:
-        """Start loading the input frame in a background QThread."""
-        self._frame_thread = QThread()
-        self._frame_worker = _FrameLoaderWorker(self._input_path)
-        self._frame_worker.moveToThread(self._frame_thread)
-        self._frame_thread.started.connect(self._frame_worker.run)
-        self._frame_worker.finished.connect(self._on_frame_loaded)
-        self._frame_worker.finished.connect(self._frame_thread.quit)
-        self._frame_thread.start()
+    # -- Shot path --
 
-    def _on_frame_loaded(self, frame) -> None:
-        """Called on the main thread when the background frame read completes."""
-        self._shot_frame_u16 = frame
-        if frame is not None:
-            self._composite_shot_preview()
+    def _composite_shot(self, frame: int) -> None:
+        """Composite burn-in onto shot ``frame`` and feed into the OCIO pass.
 
-    def done(self, result: int) -> None:
-        """Ensure the background frame loader thread is stopped before close."""
-        if self._frame_thread is not None and self._frame_thread.isRunning():
-            self._frame_thread.quit()
-            self._frame_thread.wait()
-        self._frame_worker = None
-        self._frame_thread = None
-        super().done(result)
-
-    # -- Shot / burn-in preview --
-
-    def _composite_shot_preview(self) -> None:
-        """Render burn-in overlay, composite onto cached frame, then display.
-
-        The raw frame is already cached in ``self._shot_frame_u16`` by the
-        background loader.  This method renders the burn-in overlay, composites
-        it via OIIO, stores the scene-linear result in ``self._comp_f32``,
-        then runs the heavy OCIO display transform pass.
+        If the frame is cached, runs synchronously.  Otherwise, queues a
+        background load and waits for ``_on_frame_loaded`` to call us again.
         """
+        rgb = self._frame_cache.get(frame)
+        if rgb is None:
+            self._request_frame_load(frame)
+            return
+        self._touch_frame_cache(frame)
+        self._composite_shot_with_pixels(frame, rgb)
+
+    def _composite_shot_with_pixels(self, frame: int, rgb_u16) -> None:
         import numpy as np
 
         from .burnin import (
@@ -1341,37 +1298,123 @@ class SlateDialog(QDialog):
             render_burnin_overlay,
         )
 
-        if self._shot_frame_u16 is None:
-            return
-
-        frame_rgb = self._shot_frame_u16
-        fh, fw = frame_rgb.shape[:2]
-
-        fields = burnin_fields_from_slate(
-            self._form.slate_data(), self._input_path
-        )
+        fh, fw = rgb_u16.shape[:2]
+        fields = burnin_fields_from_slate(self._form.slate_data(), self._input_path)
         try:
             overlay_rgba = render_burnin_overlay(fw, fh, fields)
         except RuntimeError:
             return
-        comp_u16 = composite_burnin(frame_rgb, overlay_rgba)
+        comp_u16 = composite_burnin(rgb_u16, overlay_rgba)
         self._comp_f32 = comp_u16.astype(np.float32) / 65535.0
+        self._comp_src_space = self._src_colorspace or ""
         self._display_f32 = None
-
         self._apply_display_transform()
 
-    def _apply_display_transform(self) -> None:
-        """Heavy pass: run OCIO DisplayViewTransform (no exposure/gamma) once.
+    # -- Background loader / cache --
 
-        Caches the result in ``self._display_f32``, then chains to
-        ``_refresh_gain_gamma()`` for the fast post-process.
+    def _request_frame_load(self, frame: int) -> None:
+        """Schedule a background read of *frame*.  If a worker is already busy
+        with another frame, remember this one as the pending target — the
+        completion handler will pick it up next.
         """
+        if self._exr_seq is None:
+            return
+        if self._frame_thread is not None:
+            self._pending_frame = frame
+            return
+        self._start_frame_loader(frame)
+
+    def _start_frame_loader(self, frame: int) -> None:
+        try:
+            path = self._exr_seq.frame(frame)
+        except Exception:
+            return
+        self._frame_thread = QThread()
+        self._frame_worker = _FrameLoaderWorker(frame, path)
+        self._frame_worker.moveToThread(self._frame_thread)
+        self._frame_thread.started.connect(self._frame_worker.run)
+        # Order matters: handle the result first, *then* tell the thread to
+        # quit.  Thread refs are cleared in _on_thread_finished once the
+        # event loop has actually exited, otherwise Python can drop the last
+        # ref while the QThread is still running (-> "Destroyed while
+        # thread is still running" abort).
+        self._frame_worker.finished.connect(self._on_frame_loaded)
+        self._frame_worker.finished.connect(self._frame_thread.quit)
+        self._frame_thread.finished.connect(self._on_thread_finished)
+        self._frame_thread.start()
+
+    def _on_frame_loaded(self, frame: int, rgb) -> None:
+        """Background loader finished — cache the frame; display if still current.
+
+        ``self._frame_thread`` is *not* cleared here — that happens in
+        :meth:`_on_thread_finished` when the QThread has actually exited.
+        """
+        if rgb is not None:
+            self._cache_put(frame, rgb)
+            if self._timeline is not None:
+                self._timeline.set_cached_frames(set(self._frame_cache_order))
+
+        if frame == self._current_frame and rgb is not None:
+            self._composite_shot_with_pixels(frame, rgb)
+
+    def _on_thread_finished(self) -> None:
+        """Tear down the just-finished loader thread and kick off the next one
+        if the user scrubbed away while it was running."""
+        thread = self._frame_thread
+        worker = self._frame_worker
+        self._frame_thread = None
+        self._frame_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        if thread is not None:
+            thread.deleteLater()
+
+        target = self._pending_frame
+        self._pending_frame = None
+        if target is not None and target == self._current_frame:
+            if target in self._frame_cache:
+                self._touch_frame_cache(target)
+                self._composite_shot_with_pixels(target, self._frame_cache[target])
+            else:
+                self._start_frame_loader(target)
+
+    def _cache_put(self, frame: int, rgb) -> None:
+        if frame in self._frame_cache:
+            self._touch_frame_cache(frame)
+            return
+        self._frame_cache[frame] = rgb
+        self._frame_cache_order.append(frame)
+        while len(self._frame_cache_order) > self._MAX_SHOT_CACHE:
+            evict = self._frame_cache_order.pop(0)
+            self._frame_cache.pop(evict, None)
+
+    def _touch_frame_cache(self, frame: int) -> None:
+        if frame in self._frame_cache_order:
+            self._frame_cache_order.remove(frame)
+            self._frame_cache_order.append(frame)
+
+    def done(self, result: int) -> None:
+        """Stop the background frame loader thread before the dialog closes."""
+        if self._frame_thread is not None and self._frame_thread.isRunning():
+            self._frame_thread.quit()
+            self._frame_thread.wait()
+        self._frame_worker = None
+        self._frame_thread = None
+        super().done(result)
+
+    # -- OCIO display transform + pixmap update --
+
+    def _apply_display_transform(self) -> None:
+        """Heavy pass: run OCIO ``src → display/view`` once for the current
+        composite, cache the result in ``self._display_f32``, then chain into
+        the fast gain/gamma post-process."""
         import numpy as np
 
         if self._comp_f32 is None:
             return
 
-        if self._ocio_cfg is not None and self._src_colorspace:
+        src_space = self._comp_src_space
+        if self._ocio_cfg is not None and src_space:
             idx = self._display_view_combo.currentIndex()
             if 0 <= idx < len(self._display_view_pairs):
                 display, view = self._display_view_pairs[idx]
@@ -1380,16 +1423,14 @@ class SlateDialog(QDialog):
 
                     cpu = make_display_processor(
                         self._ocio_cfg,
-                        self._src_colorspace,
+                        src_space,
                         display,
                         view,
                         exposure=0.0,
                         gamma=1.0,
                     )
                     h, w = self._comp_f32.shape[:2]
-                    pixels = np.ascontiguousarray(
-                        self._comp_f32.reshape(-1, 3).copy()
-                    )
+                    pixels = np.ascontiguousarray(self._comp_f32.reshape(-1, 3).copy())
                     cpu.applyRGB(pixels)
                     self._display_f32 = pixels.reshape(h, w, 3)
                 except Exception:
@@ -1402,15 +1443,14 @@ class SlateDialog(QDialog):
         self._refresh_gain_gamma()
 
     def _invalidate_display_cache(self) -> None:
-        """Called when the display/view combo changes — re-run OCIO."""
+        """Display/view combo changed — re-run OCIO on whatever frame is up."""
         self._display_f32 = None
         self._apply_display_transform()
 
     def _refresh_gain_gamma(self) -> None:
-        """Light pass: apply gain * pow(1/gamma) to the cached display buffer.
-
-        This runs on every gain/gamma slider tick and is effectively instant
-        (~5ms for 4K) since it's just a numpy multiply + power.
+        """Apply gain * pow(1/gamma) to ``self._display_f32`` and update the
+        single preview pixmap.  Fires on every slider tick — pure numpy,
+        effectively instant.
         """
         import numpy as np
         from PySide6.QtGui import QImage, QPixmap
@@ -1418,35 +1458,31 @@ class SlateDialog(QDialog):
         if self._display_f32 is None:
             return
 
-        gain = getattr(self, "_gain", 1.0)
-        gamma = getattr(self, "_gamma", 1.0)
+        gain = float(getattr(self, "_gain", 1.0))
+        gamma = float(getattr(self, "_gamma", 1.0))
 
         out = self._display_f32
         if gain != 1.0:
             out = out * gain
         if gamma != 1.0:
+            # Clamp gamma to a tiny positive value so 0 doesn't blow up the
+            # power op; dragging to 0 just shows a near-black preview, which
+            # matches Nuke's behaviour.
+            safe_gamma = max(gamma, 1e-3)
             out = np.clip(out, 0.0, None)
-            out = np.power(out, 1.0 / gamma)
+            out = np.power(out, 1.0 / safe_gamma)
 
         comp_u8 = (np.clip(out, 0.0, 1.0) * 255 + 0.5).astype(np.uint8)
 
         fh, fw = comp_u8.shape[:2]
-        qimg = QImage(
-            comp_u8.data, fw, fh, fw * 3, QImage.Format.Format_RGB888
-        )
+        qimg = QImage(comp_u8.data, fw, fh, fw * 3, QImage.Format.Format_RGB888)
         pix = QPixmap.fromImage(qimg.copy())
 
         scene = self._preview._scene
-        group_items = self._preview._groups.setdefault(self._GROUP_SHOT, [])
-
-        if self._burnin_pixmap_item is not None:
-            scene.removeItem(self._burnin_pixmap_item)
-            if self._burnin_pixmap_item in group_items:
-                group_items.remove(self._burnin_pixmap_item)
-
-        self._burnin_pixmap_item = scene.addPixmap(pix)
-        self._burnin_pixmap_item.setZValue(0)
-        group_items.append(self._burnin_pixmap_item)
+        if self._preview_pixmap_item is not None:
+            scene.removeItem(self._preview_pixmap_item)
+        self._preview_pixmap_item = scene.addPixmap(pix)
+        self._preview_pixmap_item.setZValue(0)
 
         w, h = self._form.resolution()
         preview_h = 1080
@@ -1455,14 +1491,11 @@ class SlateDialog(QDialog):
             sx = preview_w / pix.width()
             sy = preview_h / pix.height()
             s = min(sx, sy)
-            self._burnin_pixmap_item.setScale(s)
-            self._burnin_pixmap_item.setPos(
+            self._preview_pixmap_item.setScale(s)
+            self._preview_pixmap_item.setPos(
                 (preview_w - pix.width() * s) / 2,
                 (preview_h - pix.height() * s) / 2,
             )
-
-        cur = self._preview_tabs.currentIndex()
-        self._burnin_pixmap_item.setVisible(cur == self._GROUP_SHOT)
 
     # -- Shared --
 

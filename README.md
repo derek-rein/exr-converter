@@ -1,6 +1,6 @@
 # EXR Converter
 
-Desktop app and CLI for converting between **video** and **OpenEXR** sequences with **OpenColorIO** color management and built-in **slate rendering**. Uses **PyAV** for decode/encode, **OpenImageIO** for EXR I/O, **PySide6** for the GUI, and **Qt WebEngine** for HTML/CSS slate capture.
+Desktop app and CLI for converting between **video** and **OpenEXR** sequences with **OpenColorIO** color management and built-in **slate rendering**. Uses **PyAV** for decode/encode, **OpenImageIO** for EXR I/O, and **PySide6** (QPainter) for the GUI and slate compositing.
 
 Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-platform): Python 3.13, Qt/PySide 6.8, OpenColorIO 2.5, OpenEXR 3.4, NumPy 2.3.
 
@@ -27,7 +27,7 @@ All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.de
 | **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.8), Nuke-inspired dark theme |
 | **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`oiio-python`), [OpenColorIO 2.5](https://opencolorio.org/) for display/render transforms |
 | **Video & sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences & ranges |
-| **Slate rendering** | Qt **WebEngine** for HTML/CSS slate preview and capture, [Tailwind CSS](https://tailwindcss.com/) in the slate template |
+| **Slate rendering** | Native **QPainter** preview and offscreen capture — no embedded browser |
 
 CI runs on **GitHub Actions**; releases publish binaries for Linux, macOS (Apple Silicon + Intel), and Windows.
 

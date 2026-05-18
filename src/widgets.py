@@ -2342,7 +2342,7 @@ class ConvertTab(QWidget):
     def _on_burnin_toggled(self, checked: bool) -> None:
         self._settings.setValue(f"{self._mode}/burnin_enabled", checked)
 
-    def _open_slate_dialog(self, start_tab: int = 0) -> None:
+    def _open_slate_dialog(self) -> None:
         from .slate_widgets import SlateDialog
 
         locked_w, locked_h = self._detect_input_resolution()
@@ -2363,7 +2363,6 @@ class ConvertTab(QWidget):
             src_colorspace=src_cs,
             parent=self,
         )
-        dlg._preview_tabs.setCurrentIndex(start_tab)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._slate_data = dlg.slate_data()
             self._slate_thumbnail_b64 = dlg.thumbnail_b64()
