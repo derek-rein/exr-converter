@@ -47,6 +47,25 @@ def read_exr(path: str) -> np.ndarray:
         return np.zeros((1080, 1920, 3), dtype=np.float32)
 
 
+def read_exr_uint16(path: str) -> np.ndarray | None:
+    """Read an EXR and return uint16 RGB in display window, or ``None`` on failure."""
+    try:
+        buf = oiio.ImageBuf(path)
+        if buf.has_error:
+            return None
+        spec = buf.spec()
+        dx, dy, dw, dh = _display_window(spec)
+        roi = oiio.ROI(dx, dx + dw, dy, dy + dh, 0, 1, 0, min(spec.nchannels, 3))
+        pixels = buf.get_pixels(oiio.UINT16, roi)
+        if pixels.ndim == 3 and pixels.shape[2] >= 3:
+            return np.ascontiguousarray(pixels[:, :, :3])
+        if pixels.ndim == 3 and pixels.shape[2] == 1:
+            return np.repeat(pixels, 3, axis=2)
+        return np.ascontiguousarray(pixels)
+    except Exception:
+        return None
+
+
 def read_exr_safe(path: str, w: int, h: int) -> np.ndarray:
     """Read an EXR, returning a black frame of (h, w, 3) on any error."""
     try:

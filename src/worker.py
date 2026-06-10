@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from .convert import run_exr_to_video, run_video_to_exr
-
 
 class ConvertWorker(QObject):
     progress = Signal(int, int)
@@ -32,6 +30,8 @@ class ConvertWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
+            from .convert import run_exr_to_video, run_video_to_exr
+
             fn = run_video_to_exr if self._mode == "video2exr" else run_exr_to_video
             fn(
                 progress=self._emit_progress,

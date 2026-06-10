@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import av
-
 # libavformat probe limits used when av.open()'s defaults (≈5 MB / 5 s) miss
 # stream parameters — typical for vendor-tagged MXFs (e.g. Sony Venice
 # X-OCN/XAVC) whose codec metadata sits past the default probe window.
@@ -12,6 +10,8 @@ _DEEP_PROBE_OPTS = {"probesize": "100M", "analyzeduration": "100M"}
 
 def _stream_dims(stream) -> tuple[int, int]:
     """Best-effort (width, height) without raising; returns (0, 0) on failure."""
+    import av
+
     for getter in (
         lambda: (stream.width, stream.height),
         lambda: (stream.codec_context.coded_width, stream.codec_context.coded_height),
@@ -28,6 +28,8 @@ def _stream_dims(stream) -> tuple[int, int]:
 
 def _decode_one_frame_dims(container) -> tuple[int, int]:
     """Decode a single video frame to learn its dimensions."""
+    import av
+
     try:
         for frame in container.decode(video=0):
             return int(frame.width), int(frame.height)
@@ -38,6 +40,8 @@ def _decode_one_frame_dims(container) -> tuple[int, int]:
 
 def _stream_basics(stream) -> tuple[int, int, float, int, str, str]:
     """Pull (w, h, fps, n_frames, codec_name, pix_fmt) from a PyAV video stream."""
+    import av
+
     w, h = _stream_dims(stream)
     try:
         fps = float(stream.average_rate) if stream.average_rate else 0.0
@@ -66,6 +70,8 @@ def probe_video(path: str) -> tuple[int, int, float, int]:
     attributes (e.g. Sony Venice MXFs whose vendor-tagged codec parameters
     live past the default 5 MB / 5 s probe window).
     """
+    import av
+
     duration = time_base = None
 
     def _gather(opts: dict | None) -> tuple[int, int, float, int]:
@@ -117,20 +123,38 @@ def guess_video_colorspace_candidates(path: str) -> list[str]:
     characteristics. The caller should try each candidate through alias
     resolution until one matches the active OCIO config.
     """
+    import av
+
     try:
         container = av.open(path)
         stream = container.streams.video[0]
         codec = stream.codec_context.name
         pix_fmt = stream.codec_context.pix_fmt or ""
         color_trc = str(getattr(stream.codec_context, "color_trc", "") or "")
+        meta = getattr(stream, "metadata", {}) or {}
+        make = (meta.get("make") or meta.get("manufacturer") or "").lower()
+        encoder = (meta.get("encoder") or "").lower()
         container.close()
     except Exception:
         return []
 
     is_10bit = "10" in pix_fmt or "12" in pix_fmt or "16" in pix_fmt
 
-    if "log" in color_trc.lower():
-        return ["Cineon"]
+    # Apple Log (iPhone 15/16 Pro cinematic mode, ProRes Log) detection
+    # The bundled ACES Studio config (and recent library studio configs) provide
+    # "Apple Log" (with aliases) as an Input/Apple colorspace.
+    apple_hint = (
+        "apple" in (codec or "").lower()
+        or "apple" in color_trc.lower()
+        or "iphone" in make
+        or "iphone" in encoder
+        or "apple" in make
+        or "apple" in encoder
+    )
+    if "log" in color_trc.lower() or "log" in (codec or "").lower():
+        if apple_hint:
+            return ["Apple Log", "Cineon", "scene_linear"]
+        return ["Cineon", "Apple Log", "scene_linear"]
     if "linear" in color_trc.lower():
         return ["scene_linear"]
     if "smpte2084" in color_trc.lower() or "2084" in color_trc:
@@ -166,6 +190,7 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
 
     Each dict: name, resolution, codec, fps, duration, path (full).
     """
+    import av
     from pathlib import Path
 
     results: list[dict[str, str]] = []
@@ -237,6 +262,8 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
 
 def probe_video_metadata(path: str) -> dict[str, str]:
     """Return a dict of human-readable video metadata via PyAV."""
+    import av
+
     result: dict[str, str] = {}
     try:
         container = av.open(path)

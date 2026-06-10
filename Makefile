@@ -94,7 +94,8 @@ bundle: resources
 		--include-package=PyOpenColorIO \
 		--include-package-data=PyOpenColorIO \
 		--include-package=fileseq \
-		--noinclude-dlls='libcrypto*' \
+		--include-data-files=resources/ocio/=resources/ocio/ \
+	--noinclude-dlls='libcrypto*' \
 		--noinclude-dlls='libssl*' \
 		$(ENTRY)
 	mv dist/main.app dist/$(APP_NAME).app

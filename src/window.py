@@ -114,6 +114,10 @@ class AboutDialog(QDialog):
             '<p><a href="https://derekvfx.ca">derekvfx.ca</a> &nbsp;|&nbsp; '
             '<a href="https://ocio.cc">ocio.cc</a></p>'
             "<hr>"
+            "<p><b>Bundled OCIO config:</b> ACES Studio Config v4 (ACES 2.0)<br>"
+            "Sourced from <a href='https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES/releases'>"
+            "AcademySoftwareFoundation/OpenColorIO-Config-ACES</a> (BSD-3-Clause).<br>"
+            "Contains official camera IDTs for <b>Apple Log</b> (iPhone cinematic/ProRes Log), ARRI, RED, Sony, Canon, DJI and many more.</p>"
             f"<p style='font-size:10px;'>"
             f"MIT License &copy; {datetime.now().year} Derek Rein<br><br>"
             "Permission is hereby granted, free of charge, to any person obtaining "

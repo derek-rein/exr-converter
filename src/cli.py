@@ -17,7 +17,6 @@ from .constants import (
     EXR_COMPRESSIONS,
     VIDEO_CODECS,
 )
-from .convert import run_exr_to_video, run_video_to_exr
 from .ocio_utils import resolve_ocio_for_cli
 
 _CODEC_KEYS = [k for k, *_ in VIDEO_CODECS]
@@ -30,6 +29,17 @@ def _resolve_config_source(ocio_arg: str | None) -> tuple[str, str]:
     env = os.environ.get("OCIO", "")
     if env and Path(env).expanduser().is_file():
         return ("", str(Path(env).expanduser()))
+    # Prefer the bundled super ACES studio config (cameras etc.)
+    from .ocio_utils import config_source_info, list_app_configs
+
+    app = list_app_configs()
+    if app:
+        key = app[0][0]
+        src, path = config_source_info(key)
+        if path:
+            return (src, path)
+        if src:
+            return (src, "")
     from .ocio_utils import list_builtin_configs
 
     builtins = list_builtin_configs()
@@ -144,6 +154,8 @@ def run_cli(args: argparse.Namespace) -> int:
                 frame_set = set(frames)
 
         if args.command == "video2exr":
+            from .convert import run_exr_to_video, run_video_to_exr
+
             run_video_to_exr(
                 args.input,
                 Path(args.output_dir),
@@ -169,6 +181,8 @@ def run_cli(args: argparse.Namespace) -> int:
                 if k == codec_key:
                     codec_name, pix_fmt = c, p
                     break
+            from .convert import run_exr_to_video, run_video_to_exr
+
             run_exr_to_video(
                 args.input,
                 Path(args.output),

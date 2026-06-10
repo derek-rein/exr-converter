@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
 )
 
 from .constants import (
+    BUNDLED_ACES_STUDIO_KEY,
     COMMON_FPS,
     DEFAULT_DST_E2V,
     DEFAULT_DST_V2E,
@@ -63,12 +64,13 @@ from .constants import (
     DEFAULT_START_FRAME,
     DEFAULT_VIDEO_CODEC,
     EXR_COMPRESSIONS,
+    OCIO_SOURCE_BUNDLED,
     OCIO_SOURCE_ENV,
     OCIO_SOURCE_FILE,
     SCALE_OPTIONS,
     VIDEO_CODECS,
 )
-from .ocio_utils import list_builtin_configs, resolve_ocio_config
+from .ocio_utils import list_app_configs, list_builtin_configs, resolve_ocio_config
 from .sequence import probe_exr_colorspace, probe_exr_metadata, scan_exr_sequences
 from .style import DESC_STYLE, HINT_STYLE, STATUS_DIM, STATUS_ERR, STATUS_OK
 from .video import probe_video_metadata, scan_video_files
@@ -297,6 +299,8 @@ class OcioConfigPanel(QGroupBox):
         layout.addWidget(self._status)
 
         self._builtin_configs = list_builtin_configs()
+        self._app_configs = list_app_configs()
+
         env_ocio = os.environ.get("OCIO", "")
         env_label = (
             f"$OCIO environment variable ({Path(env_ocio).name})"
@@ -305,6 +309,16 @@ class OcioConfigPanel(QGroupBox):
         )
         self._source_combo.addItem(env_label, OCIO_SOURCE_ENV)
         self._source_combo.insertSeparator(self._source_combo.count())
+
+        # Our bundled "super awesome" config (official ACES studio with tons of cameras) first
+        for name, label, recommended in self._app_configs:
+            short = label
+            if recommended:
+                short += "  \u2605"
+            self._source_combo.addItem(short, name)
+        if self._app_configs:
+            self._source_combo.insertSeparator(self._source_combo.count())
+
         for name, label, recommended in self._builtin_configs:
             short = label
             if recommended:
@@ -336,8 +350,12 @@ class OcioConfigPanel(QGroupBox):
             if env_ocio and Path(env_ocio).expanduser().is_file():
                 saved = OCIO_SOURCE_ENV
             else:
-                recommended = [b for b in self._builtin_configs if b[2]]
-                saved = recommended[0][0] if recommended else self._builtin_configs[-1][0]
+                # Prefer our bundled rich camera config as the awesome default
+                if self._app_configs:
+                    saved = self._app_configs[0][0]
+                else:
+                    recommended = [b for b in self._builtin_configs if b[2]]
+                    saved = recommended[0][0] if recommended else self._builtin_configs[-1][0]
         for i in range(self._source_combo.count()):
             if self._source_combo.itemData(i) == saved:
                 self._source_combo.setCurrentIndex(i)
@@ -362,6 +380,8 @@ class OcioConfigPanel(QGroupBox):
             desc = f"$OCIO: {os.environ.get('OCIO', '?')}"
         elif source == OCIO_SOURCE_FILE:
             desc = f"File: {Path(file_path).name}"
+        elif source == OCIO_SOURCE_BUNDLED or source == BUNDLED_ACES_STUDIO_KEY:
+            desc = "ACES Studio (bundled)"
         else:
             desc = source
         self._status.setText(f"\u2714  {desc}  ({n} color spaces)")
@@ -1117,6 +1137,7 @@ class SequenceBrowserDialog(QDialog):
         self._table.cellDoubleClicked.connect(lambda _r, _c: self.accept())
         self._path_edit.returnPressed.connect(self._on_path_entered)
         self._inspect_cb.toggled.connect(self._toggle_inspect)
+        self._inspect_cb.setChecked(True)
 
         if start_dir and Path(start_dir).is_dir():
             self._navigate_to(start_dir)

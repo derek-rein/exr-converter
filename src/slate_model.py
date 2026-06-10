@@ -125,6 +125,11 @@ class SlateModel(QObject):
             settings.value("slate/wm_angle", _DEFAULT_WATERMARK["angle"])
         )
 
+    @property
+    def settings(self) -> QSettings:
+        """Underlying :class:`QSettings` for persistence (slate + cache prefs)."""
+        return self._settings
+
     # ------------------------------------------------------------------
     # Flags (master switches surfaced as tab-level checkboxes)
     # ------------------------------------------------------------------

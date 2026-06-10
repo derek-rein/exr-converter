@@ -25,7 +25,7 @@ All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.de
 |-------|--------|
 | **Language & tooling** | Python 3.13, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [Nuitka](https://nuitka.net/) for standalone bundles |
 | **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.8), Nuke-inspired dark theme |
-| **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`oiio-python`), [OpenColorIO 2.5](https://opencolorio.org/) display/render transforms with a scene-linear **working space** (resolves to the active config's `scene_linear` role) for all overlay compositing |
+| **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`oiio-python`), [OpenColorIO 2.5](https://opencolorio.org/) display/render transforms with a scene-linear **working space** (resolves to the active config's `scene_linear` role) for all overlay compositing.<br>Bundles the official **ACES Studio Config v4** (from [ASWF OpenColorIO-Config-ACES](https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES), BSD-3-Clause) which includes dozens of camera IDTs including **Apple Log** (iPhone 15/16 Pro cinematic / ProRes Log), ARRI LogC3/4, RED Log3G10, Sony S-Log/Venice, Canon, DJI, and many more. |
 | **Video & sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences & ranges |
 | **Slate / burn-in / watermark** | Native **QPainter** preview and offscreen capture (no embedded browser); burn-in and watermark are linearised into the working space and alpha-composited per-frame, then OCIO-transformed to display before encode |
 
@@ -41,7 +41,9 @@ CI runs on **GitHub Actions**; releases publish binaries for Linux, macOS (Apple
 uv run python main.py
 ```
 
-No subcommand — opens the main window. OCIO resolution follows `$OCIO` when set, otherwise built-in configs (see in-app / CLI `--ocio`).
+No subcommand — opens the main window. OCIO resolution follows `$OCIO` when set, otherwise the bundled **ACES Studio Config v4 (ACES 2.0)** — the official rich config from the Academy Software Foundation containing a huge set of camera input transforms including **Apple Log** (for iPhone 15/16 Pro cinematic video and ProRes Log), ARRI LogC3/4, RED, Sony, Canon, DJI and many others, plus modern ACES Output Transforms and displays. 
+
+Common camera source names (when using the default ACES Studio config): "Apple Log" (or "apple_log", "iphone log"), "ARRI LogC3 (EI800)", "Log3G10 REDWideGamutRGB", etc. The UI source picker groups them under families like Input/Apple, Input/ARRI, etc. You can also pass `--ocio /path/to/your.config.ocio` or choose other built-ins / custom in the UI.
 
 Enable the **Prepend slate** checkbox to add a 1-frame slate image before the converted output.
 

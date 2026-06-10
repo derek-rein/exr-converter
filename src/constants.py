@@ -15,6 +15,11 @@ COMMON_FPS = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60]
 
 OCIO_SOURCE_ENV = "__env__"
 OCIO_SOURCE_FILE = "__file__"
+OCIO_SOURCE_BUNDLED = "__bundled__"
+
+# Internal key for our super-awesome bundled ACES studio config (official,
+# redistributable, rich camera IDTs from ASWF OpenColorIO-Config-ACES).
+BUNDLED_ACES_STUDIO_KEY = "bundled-aces-studio-v4"
 
 EXR_COMPRESSIONS = [
     "none",
