@@ -10,6 +10,7 @@
 .PHONY: help run lint fmt resources bundle clean bump release
 
 APP_NAME := exr_converter
+MACOS_BUNDLE_NAME := EXR Converter
 ENTRY    := main.py
 UV       := uv
 PYTHON   := $(UV) run python
@@ -60,7 +61,7 @@ src/rc_resources.py: resources.qrc public/icon.png public/style.qss
 	$(RCC) resources.qrc -o src/rc_resources.py
 
 # ── Bundle with Nuitka ───────────────────────────────────────────────────────
-# macOS: dist/exr_converter.app   Linux: dist/exr_converter   Windows: dist/exr_converter.exe
+# macOS: dist/"EXR Converter.app"   Linux: dist/exr_converter   Windows: dist/exr_converter.exe
 
 ICON ?= public/icon.icns
 
@@ -98,7 +99,7 @@ bundle: resources
 	--noinclude-dlls='libcrypto*' \
 		--noinclude-dlls='libssl*' \
 		$(ENTRY)
-	mv dist/main.app dist/$(APP_NAME).app
+	mv dist/main.app "dist/$(MACOS_BUNDLE_NAME).app"
 
 clean:
 	rm -rf dist build *.build *.dist *.onefile-build __pycache__

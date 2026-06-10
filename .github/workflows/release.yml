@@ -124,13 +124,13 @@ jobs:
 
       - name: Rename macOS app bundle
         if: runner.os == 'macOS'
-        run: mv dist/main.app dist/exr_converter.app
+        run: mv dist/main.app "dist/EXR Converter.app"
 
       - name: Slim macOS bundle
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          APP="dist/exr_converter.app"
+          APP="dist/EXR Converter.app"
           ARCH="${{ runner.arch == 'ARM64' && 'arm64' || 'x86_64' }}"
 
           # Thin universal2 frameworks to single arch
@@ -171,7 +171,7 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" == "macOS" ]; then
-            find dist/exr_converter.app -type f -name '*.dylib' -o -name '*.so' | sort
+            find "dist/EXR Converter.app" -type f -name '*.dylib' -o -name '*.so' | sort
           else
             ls -la dist/main.dist/*.dll dist/main.dist/*.pyd dist/main.dist/*.so 2>/dev/null | sort || true
             echo "--- OpenImageIO dir ---"
@@ -185,7 +185,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           if [ "$RUNNER_OS" == "macOS" ]; then
-            dist/exr_converter.app/Contents/MacOS/exr_converter --smoke-test
+            "dist/EXR Converter.app/Contents/MacOS/exr_converter" --smoke-test
           elif [ "$RUNNER_OS" == "Windows" ]; then
             dist/main.dist/exr_converter.exe --smoke-test
           else
@@ -204,11 +204,11 @@ jobs:
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
-            --icon "exr_converter.app" 150 190 \
-            --hide-extension "exr_converter.app" \
+            --icon "EXR Converter.app" 150 190 \
+            --hide-extension "EXR Converter.app" \
             --app-drop-link 450 190 \
             "${{ matrix.artifact }}.${{ matrix.ext }}" \
-            dist/exr_converter.app
+            "dist/EXR Converter.app"
 
       - name: Create AppImage (Linux)
         if: runner.os == 'Linux'
@@ -357,5 +357,5 @@ jobs:
             ### macOS note
             These builds use an ad-hoc code signature. On first launch, right-click the app and select **Open**, or run:
             ```bash
-            xattr -cr /Applications/exr_converter.app
+            xattr -cr "/Applications/EXR Converter.app"
             ```
