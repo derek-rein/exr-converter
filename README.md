@@ -6,18 +6,26 @@ Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-p
 
 ## Downloads
 
-[![Latest release](https://img.shields.io/github/v/release/derek-rein/vfx-tools?label=latest)](https://github.com/derek-rein/vfx-tools/releases)
+[![Latest release](https://img.shields.io/github/v/release/derek-rein/exr-converter?label=latest)](https://github.com/derek-rein/exr-converter/releases)
 
 | Platform | Download |
 |----------|----------|
-| Windows x64 | [**Installer (.exe)**](https://github.com/derek-rein/vfx-tools/releases/latest/download/exr_converter-windows-x86_64-setup.exe) |
-| macOS Apple Silicon | [**DMG**](https://github.com/derek-rein/vfx-tools/releases/latest/download/exr_converter-macos-arm64.dmg) |
-| macOS Intel | [**DMG**](https://github.com/derek-rein/vfx-tools/releases/latest/download/exr_converter-macos-x86_64.dmg) |
-| Linux x86_64 | [**AppImage**](https://github.com/derek-rein/vfx-tools/releases/latest/download/exr_converter-linux-x86_64.AppImage) |
+| Windows x64 | [**Installer (.exe)**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe) |
+| macOS Apple Silicon | [**DMG**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-arm64.dmg) |
+| macOS Intel | [**DMG**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-x86_64.dmg) |
+| Linux x86_64 | [**AppImage**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage) |
 
-All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) — see the [releases page](https://github.com/derek-rein/vfx-tools/releases) for verification instructions.
+All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) — see the [releases page](https://github.com/derek-rein/exr-converter/releases) for verification instructions.
 
-> **macOS Gatekeeper:** Like most open-source macOS apps distributed outside the App Store, these builds are not Apple-notarized. On first launch macOS may block the app — right-click it and choose **Open**, or run `xattr -cr "/Applications/EXR Converter.app"`. This is a [standard macOS security prompt](https://support.apple.com/en-us/102445) for apps without a paid Apple Developer signature.
+### Running on macOS
+
+These builds use an **ad-hoc code signature** and are **not Apple-notarized** (like most open-source apps distributed outside the App Store). Because of that, Gatekeeper quarantines the download. After dragging **EXR Converter.app** into `/Applications`, clear the quarantine flag once from Terminal:
+
+```bash
+xattr -cr "/Applications/EXR Converter.app"
+```
+
+Then open it normally (double-click, or right-click → **Open**). If macOS still says the app "is damaged" or "can't be opened," that is the quarantine flag — the `xattr -cr` command above resolves it. This is the [standard macOS prompt](https://support.apple.com/en-us/102445) for apps without a paid Apple Developer signature; it does not indicate a problem with the build.
 
 ## Tech stack
 
@@ -82,8 +90,8 @@ Run `uv run python main.py video2exr --help` or `exr2video --help` for the full 
 - [uv](https://docs.astral.sh/uv/) (recommended) or another PEP 621-compatible installer
 
 ```bash
-git clone https://github.com/derek-rein/vfx-tools.git
-cd vfx-tools
+git clone https://github.com/derek-rein/exr-converter.git
+cd exr-converter
 uv sync
 ```
 

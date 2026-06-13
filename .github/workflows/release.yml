@@ -151,6 +151,29 @@ jobs:
           echo "Bundle size after slimming:"
           du -sh "$APP"
 
+      - name: Re-sign macOS bundle (ad-hoc)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          APP="dist/EXR Converter.app"
+          # lipo/strip above rewrote the Mach-O files, which invalidated the
+          # ad-hoc signatures Nuitka applied at build time. On Apple Silicon
+          # every executable page must carry a valid signature or the kernel
+          # kills the process at dlopen ("CODESIGNING / Invalid Page"). Re-sign
+          # everything inside-out so the embedded module hashes match again.
+          find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) \
+            -exec codesign --force --sign - --timestamp=none {} +
+          QT_LIB="$APP/Contents/MacOS/PySide6/Qt/lib"
+          if [ -d "$QT_LIB" ]; then
+            find "$QT_LIB" -type f ! -name '*.plist' ! -name '*.pri' \
+              -exec codesign --force --sign - --timestamp=none {} + || true
+          fi
+          # Main executable, then the whole bundle last (outermost seal).
+          codesign --force --sign - --timestamp=none "$APP/Contents/MacOS/exr_converter"
+          codesign --force --deep --sign - --timestamp=none "$APP"
+          # Fail the build if the signature still doesn't verify.
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
       - name: Slim Linux bundle
         if: runner.os == 'Linux'
         shell: bash
@@ -357,7 +380,7 @@ jobs:
             cosign verify-blob <ARTIFACT_FILE> \
               --bundle <ARTIFACT_FILE>.sigstore.json \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              --certificate-identity-regexp "github.com/derek-rein/vfx-tools"
+              --certificate-identity-regexp "github.com/derek-rein/exr-converter"
             ```
 
             ### macOS note
