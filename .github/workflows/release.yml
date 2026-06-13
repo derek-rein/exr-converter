@@ -136,8 +136,14 @@ jobs:
           # Thin universal2 frameworks to single arch
           find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) -exec \
             sh -c 'lipo -info "$1" 2>/dev/null | grep -q "universal\|two arch" && lipo -thin '"$ARCH"' "$1" -output "$1.thin" && mv "$1.thin" "$1" || true' _ {} \;
-          find "$APP/Contents/Resources/PySide6/Qt/lib" -type f ! -name '*.plist' ! -name '*.pri' -exec \
-            sh -c 'lipo -info "$1" 2>/dev/null | grep -q "universal\|two arch" && lipo -thin '"$ARCH"' "$1" -output "$1.thin" && mv "$1.thin" "$1" || true' _ {} \;
+          # Qt framework binaries (no .so/.dylib suffix) sit next to the PySide6
+          # package, which Nuitka places under Contents/MacOS (not Resources).
+          # Guard the path so a layout change can never fail the whole build.
+          QT_LIB="$APP/Contents/MacOS/PySide6/Qt/lib"
+          if [ -d "$QT_LIB" ]; then
+            find "$QT_LIB" -type f ! -name '*.plist' ! -name '*.pri' -exec \
+              sh -c 'lipo -info "$1" 2>/dev/null | grep -q "universal\|two arch" && lipo -thin '"$ARCH"' "$1" -output "$1.thin" && mv "$1.thin" "$1" || true' _ {} \;
+          fi
 
           # Strip debug symbols
           find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) -exec strip -x {} +
