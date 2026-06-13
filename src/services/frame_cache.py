@@ -12,7 +12,7 @@ import threading
 from collections import OrderedDict
 
 import numpy as np
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 
 # Coalesce cache_changed bursts (e.g. 4 prefetch workers all completing in
 # the same ms) into one update at most every N ms — keeps the timeline
@@ -47,8 +47,8 @@ class FrameCache(QObject):
         if budget_bytes is None:
             from PySide6.QtCore import QSettings
 
+            from ..core.constants import APP_NAME, APP_ORG
             from .cache_prefs import cache_budget_bytes
-            from .constants import APP_NAME, APP_ORG
 
             budget_bytes = cache_budget_bytes(QSettings(APP_ORG, APP_NAME))
         self._budget = budget_bytes
@@ -144,11 +144,12 @@ class FrameCache(QObject):
 
     def _notify_changed(self) -> None:
         """Schedule a coalesced ``cache_changed`` emit (thread-safe)."""
-        if self.thread() is QObject.thread(self):
+        if QThread.currentThread() is self.thread():
             # Same-thread fast path: schedule directly.
             self._schedule_emit()
         else:
-            # Worker-thread path: hop onto the GUI thread.
+            # Worker-thread path: hop onto the GUI thread (QTimer is not
+            # safe to arm from a non-owning thread).
             self._emit_request.emit()
 
     def _schedule_emit(self) -> None:

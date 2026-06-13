@@ -33,7 +33,7 @@ CI runs on **GitHub Actions**; releases publish binaries for Linux, macOS (Apple
 
 ## Screenshot
 
-![EXR Converter — EXR → Video](assets/exr_converter_screenshot.png)
+![EXR Converter — EXR → Video](resources/screenshots/exr_converter_screenshot.png)
 
 ## GUI
 
@@ -112,11 +112,12 @@ Nuitka will auto-download `ccache` on first run. See the `Makefile` for the full
 |--------|---------|
 | `make run` | Start the GUI |
 | `make lint` / `make fmt` | Ruff check / format |
+| `make test` | Run the pytest suite |
 | `make resources` | Regenerate `src/rc_resources.py` from `resources.qrc` (needed after icon changes) |
 | `make bundle` | Nuitka standalone bundle under `dist/` |
 | `make clean` | Remove all build artifacts |
 
-Icons live under `public/` (`icon.icns` / `icon.ico` / `icon.png`).
+All static assets live under `resources/`: icons in `resources/icons/` (`icon.icns` / `icon.ico` / `icon.png`), UI images in `resources/images/`, the Qt stylesheet at `resources/style.qss`, the bundled OCIO config in `resources/ocio/`, and docs imagery in `resources/screenshots/`.
 
 ## Releases
 

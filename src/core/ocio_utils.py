@@ -36,25 +36,24 @@ def get_bundled_aces_studio_path() -> Path | None:
     This is the official AcademySoftwareFoundation/OpenColorIO-Config-ACES
     studio config. It is a single small .ocio file (uses OCIO built-in
     transforms) containing a wide variety of camera input transforms/IDTs
-    (ARRI Alexa, RED, Sony Venice, Canon, DJI, etc.) plus modern ACES
-    Output Transforms. It is legally redistributable (BSD-3-Clause).
+    (ARRI Alexa, RED, Sony Venice, Canon, DJI, Apple Log, etc.) plus modern
+    ACES Output Transforms. It is legally redistributable (BSD-3-Clause).
 
-    Tries several locations to work in:
-    - source tree dev runs
-    - Nuitka standalone / onefile bundles
-    - macOS .app bundles
+    Tries several locations to work in dev, Nuitka onefile, and especially
+    macOS .app bundles created with --macos-create-app-bundle +
+    --include-data-files.
     """
     filename = "aces-studio-v4.ocio"
     rel_path = Path("resources") / "ocio" / filename
 
-    # 1. Direct relative to CWD (most dev runs and some bundles)
+    # 1. Direct relative to CWD (most dev runs)
     cand = Path.cwd() / rel_path
     if cand.is_file():
         return cand
 
-    # 2. Walk up from this module file (handles running from src/ or installed layouts)
+    # 2. Walk up from this module (dev layouts, editable installs, etc.)
     here = Path(__file__).resolve()
-    for _ in range(6):
+    for _ in range(8):
         cand = here.parent / rel_path
         if cand.is_file():
             return cand
@@ -62,26 +61,41 @@ def get_bundled_aces_studio_path() -> Path | None:
             break
         here = here.parent
 
-    # 3. Nuitka / frozen executable layouts
-    if getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS"):
-        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-        for extra in ("", "Contents/Resources", "resources", "."):
-            p = base / extra / rel_path if extra else base / rel_path
-            if p.is_file():
+    # 3. Frozen / Nuitka / PyInstaller style bundles
+    is_frozen = getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS")
+    if is_frozen:
+        # Nuitka typically sets sys.executable to the launcher inside the bundle
+        exe = Path(sys.executable)
+        base = Path(getattr(sys, "_MEIPASS", exe.parent))
+
+        candidates = [
+            base / rel_path,  # Contents/MacOS/resources/...
+            base / "resources" / "ocio" / filename,
+            base.parent / "Resources" / rel_path,  # Contents/Resources/...
+            base / "Contents" / "Resources" / rel_path,
+            exe.parent / rel_path,
+            exe.parent / "resources" / "ocio" / filename,
+        ]
+        for p in candidates:
+            if p and p.is_file():
                 return p
-        # macOS app bundle Resources next to MacOS/
-        macos_dir = base if base.name == "MacOS" else (base / "Contents" / "MacOS")
-        if macos_dir.exists():
-            res_dir = macos_dir.parent / "Resources"
-            p = res_dir / rel_path
+
+        # Classic macOS .app layout: executable is in Contents/MacOS/
+        if "Contents" in exe.parts:
+            contents = exe.parents[exe.parts.index("Contents")]
+            for sub in ("MacOS", "Resources", "."):
+                p = contents / sub / rel_path if sub != "." else contents / rel_path
+                if p.is_file():
+                    return p
+            # Sometimes data lands directly under Contents/
+            p = contents / rel_path
             if p.is_file():
                 return p
 
-    # 4. As package data (if someone moves the .ocio under the package)
+    # 4. Package data fallback (rare for this layout)
     try:
         import importlib.resources as ir
 
-        # Try several possible package locations
         for pkg in ("src.ocio_configs", "ocio_configs", "src"):
             try:
                 if hasattr(ir, "files"):

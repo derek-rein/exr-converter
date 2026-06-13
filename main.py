@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 
 from src.cli import build_parser, run_cli
-from src.constants import APP_NAME, APP_ORG
+from src.core.constants import APP_NAME, APP_ORG
 
 
 def main() -> int:
@@ -22,8 +22,8 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     import src.rc_resources  # noqa: F401 — register Qt resources
-    from src.style import load_stylesheet
-    from src.window import MainWindow
+    from src.gui.style import load_stylesheet
+    from src.gui.window import MainWindow
 
     app = QApplication(sys.argv)
     app.setOrganizationName(APP_ORG)

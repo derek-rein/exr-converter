@@ -40,7 +40,7 @@ def _read_exr_frame(path: str, transform: FrameTransform | None) -> np.ndarray |
     and returns float16 working-space pixels — keeping the heavy colour
     transform off the GUI thread on cache hits.
     """
-    from .exr_io import read_exr_uint16
+    from ..core.exr_io import read_exr_uint16
 
     rgb = read_exr_uint16(path)
     if rgb is None:

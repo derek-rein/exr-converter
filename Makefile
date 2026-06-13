@@ -7,7 +7,7 @@
 #   make release PART=patch               # bump + lock + commit + tag + push (triggers Release workflow)
 #   make release PUSH=0                   # … local only; push branch + tag yourself to trigger CI
 
-.PHONY: help run lint fmt resources bundle clean bump release
+.PHONY: help run lint fmt test resources bundle clean bump release
 
 APP_NAME := exr_converter
 MACOS_BUNDLE_NAME := EXR Converter
@@ -29,6 +29,7 @@ help:
 	@echo ""
 	@echo "  make run                               # launch the GUI"
 	@echo "  make lint / fmt                        # ruff check / format"
+	@echo "  make test                              # run the pytest suite"
 	@echo "  make resources                         # regenerate Qt resources"
 	@echo "  make bundle                            # Nuitka standalone build"
 	@echo "  make clean                             # remove build artifacts"
@@ -47,23 +48,28 @@ run:
 # ── Lint & Format ────────────────────────────────────────────────────────────
 
 lint:
-	$(UV) run ruff check src/ main.py
+	$(UV) run ruff check src/ main.py tests/
 
 fmt:
-	$(UV) run ruff format src/ main.py
-	$(UV) run ruff check --fix src/ main.py
+	$(UV) run ruff format src/ main.py tests/
+	$(UV) run ruff check --fix src/ main.py tests/
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+
+test:
+	QT_QPA_PLATFORM=offscreen $(UV) run pytest
 
 # ── Qt Resources ─────────────────────────────────────────────────────────────
 
 resources: src/rc_resources.py
 
-src/rc_resources.py: resources.qrc public/icon.png public/style.qss
+src/rc_resources.py: resources.qrc resources/icons/icon.png resources/style.qss
 	$(RCC) resources.qrc -o src/rc_resources.py
 
 # ── Bundle with Nuitka ───────────────────────────────────────────────────────
 # macOS: dist/"EXR Converter.app"   Linux: dist/exr_converter   Windows: dist/exr_converter.exe
 
-ICON ?= public/icon.icns
+ICON ?= resources/icons/icon.icns
 
 bundle: resources
 	$(PYTHON) -m nuitka \
@@ -119,7 +125,7 @@ release:
 	$(UV) lock; \
 	eval $$($(BUMP) show); \
 	if [ -z "$${TAG}" ]; then echo "ERROR: TAG is empty — bump show failed"; exit 1; fi; \
-	git add pyproject.toml src/constants.py uv.lock; \
+	git add pyproject.toml src/core/constants.py uv.lock; \
 	if git diff --staged --quiet; then echo "No changes to commit."; exit 1; fi; \
 	git commit -m "release: $${VERSION}"; \
 	git tag "$${TAG}"; \

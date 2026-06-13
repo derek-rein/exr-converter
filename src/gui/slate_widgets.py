@@ -52,16 +52,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .cache_prefs import (
+from ..render.slate import SLATE_COLORSPACE, render_slate_frame
+from ..services.cache_prefs import (
     cache_budget_bytes,
     load_cache_budget_pct,
     save_cache_budget_pct,
     total_ram_bytes,
 )
-from .exr_prefetch import ExrPrefetchService
-from .frame_cache import FrameCache
-from .slate import SLATE_COLORSPACE, render_slate_frame
+from ..services.exr_prefetch import ExrPrefetchService
+from ..services.frame_cache import FrameCache
 from .timeline_slider import TimelineSlider
+from .token_line_edit import TokenLineEdit
 
 # Playback RAM cache — uint16 RGB; 75% prefetch ahead, 25% lookback.
 _PREFETCH_WORKERS = 4
@@ -345,7 +346,7 @@ def extract_thumbnail_b64(input_path: str, mode: str) -> str:
 
             arr = frame.to_ndarray(format="rgb24")
         else:
-            from .sequence import find_exr_sequence_info
+            from ..core.sequence import find_exr_sequence_info
 
             _paths, _name, frames, _pad, seq = find_exr_sequence_info(input_path)
             if not frames:
@@ -404,7 +405,7 @@ def extract_thumbnail_b64(input_path: str, mode: str) -> str:
 class SlateFormPanel(QWidget):
     """View / editor for the slate metadata, burn-in fields and watermark.
 
-    The form is a thin view over a :class:`~src.slate_model.SlateModel` —
+    The form is a thin view over a :class:`~src.services.slate_model.SlateModel` —
     every edit pushes the new value into the model, and the model is the
     canonical source of truth (also persists to ``QSettings``).
     """
@@ -416,11 +417,17 @@ class SlateFormPanel(QWidget):
         model,  # SlateModel
         input_path: str = "",
         parent: QWidget | None = None,
+        embed_overlays: bool = True,
     ):
         super().__init__(parent)
         self._model = model
         self._input_path = input_path
         self._suppress_emit = False
+        # When False the burn-in + watermark groups are built but not added to
+        # this panel's layout; the host (SlateDialog) places them in a separate
+        # column flanking the image view. They remain children of this widget
+        # via reparenting, so all signal wiring / accessors stay valid.
+        self._embed_overlays = embed_overlays
         self.setMinimumWidth(280)
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
 
@@ -429,6 +436,15 @@ class SlateFormPanel(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
+
+        # --- Slate (checkable header toggles whether a slate frame renders) ---
+        slate_group = QGroupBox("Slate")
+        slate_group.setCheckable(True)
+        slate_group.setChecked(model.slate_enabled)
+        slate_group.setStatusTip("Render a slate frame in front of the shot")
+        slate_layout = QVBoxLayout(slate_group)
+        slate_layout.setSpacing(10)
+        self._slate_group = slate_group
 
         # --- Top row: Show / Seq / Shot / Version (horizontal) ---
         top_group = QGroupBox("Shot Identity")
@@ -466,7 +482,7 @@ class SlateFormPanel(QWidget):
         ver_col.addWidget(ver_lbl)
         ver_col.addWidget(self.version_spin)
         top_layout.addLayout(ver_col, 1)
-        root.addWidget(top_group)
+        slate_layout.addWidget(top_group)
 
         # --- Primary fields (always visible) ---
         primary = QGroupBox("Slate Info")
@@ -494,7 +510,7 @@ class SlateFormPanel(QWidget):
         self.scope_edit = self._line(fields.get("scope", ""), "VFX scope of work")
         pf.addRow("Shot Types", self.shot_types_edit)
         pf.addRow("Scope of Work", self.scope_edit)
-        root.addWidget(primary)
+        slate_layout.addWidget(primary)
 
         # --- Right-column fields (Vendor, Artist, Take, Logo) ---
         right_group = QGroupBox("Artist / Studio")
@@ -509,20 +525,32 @@ class SlateFormPanel(QWidget):
         rf.addRow("Artist", self.artist_edit)
         rf.addRow("Take", self.take_edit)
         rf.addRow("Logo / Studio", self.logo_edit)
-        root.addWidget(right_group)
+        slate_layout.addWidget(right_group)
+        root.addWidget(slate_group)
 
         # --- Burn-in (six corner cells, manual entry) ---
         burnin_group = QGroupBox("Burn-in (per-frame overlay)")
+        burnin_group.setCheckable(True)
+        burnin_group.setChecked(model.burnin_enabled)
+        burnin_group.setStatusTip("Bake the corner burn-in text onto every frame")
         bf = QFormLayout(burnin_group)
         bf.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         burnin = model.burnin_fields
-        self.burnin_top_left = self._line(burnin.get("top_left", ""), "Top left")
-        self.burnin_top_center = self._line(burnin.get("top_center", ""), "Top center")
-        self.burnin_top_right = self._line(burnin.get("top_right", ""), "Top right")
-        self.burnin_bottom_left = self._line(burnin.get("bottom_left", ""), "Bottom left")
-        self.burnin_bottom_center = self._line(burnin.get("bottom_center", ""), "Bottom center")
-        self.burnin_bottom_right = self._line(burnin.get("bottom_right", ""), "Bottom right")
+        self.burnin_top_left = self._line(burnin.get("top_left", ""), "Top left", tokenized=True)
+        self.burnin_top_center = self._line(
+            burnin.get("top_center", ""), "Top center", tokenized=True
+        )
+        self.burnin_top_right = self._line(burnin.get("top_right", ""), "Top right", tokenized=True)
+        self.burnin_bottom_left = self._line(
+            burnin.get("bottom_left", ""), "Bottom left", tokenized=True
+        )
+        self.burnin_bottom_center = self._line(
+            burnin.get("bottom_center", ""), "Bottom center", tokenized=True
+        )
+        self.burnin_bottom_right = self._line(
+            burnin.get("bottom_right", ""), "Bottom right", tokenized=True
+        )
 
         bf.addRow("Top Left", self.burnin_top_left)
         bf.addRow("Top Center", self.burnin_top_center)
@@ -541,17 +569,20 @@ class SlateFormPanel(QWidget):
         self._fill_burnin_btn.clicked.connect(self._on_fill_burnin)
         bf.addRow("", self._fill_burnin_btn)
 
-        root.addWidget(burnin_group)
+        self._burnin_group = burnin_group
+        if self._embed_overlays:
+            root.addWidget(burnin_group)
 
         # --- Watermark (drawn over every preview & output frame) ---
         wm_group = QGroupBox("Watermark")
         wm_group.setCheckable(True)
         wm_params = model.watermark_params
-        wm_group.setChecked(bool(wm_params.get("enabled")))
+        wm_group.setChecked(model.watermark_enabled)
+        wm_group.setStatusTip("Draw a diagonal watermark across every frame")
         wmf = QFormLayout(wm_group)
         wmf.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        self.watermark_text_edit = QLineEdit()
+        self.watermark_text_edit = TokenLineEdit()
         self.watermark_text_edit.setPlaceholderText("FOR REVIEW ONLY")
         self.watermark_text_edit.setText(str(wm_params.get("text", "")))
 
@@ -575,7 +606,8 @@ class SlateFormPanel(QWidget):
         wmf.addRow("Opacity", self.watermark_opacity_spin)
         wmf.addRow("Size", self.watermark_size_spin)
         wmf.addRow("Angle", self.watermark_angle_spin)
-        root.addWidget(wm_group)
+        if self._embed_overlays:
+            root.addWidget(wm_group)
         self._watermark_group = wm_group
 
         self.watermark_text_edit.setStatusTip("Watermark text drawn diagonally across every frame")
@@ -612,7 +644,10 @@ class SlateFormPanel(QWidget):
         ):
             w.textChanged.connect(self._on_burnin_changed)
 
-        self._watermark_group.toggled.connect(self._on_watermark_changed)
+        self._slate_group.toggled.connect(self._on_slate_enabled_toggled)
+        self._burnin_group.toggled.connect(self._on_burnin_enabled_toggled)
+
+        self._watermark_group.toggled.connect(self._on_watermark_enabled_toggled)
         self.watermark_text_edit.textChanged.connect(self._on_watermark_changed)
         self.watermark_opacity_spin.valueChanged.connect(self._on_watermark_changed)
         self.watermark_size_spin.valueChanged.connect(self._on_watermark_changed)
@@ -635,10 +670,18 @@ class SlateFormPanel(QWidget):
         self.scope_edit.setStatusTip("Description of VFX scope of work for this shot")
         self.logo_edit.setStatusTip("Text displayed as logo/studio branding (blank to hide)")
 
+    def overlay_groups(self) -> list[QGroupBox]:
+        """Return the burn-in + watermark group boxes.
+
+        Used by :class:`SlateDialog` when ``embed_overlays=False`` to host the
+        overlay controls in a dedicated column to the right of the image view.
+        """
+        return [self._burnin_group, self._watermark_group]
+
     # --- Helpers ---
 
-    def _line(self, initial: str, placeholder: str) -> QLineEdit:
-        edit = QLineEdit()
+    def _line(self, initial: str, placeholder: str, *, tokenized: bool = False) -> QLineEdit:
+        edit = TokenLineEdit() if tokenized else QLineEdit()
         edit.setPlaceholderText(placeholder)
         if initial:
             edit.setText(initial)
@@ -706,6 +749,24 @@ class SlateFormPanel(QWidget):
         self._model.set_burnin_fields(self.burnin_fields())
         self.data_changed.emit(self.slate_data())
 
+    def _on_slate_enabled_toggled(self, checked: bool) -> None:
+        if self._suppress_emit:
+            return
+        self._model.set_slate_enabled(bool(checked))
+        self.data_changed.emit(self.slate_data())
+
+    def _on_burnin_enabled_toggled(self, checked: bool) -> None:
+        if self._suppress_emit:
+            return
+        self._model.set_burnin_enabled(bool(checked))
+        self.data_changed.emit(self.slate_data())
+
+    def _on_watermark_enabled_toggled(self, checked: bool) -> None:
+        if self._suppress_emit:
+            return
+        self._model.set_watermark_enabled(bool(checked))
+        self.data_changed.emit(self.slate_data())
+
     def _on_watermark_changed(self, *_args) -> None:
         if self._suppress_emit:
             return
@@ -733,6 +794,24 @@ class SlateFormPanel(QWidget):
             self._sync_burnin_widgets()
         elif section == "watermark_params":
             self._sync_watermark_widgets()
+        elif section == "slate_enabled":
+            self._suppress_emit = True
+            try:
+                self._slate_group.setChecked(self._model.slate_enabled)
+            finally:
+                self._suppress_emit = False
+        elif section == "burnin_enabled":
+            self._suppress_emit = True
+            try:
+                self._burnin_group.setChecked(self._model.burnin_enabled)
+            finally:
+                self._suppress_emit = False
+        elif section == "watermark_enabled":
+            self._suppress_emit = True
+            try:
+                self._watermark_group.setChecked(self._model.watermark_enabled)
+            finally:
+                self._suppress_emit = False
 
     def _sync_slate_widgets(self) -> None:
         self._suppress_emit = True
@@ -776,7 +855,7 @@ class SlateFormPanel(QWidget):
         self._suppress_emit = True
         try:
             p = self._model.watermark_params
-            self._watermark_group.setChecked(bool(p.get("enabled")))
+            self._watermark_group.setChecked(self._model.watermark_enabled)
             self.watermark_text_edit.setText(str(p.get("text", "")))
             self.watermark_opacity_spin.setValue(int(p.get("opacity", 35)))
             self.watermark_size_spin.setValue(int(p.get("size_pct", 9)))
@@ -1077,9 +1156,9 @@ class SlateDialog(QDialog):
     ``first - 1`` shows the slate; frames ``first .. last`` show the actual
     EXR shot frames with the burn-in composited on top.
 
-    Shot frames are decoded into a :class:`~src.frame_cache.FrameCache` as
+    Shot frames are decoded into a :class:`~src.services.frame_cache.FrameCache` as
     uint16 RGB and prefetched aggressively ahead of the playhead via
-    :class:`~src.exr_prefetch.ExrPrefetchService`.  OCIO and overlay compositing
+    :class:`~src.services.exr_prefetch.ExrPrefetchService`.  OCIO and overlay compositing
     run on the main thread; gain/gamma is a fast post pass.
     """
 
@@ -1107,6 +1186,11 @@ class SlateDialog(QDialog):
         self._ocio_cfg = ocio_cfg
         self._src_colorspace = src_colorspace
         self._dst_colorspace = dst_colorspace
+
+        # Cache of OCIO CPUProcessors keyed by transform direction/spaces.
+        # Populated lazily by the various ``_get_*_proc`` helpers, several of
+        # which run during ``__init__`` (e.g. via ``_build_worker_frame_transform``).
+        self._ocio_proc_cache: dict[tuple, object] = {}
 
         # Output metadata (resolution, fps, frame range, colorspace) comes from
         # the conversion tab — seed the model once when the dialog opens.
@@ -1149,7 +1233,21 @@ class SlateDialog(QDialog):
         self._working_f32 = None
         self._working_space: str = ""
         self._display_f32 = None
+        self._composed_working_f32 = None
         self._preview_pixmap_item = None
+
+        # Cache of linearised burn-in / watermark RGBA overlays, keyed by a
+        # signature of (size + content). Rebuilt only when the overlay content
+        # or frame size changes; read on every composite pass.
+        self._overlay_lin_cache: dict[str, object] = {}
+
+        # Dynamic working→display viewer processor + its live EC properties
+        # (rebuilt on display/view/working-space change). Read on the first
+        # composite pass, so must exist before any render helper runs.
+        self._viewer_display_proc = None
+        self._ec_exposure_prop = None
+        self._ec_gamma_prop = None
+        self._last_viewer_display: tuple[str, str, str] | None = None
 
         # Shot frame cache + parallel prefetch (EXR → uint16 RGB in RAM)
         self._exr_seq = None
@@ -1170,7 +1268,7 @@ class SlateDialog(QDialog):
         # Resolve EXR frame range (only available for exr2video mode)
         if input_path and mode == "exr2video":
             try:
-                from .sequence import find_exr_sequence_info
+                from ..core.sequence import find_exr_sequence_info
 
                 _paths, _name, frames, _pad, seq = find_exr_sequence_info(input_path)
                 if frames:
@@ -1190,8 +1288,8 @@ class SlateDialog(QDialog):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # --- Left: form ---
-        self._form = SlateFormPanel(model, input_path=input_path)
+        # --- Left: slate metadata form (burn-in / watermark hosted separately) ---
+        self._form = SlateFormPanel(model, input_path=input_path, embed_overlays=False)
 
         if input_path:
             thumb = extract_thumbnail_b64(input_path, mode)
@@ -1205,7 +1303,7 @@ class SlateDialog(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         splitter.addWidget(scroll)
 
-        # --- Right: viewer controls + preview + timeline ---
+        # --- Center: viewer controls + preview + timeline ---
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -1260,11 +1358,29 @@ class SlateDialog(QDialog):
 
         splitter.addWidget(right_panel)
 
+        # --- Right: burn-in + watermark overlay controls ---
+        overlay_panel = QWidget()
+        overlay_layout = QVBoxLayout(overlay_panel)
+        overlay_layout.setContentsMargins(12, 12, 12, 12)
+        overlay_layout.setSpacing(10)
+        for group in self._form.overlay_groups():
+            overlay_layout.addWidget(group)
+        overlay_layout.addStretch()
+
+        overlay_scroll = QScrollArea()
+        overlay_scroll.setWidgetResizable(True)
+        overlay_scroll.setWidget(overlay_panel)
+        overlay_scroll.setMinimumWidth(280)
+        overlay_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        splitter.addWidget(overlay_scroll)
+
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(2, 0)
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
-        splitter.setSizes([380, 1020])
+        splitter.setCollapsible(2, False)
+        splitter.setSizes([360, 740, 320])
 
         layout.addWidget(splitter, 1)
 
@@ -1401,7 +1517,7 @@ class SlateDialog(QDialog):
         self._gamma = 1.0
 
     def _populate_display_view_combo(self) -> None:
-        from .ocio_utils import list_displays, list_views
+        from ..core.ocio_utils import list_displays, list_views
 
         self._display_view_combo.blockSignals(True)
         self._display_view_combo.clear()
@@ -1761,7 +1877,7 @@ class SlateDialog(QDialog):
         if self._working_space:
             return self._working_space
         try:
-            from .ocio_utils import get_working_space
+            from ..core.ocio_utils import get_working_space
 
             self._working_space = get_working_space(self._ocio_cfg)
         except Exception:
@@ -1819,7 +1935,7 @@ class SlateDialog(QDialog):
         if proc is not None:
             return proc
         try:
-            from .ocio_utils import make_cpu_processor
+            from ..core.ocio_utils import make_cpu_processor
 
             proc = make_cpu_processor(self._ocio_cfg, src_space, working_space)
         except Exception:
@@ -1843,7 +1959,7 @@ class SlateDialog(QDialog):
         if proc is not None:
             return proc
         try:
-            from .ocio_utils import make_display_processor
+            from ..core.ocio_utils import make_display_processor
 
             proc = make_display_processor(
                 self._ocio_cfg, working_space, display, view, exposure=0.0, gamma=1.0
@@ -1876,14 +1992,13 @@ class SlateDialog(QDialog):
             return None
 
         # Rebuild only when display/view (or working space) actually changed.
-        if (
-            self._viewer_display_proc is not None
-            and getattr(self, "_last_viewer_display", None) == (working_space, display, view)
-        ):
+        if self._viewer_display_proc is not None and getattr(
+            self, "_last_viewer_display", None
+        ) == (working_space, display, view):
             return self._viewer_display_proc
 
         try:
-            from .ocio_utils import make_viewer_display_processor
+            from ..core.ocio_utils import make_viewer_display_processor
 
             proc, exp_prop, gamma_prop = make_viewer_display_processor(
                 self._ocio_cfg, working_space, display, view
@@ -2144,7 +2259,7 @@ class SlateDialog(QDialog):
         if self._ocio_cfg is None or not working_space:
             return rgba_u8.astype(np.float32) / 255.0
         try:
-            from .ocio_utils import linearize_overlay
+            from ..core.ocio_utils import linearize_overlay
 
             return linearize_overlay(self._ocio_cfg, rgba_u8, working_space=working_space)
         except Exception:
@@ -2152,10 +2267,11 @@ class SlateDialog(QDialog):
 
     def _cached_burnin_lin_rgba(self, w: int, h: int):
         """Return cached linearised burn-in overlay (RGBA float32) or ``None``."""
-        from .burnin import render_burnin_overlay
+        from ..render.burnin import render_burnin_overlay
 
+        burnin_on = self._model is None or self._model.burnin_enabled
         fields = self._effective_burnin_fields()
-        if not any((v or "").strip() for v in fields.values()):
+        if not burnin_on or not any((v or "").strip() for v in fields.values()):
             sig = ("burnin", w, h, None)
         else:
             sig = ("burnin", w, h, tuple(sorted(fields.items())))
@@ -2176,11 +2292,12 @@ class SlateDialog(QDialog):
 
     def _cached_watermark_lin_rgba(self, w: int, h: int):
         """Return cached linearised watermark overlay (RGBA float32) or ``None``."""
-        from .watermark import render_watermark_overlay
+        from ..render.watermark import render_watermark_overlay
 
         params = self._form.watermark_params()
         text = (params.get("text") or "").strip()
-        if not (params.get("enabled") and text):
+        wm_on = self._model is None or self._model.watermark_enabled
+        if not (wm_on and text):
             sig = ("wm", w, h, None)
         else:
             sig = ("wm", w, h, tuple(sorted(params.items())))
@@ -2205,7 +2322,7 @@ class SlateDialog(QDialog):
 
     def _effective_burnin_fields(self) -> dict[str, str]:
         """Return the burn-in cells to render — manual entry first, slate-derived fallback."""
-        from .burnin import burnin_fields_from_slate
+        from ..render.burnin import burnin_fields_from_slate
 
         manual = self._model.burnin_fields if self._model is not None else {}
         if any((v or "").strip() for v in manual.values()):
@@ -2219,16 +2336,6 @@ class SlateDialog(QDialog):
 
     def fps(self) -> float:
         return self._model.slate_fps
-
-    def _on_overlay_flags_changed(self, section: str) -> None:
-        """Re-preview when tab-level Slate/Burn-in/Watermark toggles change."""
-        if section == "slate_enabled":
-            self._refresh_timer.start()
-            return
-        if section in ("burnin_enabled", "watermark_enabled"):
-            self._composed_working_f32 = None
-            self._display_f32 = None
-            self._apply_display_transform()
 
     def watermark_params(self) -> dict:
         """Return the current watermark settings (passes through to the form)."""

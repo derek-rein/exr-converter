@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 
 import av
@@ -262,12 +262,13 @@ def run_video_to_exr(
 
             _submit_batch()
             while pending:
-                done = next(iter(as_completed(pending)))
-                done.result()
-                del pending[done]
-                finished += 1
-                if progress:
-                    progress(finished, render_total)
+                done_set, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for done in done_set:
+                    done.result()
+                    del pending[done]
+                    finished += 1
+                    if progress:
+                        progress(finished, render_total)
                 _submit_batch()
     finally:
         container.close()
@@ -373,6 +374,7 @@ def run_exr_to_video(
     slate_frame: np.ndarray | None = None,
     burnin_overlay: np.ndarray | None = None,
     slate_overlay: np.ndarray | None = None,
+    overlay_provider: Callable[[int | None], np.ndarray | None] | None = None,
 ) -> None:
     """Encode an EXR sequence (with optional slate / overlays) to a video.
 
@@ -398,6 +400,13 @@ def run_exr_to_video(
     slate_overlay
         Watermark RGBA overlay (uint8) in sRGB.  Composited onto the
         slate frame only.
+    overlay_provider
+        Optional callback ``fn(frame_num) -> uint8 RGBA | None`` returning a
+        freshly rendered burn-in + watermark overlay (sRGB authoring space) for
+        a given frame number.  Used only when a field contains a per-frame
+        token such as ``<frame>``; it forces the single-threaded path and
+        re-renders + re-linearises the overlay for every frame.  When ``None``
+        the static *burnin_overlay* is reused for all frames (the fast path).
     """
     paths, basename = find_exr_sequence(input_spec)
 
@@ -434,7 +443,9 @@ def run_exr_to_video(
 
     n_workers = workers if workers > 0 else _DEFAULT_WORKERS
 
-    if n_workers <= 1 or (not config_source and not config_path):
+    # A per-frame overlay provider re-renders the overlay each frame, so the
+    # worker pool can't share one pre-baked buffer — run single-threaded.
+    if overlay_provider is not None or n_workers <= 1 or (not config_source and not config_path):
         _e2v_serial(
             paths,
             output_video,
@@ -457,6 +468,7 @@ def run_exr_to_video(
             slate_overlay_working=slate_overlay_working,
             burnin_working=burnin_working,
             overlay_auth_space=overlay_auth,
+            overlay_provider=overlay_provider,
         )
         return
 
@@ -533,10 +545,11 @@ def run_exr_to_video(
 
             _submit_batch()
             while pending:
-                done = next(iter(as_completed(pending)))
-                pending.pop(done)
-                fidx, rgb_u16 = done.result()
-                ready[fidx] = rgb_u16
+                done_set, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for done in done_set:
+                    pending.pop(done)
+                    fidx, rgb_u16 = done.result()
+                    ready[fidx] = rgb_u16
                 _drain_ready()
                 _submit_batch()
 
@@ -573,9 +586,11 @@ def _e2v_serial(
     slate_overlay_working: np.ndarray | None = None,
     burnin_working: np.ndarray | None = None,
     overlay_auth_space: str = "",
+    overlay_provider: Callable[[int | None], np.ndarray | None] | None = None,
 ) -> None:
     cpu_to_working = make_cpu_processor(ocio_cfg, src_space, working_space)
     cpu_to_display = make_cpu_processor(ocio_cfg, working_space, dst_space)
+    auth_space = overlay_auth_space or get_overlay_authoring_space(ocio_cfg)
     if log:
         log(f"OCIO: {src_space} \u2192 {working_space} \u2192 {dst_space}  (single-threaded)")
 
@@ -614,8 +629,21 @@ def _e2v_serial(
             fh, fw = frame_buf.shape[:2]
             cpu_to_working.apply(OCIO.PackedImageDesc(frame_buf, fw, fh, 3))
 
-            if burnin_working is not None and burnin_working.shape[:2] == (fh, fw):
-                frame_buf = _alpha_over_rgb(frame_buf, burnin_working)
+            # Per-frame tokens (e.g. <frame>) require re-rendering + re-linearising
+            # the overlay each frame; otherwise reuse the shared pre-baked buffer.
+            overlay = burnin_working
+            if overlay_provider is not None:
+                overlay_u8 = overlay_provider(_frame_num_from_path(path))
+                overlay = (
+                    linearize_overlay(
+                        ocio_cfg, overlay_u8, src_space=auth_space, working_space=working_space
+                    )
+                    if overlay_u8 is not None
+                    else None
+                )
+
+            if overlay is not None and overlay.shape[:2] == (fh, fw):
+                frame_buf = _alpha_over_rgb(frame_buf, overlay)
                 frame_buf = np.ascontiguousarray(frame_buf, dtype=np.float32)
 
             cpu_to_display.apply(OCIO.PackedImageDesc(frame_buf, fw, fh, 3))

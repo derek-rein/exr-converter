@@ -38,11 +38,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .constants import APP_NAME, APP_ORG, APP_VERSION, GITHUB_REPO
-from .ocio_utils import color_space_families, config_source_info
-from .presets import delete_preset, list_presets, load_preset, save_preset
+from ..core.constants import APP_NAME, APP_ORG, APP_VERSION, GITHUB_REPO
+from ..core.ocio_utils import color_space_families, config_source_info
+from ..services.presets import delete_preset, list_presets, load_preset, save_preset
+from ..services.worker import ConvertWorker
 from .widgets import ConvertTab, OcioConfigPanel
-from .worker import ConvertWorker
 
 
 class _DownloadWorker(QObject):
@@ -117,7 +117,8 @@ class AboutDialog(QDialog):
             "<p><b>Bundled OCIO config:</b> ACES Studio Config v4 (ACES 2.0)<br>"
             "Sourced from <a href='https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES/releases'>"
             "AcademySoftwareFoundation/OpenColorIO-Config-ACES</a> (BSD-3-Clause).<br>"
-            "Contains official camera IDTs for <b>Apple Log</b> (iPhone cinematic/ProRes Log), ARRI, RED, Sony, Canon, DJI and many more.</p>"
+            "Contains official camera IDTs for <b>Apple Log</b> (iPhone cinematic/ProRes Log), "
+            "ARRI, RED, Sony, Canon, DJI and many more.</p>"
             f"<p style='font-size:10px;'>"
             f"MIT License &copy; {datetime.now().year} Derek Rein<br><br>"
             "Permission is hereby granted, free of charge, to any person obtaining "
@@ -493,7 +494,7 @@ class MainWindow(QMainWindow):
         self._append_log(f"Preset deleted: {name}")
 
     def _reset_to_defaults(self) -> None:
-        from .constants import (
+        from ..core.constants import (
             DEFAULT_EXR_COMPRESSION,
             DEFAULT_FRAME_PADDING,
             DEFAULT_SCALE,
@@ -584,7 +585,7 @@ class MainWindow(QMainWindow):
         frame_range_str = tab.get_frame_range()
         frame_set: set[int] | None = None
         if frame_range_str:
-            from .framerange import parse_frame_range
+            from ..core.framerange import parse_frame_range
 
             try:
                 frame_set = set(parse_frame_range(frame_range_str))
@@ -601,7 +602,7 @@ class MainWindow(QMainWindow):
         if tab.slate_enabled():
             slate_data = tab.get_slate_data()
             if slate_data is not None:
-                from .slate import render_slate_frame
+                from ..render.slate import render_slate_frame
 
                 sw, sh = self._detect_slate_resolution(mode, inp)
                 thumb_b64 = tab.get_slate_thumbnail_b64()
@@ -622,54 +623,18 @@ class MainWindow(QMainWindow):
         # once and keeps the linear copy for compositing in working space.
         overlay_np = None
         slate_overlay_np = None
+        overlay_provider = None
         if mode == "exr2video":
-            bw = bh = 0
-            burnin_overlay = None
-            watermark_overlay = None
-
-            if tab.burnin_enabled():
-                from .burnin import render_burnin_overlay
-
-                bw, bh = self._detect_slate_resolution(mode, inp)
-                fields = tab.get_effective_burnin_fields(inp) or {}
-                burnin_overlay = render_burnin_overlay(bw, bh, fields)
-                self._append_log("Burn-in overlay rendered")
-
-            wm_params = tab.get_watermark_params()
-            slate_model = tab.slate_model()
-            if wm_params and slate_model is not None and slate_model.watermark_active():
-                from .watermark import render_watermark_overlay
-
-                if not (bw and bh):
-                    bw, bh = self._detect_slate_resolution(mode, inp)
-                watermark_overlay = render_watermark_overlay(bw, bh, wm_params)
-                self._append_log("Watermark overlay rendered")
-
-            # Per-frame overlay (burnin + watermark, baked together)
-            if burnin_overlay is not None and watermark_overlay is not None:
-                import numpy as np
-
-                a = watermark_overlay[..., 3:4].astype(np.float32) / 255.0
-                fg = watermark_overlay[..., :3].astype(np.float32)
-                bg = burnin_overlay[..., :3].astype(np.float32)
-                rgb = fg * a + bg * (1.0 - a)
-                bg_a = burnin_overlay[..., 3:4].astype(np.float32) / 255.0
-                out_a = a + bg_a * (1.0 - a)
-                overlay_np = np.empty_like(burnin_overlay)
-                overlay_np[..., :3] = np.clip(rgb, 0.0, 255.0).astype(np.uint8)
-                overlay_np[..., 3:4] = np.clip(out_a * 255.0, 0.0, 255.0).astype(np.uint8)
-            else:
-                overlay_np = burnin_overlay or watermark_overlay
-
-            # Slate-only overlay: watermark only (burn-in skips the slate).
-            slate_overlay_np = watermark_overlay
+            overlay_np, slate_overlay_np, overlay_provider = self._build_overlays(
+                tab, inp, frame_range_str, frame_set
+            )
 
         if mode == "video2exr":
             # v2e still pre-transforms the slate to dst space (no overlays
             # here) — slate becomes one EXR frame on disk in dst colorspace.
             v2e_slate = slate_np
             if v2e_slate is not None:
-                from .slate import SLATE_COLORSPACE
+                from ..render.slate import SLATE_COLORSPACE
 
                 v2e_slate = self._ocio_transform_slate(v2e_slate, SLATE_COLORSPACE, dst)
             kwargs = dict(
@@ -706,6 +671,7 @@ class MainWindow(QMainWindow):
                 slate_frame=slate_np,
                 burnin_overlay=overlay_np,
                 slate_overlay=slate_overlay_np,
+                overlay_provider=overlay_provider,
             )
 
         out_path = Path(out)
@@ -757,6 +723,101 @@ class MainWindow(QMainWindow):
             self._worker.cancel()
             self._append_log("Cancellation requested\u2026")
 
+    # -- Burn-in / watermark overlays --
+
+    def _build_overlays(self, tab, inp, frame_range_str, frame_set):
+        """Prepare the burn-in + watermark overlays for an EXR→video render.
+
+        Returns ``(shot_overlay, slate_overlay, overlay_provider)``:
+
+        - *shot_overlay* — combined burn-in + watermark for shot frames, or
+          ``None`` when a per-frame token forces per-frame rendering instead.
+        - *slate_overlay* — watermark-only overlay for the slate frame.
+        - *overlay_provider* — ``fn(frame_num) -> uint8 RGBA`` used by the
+          pipeline when any field contains a per-frame token (e.g. ``<frame>``);
+          ``None`` for the fast, render-once path.
+
+        Token text is expanded here so the renderers only ever see literal
+        strings.  Everything captured by the provider closure is plain data so
+        it is safe to call from the conversion worker thread.
+        """
+        import numpy as np
+
+        from ..render import tokens as tok
+        from ..render.burnin import render_burnin_overlay
+        from ..render.watermark import render_watermark_overlay
+
+        bw, bh = self._detect_slate_resolution("exr2video", inp)
+
+        burnin_on = tab.burnin_enabled()
+        raw_fields = (tab.get_effective_burnin_fields(inp) or {}) if burnin_on else {}
+
+        wm_params = tab.get_watermark_params()
+        slate_model = tab.slate_model()
+        wm_on = bool(wm_params and slate_model is not None and slate_model.watermark_active())
+
+        if not burnin_on and not wm_on:
+            return None, None, None
+
+        slate_render = slate_model.slate_data_for_render() if slate_model is not None else {}
+        start_f = min(frame_set) if frame_set else None
+        end_f = max(frame_set) if frame_set else None
+        pad = max(4, len(str(end_f))) if end_f is not None else 4
+        base_values = tok.build_values(
+            slate_render,
+            input_name=Path(inp).name,
+            frame_pad=pad,
+            start_frame=start_f,
+            end_frame=end_f,
+            resolution=f"{bw}x{bh}",
+            frame_range=frame_range_str or None,
+        )
+
+        def _composite(burnin_ov, wm_ov):
+            if burnin_ov is None or wm_ov is None:
+                return burnin_ov if burnin_ov is not None else wm_ov
+            a = wm_ov[..., 3:4].astype(np.float32) / 255.0
+            rgb = wm_ov[..., :3].astype(np.float32) * a + burnin_ov[..., :3].astype(np.float32) * (
+                1.0 - a
+            )
+            bg_a = burnin_ov[..., 3:4].astype(np.float32) / 255.0
+            out = np.empty_like(burnin_ov)
+            out[..., :3] = np.clip(rgb, 0.0, 255.0).astype(np.uint8)
+            out[..., 3:4] = np.clip((a + bg_a * (1.0 - a)) * 255.0, 0.0, 255.0).astype(np.uint8)
+            return out
+
+        def _render(frame_num):
+            values = dict(base_values)
+            # On static renders (no <frame> in use) collapse <frame> to empty so
+            # it never leaks into the slate watermark as literal text.
+            values["frame"] = f"{int(frame_num):0{pad}d}" if frame_num is not None else ""
+            burnin_ov = None
+            if burnin_on:
+                fields = {k: tok.substitute(v, values) for k, v in raw_fields.items()}
+                burnin_ov = render_burnin_overlay(bw, bh, fields)
+            wm_ov = None
+            if wm_on:
+                p = dict(wm_params)
+                p["text"] = tok.substitute(p.get("text", ""), values)
+                wm_ov = render_watermark_overlay(bw, bh, p)
+            return _composite(burnin_ov, wm_ov), wm_ov
+
+        per_frame = tok.any_per_frame_token(raw_fields) or (
+            wm_on and tok.has_per_frame_token(wm_params.get("text", ""))
+        )
+
+        # Render the base overlay once (with <frame> collapsed). The slate gets
+        # the watermark-only buffer regardless; shot frames get the combined one.
+        shot_overlay, slate_overlay = _render(None)
+
+        if per_frame:
+            self._append_log("Per-frame tokens detected — overlays render per frame (1 thread)")
+            return None, slate_overlay, lambda f: _render(f)[0]
+
+        if shot_overlay is not None:
+            self._append_log("Burn-in / watermark overlay rendered")
+        return shot_overlay, slate_overlay, None
+
     # -- Slate colorspace + resolution --
 
     def _ocio_transform_slate(self, slate, slate_cs: str, dst_space: str):
@@ -773,7 +834,7 @@ class MainWindow(QMainWindow):
         if cfg is None:
             return slate
 
-        from .ocio_utils import resolve_alias
+        from ..core.ocio_utils import resolve_alias
 
         src_name = resolve_alias(cfg, slate_cs)
         if not src_name:
@@ -808,13 +869,13 @@ class MainWindow(QMainWindow):
         """Probe the input to determine the resolution for the slate frame."""
         try:
             if mode == "video2exr":
-                from .video import probe_video
+                from ..core.video import probe_video
 
                 w, h, _fps, _total = probe_video(inp)
                 return w, h
             else:
-                from .exr_io import read_exr
-                from .sequence import find_exr_sequence
+                from ..core.exr_io import read_exr
+                from ..core.sequence import find_exr_sequence
 
                 paths, _bn = find_exr_sequence(inp)
                 if paths:
@@ -864,7 +925,7 @@ class MainWindow(QMainWindow):
         if "v2e_dst_space" in data:
             self._v2e_tab.dst_btn.set_current_space(data["v2e_dst_space"])
         if "v2e_compression" in data and self._v2e_tab.compression_combo:
-            from .constants import EXR_COMPRESSIONS
+            from ..core.constants import EXR_COMPRESSIONS
 
             val = data["v2e_compression"]
             if val in EXR_COMPRESSIONS:

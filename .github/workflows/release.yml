@@ -65,8 +65,8 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          sed -i.bak "s/^APP_VERSION = \"[^\"]*\"/APP_VERSION = \"${VERSION}\"/" src/constants.py
-          rm -f src/constants.py.bak
+          sed -i.bak "s/^APP_VERSION = \"[^\"]*\"/APP_VERSION = \"${VERSION}\"/" src/core/constants.py
+          rm -f src/core/constants.py.bak
 
       - name: Compile Qt resources
         run: uv run pyside6-rcc resources.qrc -o src/rc_resources.py
@@ -76,11 +76,11 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" == "macOS" ]; then
-            echo "path=public/icon.icns" >> "$GITHUB_OUTPUT"
+            echo "path=resources/icons/icon.icns" >> "$GITHUB_OUTPUT"
           elif [ "$RUNNER_OS" == "Windows" ]; then
-            echo "path=public/icon.ico" >> "$GITHUB_OUTPUT"
+            echo "path=resources/icons/icon.ico" >> "$GITHUB_OUTPUT"
           else
-            echo "path=public/icon.png" >> "$GITHUB_OUTPUT"
+            echo "path=resources/icons/icon.png" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build with Nuitka
@@ -199,7 +199,7 @@ jobs:
           brew install create-dmg
           create-dmg \
             --volname "EXR Converter" \
-            --volicon "public/icon.icns" \
+            --volicon "resources/icons/icon.icns" \
             --format ULMO \
             --window-pos 200 120 \
             --window-size 600 400 \
@@ -220,8 +220,8 @@ jobs:
 
           cp -a dist/main.dist/. "${APPDIR}/usr/bin/"
           chmod +x "${APPDIR}/usr/bin/exr_converter"
-          cp public/icon.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/exr_converter.png"
-          cp public/icon.png "${APPDIR}/exr_converter.png"
+          cp resources/icons/icon.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/exr_converter.png"
+          cp resources/icons/icon.png "${APPDIR}/exr_converter.png"
 
           printf '[Desktop Entry]\nName=EXR Converter\nExec=exr_converter\nIcon=exr_converter\nType=Application\nCategories=Graphics;\n' \
             > "${APPDIR}/exr_converter.desktop"

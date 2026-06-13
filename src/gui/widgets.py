@@ -51,7 +51,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .constants import (
+from ..core.constants import (
     BUNDLED_ACES_STUDIO_KEY,
     COMMON_FPS,
     DEFAULT_DST_E2V,
@@ -70,10 +70,10 @@ from .constants import (
     SCALE_OPTIONS,
     VIDEO_CODECS,
 )
-from .ocio_utils import list_app_configs, list_builtin_configs, resolve_ocio_config
-from .sequence import probe_exr_colorspace, probe_exr_metadata, scan_exr_sequences
+from ..core.ocio_utils import list_app_configs, list_builtin_configs, resolve_ocio_config
+from ..core.sequence import probe_exr_colorspace, probe_exr_metadata, scan_exr_sequences
+from ..core.video import probe_video_metadata, scan_video_files
 from .style import DESC_STYLE, HINT_STYLE, STATUS_DIM, STATUS_ERR, STATUS_OK
-from .video import probe_video_metadata, scan_video_files
 
 try:
     import PyOpenColorIO as OCIO
@@ -1984,7 +1984,7 @@ class ConvertTab(QWidget):
         scale_row.addWidget(self.scale_combo, 1)
 
         if mode == "exr2video":
-            from .slate_model import SlateModel
+            from ..services.slate_model import SlateModel
 
             self._slate_model = SlateModel(settings, mode, parent=self)
 
@@ -2573,7 +2573,7 @@ class ConvertTab(QWidget):
         """Guess the source colorspace from video codec/format and select it."""
         if self._mode != "video2exr":
             return
-        from .video import guess_video_colorspace_candidates
+        from ..core.video import guess_video_colorspace_candidates
 
         candidates = guess_video_colorspace_candidates(video_path)
         if not candidates:
@@ -2581,7 +2581,7 @@ class ConvertTab(QWidget):
         ocio_cfg = getattr(self, "_ocio_cfg", None)
         preferred = candidates[0]
         if ocio_cfg is not None:
-            from .ocio_utils import resolve_alias
+            from ..core.ocio_utils import resolve_alias
 
             for name in candidates:
                 resolved = resolve_alias(ocio_cfg, name)
@@ -2638,7 +2638,7 @@ class ConvertTab(QWidget):
         ocio_cfg = getattr(self, "_ocio_cfg", None)
         preferred = candidates[0]
         if ocio_cfg is not None:
-            from .ocio_utils import resolve_alias
+            from ..core.ocio_utils import resolve_alias
 
             for name in candidates:
                 resolved = resolve_alias(ocio_cfg, name)
@@ -2659,7 +2659,7 @@ class ConvertTab(QWidget):
         canonical = cs
         ocio_cfg = getattr(self, "_ocio_cfg", None)
         if ocio_cfg is not None:
-            from .ocio_utils import resolve_alias
+            from ..core.ocio_utils import resolve_alias
 
             resolved = resolve_alias(ocio_cfg, cs)
             if resolved:
@@ -2684,7 +2684,7 @@ class ConvertTab(QWidget):
         the frame-range, output path, and colorspace fields are
         auto-populated.  Returns ``True`` on success.
         """
-        from .framerange import format_frame_range
+        from ..core.framerange import format_frame_range
 
         path = path.strip()
         if not path:
@@ -2699,7 +2699,7 @@ class ConvertTab(QWidget):
 
         try:
             if self._mode == "video2exr":
-                from .video import probe_video
+                from ..core.video import probe_video
 
                 w, h, fps, total = probe_video(path)
                 self._video_info = VideoInput(path, w, h, fps, total)
@@ -2707,7 +2707,7 @@ class ConvertTab(QWidget):
                 frames = list(range(1, total + 1))
                 display = path
             else:
-                from .sequence import find_exr_sequence_info
+                from ..core.sequence import find_exr_sequence_info
 
                 _paths, _name, frame_nums, _pad, seq = find_exr_sequence_info(path)
                 self._input_seq = seq

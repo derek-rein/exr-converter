@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bump [project].version in pyproject.toml and sync APP_VERSION in src/constants.py.
+"""Bump [project].version in pyproject.toml and sync APP_VERSION in src/core/constants.py.
 
 Tags use plain semver: v1.2.3.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
-CONSTANTS = REPO_ROOT / "src" / "constants.py"
+CONSTANTS = REPO_ROOT / "src" / "core" / "constants.py"
 
 VERSION_LINE = re.compile(r"^version\s*=\s*\"([^\"]+)\"\s*$", re.MULTILINE)
 APP_VERSION_LINE = re.compile(

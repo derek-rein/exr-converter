@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-from .constants import (
+from .core.constants import (
     DEFAULT_DST_E2V,
     DEFAULT_DST_V2E,
     DEFAULT_EXR_COMPRESSION,
@@ -17,7 +17,7 @@ from .constants import (
     EXR_COMPRESSIONS,
     VIDEO_CODECS,
 )
-from .ocio_utils import resolve_ocio_for_cli
+from .core.ocio_utils import resolve_ocio_for_cli
 
 _CODEC_KEYS = [k for k, *_ in VIDEO_CODECS]
 
@@ -30,7 +30,7 @@ def _resolve_config_source(ocio_arg: str | None) -> tuple[str, str]:
     if env and Path(env).expanduser().is_file():
         return ("", str(Path(env).expanduser()))
     # Prefer the bundled super ACES studio config (cameras etc.)
-    from .ocio_utils import config_source_info, list_app_configs
+    from .core.ocio_utils import config_source_info, list_app_configs
 
     app = list_app_configs()
     if app:
@@ -40,7 +40,7 @@ def _resolve_config_source(ocio_arg: str | None) -> tuple[str, str]:
             return (src, path)
         if src:
             return (src, "")
-    from .ocio_utils import list_builtin_configs
+    from .core.ocio_utils import list_builtin_configs
 
     builtins = list_builtin_configs()
     recommended = [b for b in builtins if b[2]]
@@ -147,14 +147,14 @@ def run_cli(args: argparse.Namespace) -> int:
 
         frame_set: set[int] | None = None
         if getattr(args, "frame_range", ""):
-            from .framerange import parse_frame_range
+            from .core.framerange import parse_frame_range
 
             frames = parse_frame_range(args.frame_range)
             if frames:
                 frame_set = set(frames)
 
         if args.command == "video2exr":
-            from .convert import run_exr_to_video, run_video_to_exr
+            from .core.convert import run_exr_to_video, run_video_to_exr
 
             run_video_to_exr(
                 args.input,
@@ -181,7 +181,7 @@ def run_cli(args: argparse.Namespace) -> int:
                 if k == codec_key:
                     codec_name, pix_fmt = c, p
                     break
-            from .convert import run_exr_to_video, run_video_to_exr
+            from .core.convert import run_exr_to_video, run_video_to_exr
 
             run_exr_to_video(
                 args.input,

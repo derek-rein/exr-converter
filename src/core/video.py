@@ -190,8 +190,9 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
 
     Each dict: name, resolution, codec, fps, duration, path (full).
     """
-    import av
     from pathlib import Path
+
+    import av
 
     results: list[dict[str, str]] = []
     try:

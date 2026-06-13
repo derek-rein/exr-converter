@@ -6,9 +6,9 @@ toggles (one per feature) that gate inclusion.
 
 Two views currently bind to this model:
 
-- :class:`~src.widgets.BaseModeTab` — tab-level master checkboxes (Slate,
+- :class:`~src.gui.widgets.BaseModeTab` — tab-level master checkboxes (Slate,
   Burnin, Watermark) drive the ``*_enabled`` flags.
-- :class:`~src.slate_widgets.SlateFormPanel` — the editor that lets the
+- :class:`~src.gui.slate_widgets.SlateFormPanel` — the editor that lets the
   user set every field.
 
 Both views observe :attr:`changed` and push their edits back through
@@ -22,7 +22,7 @@ import os
 
 from PySide6.QtCore import QObject, QSettings, Signal
 
-from .burnin import burnin_fields_from_slate
+from ..render.burnin import burnin_fields_from_slate
 
 _BURNIN_KEYS = (
     "top_left",
@@ -316,9 +316,12 @@ class SlateModel(QObject):
         return burnin_fields_from_slate(self.slate_data_for_render(), input_path)
 
     def watermark_active(self) -> bool:
-        """True when both the tab master switch and the editor group are on."""
-        p = self.watermark_params
-        return self.watermark_enabled and bool(p.get("enabled"))
+        """True when the watermark master switch is on.
+
+        A single flag (``watermark_enabled``) is shared by the tab checkbox and
+        the editor's checkable group box, so both views always agree.
+        """
+        return self.watermark_enabled
 
     # ------------------------------------------------------------------
     # Watermark params
@@ -326,7 +329,11 @@ class SlateModel(QObject):
 
     @property
     def watermark_params(self) -> dict:
-        return dict(self._watermark_params)
+        # ``enabled`` is mirrored from the single master flag so every consumer
+        # (renderer, preview, persistence) agrees with the tab + editor toggles.
+        p = dict(self._watermark_params)
+        p["enabled"] = self._watermark_enabled
+        return p
 
     def set_watermark_params(self, params: dict) -> None:
         merged = dict(self._watermark_params)
