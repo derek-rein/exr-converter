@@ -42,7 +42,7 @@ from ..core.constants import APP_NAME, APP_ORG, APP_VERSION, GITHUB_REPO
 from ..core.ocio_utils import color_space_families, config_source_info
 from ..services.presets import delete_preset, list_presets, load_preset, save_preset
 from ..services.worker import ConvertWorker
-from .widgets import ConvertTab, OcioConfigPanel
+from .widgets import ConvertTab, OcioConfigPanel, SizeGrip
 
 
 class _DownloadWorker(QObject):
@@ -217,6 +217,9 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
 
         self._statusbar = QStatusBar()
+        # Native grip is invisible under the QSS stylesheet — use a painted one.
+        self._statusbar.setSizeGripEnabled(False)
+        self._statusbar.addPermanentWidget(SizeGrip(self._statusbar))
         self.setStatusBar(self._statusbar)
 
         self._ocio_panel.config_changed.connect(self._reload_ocio)
@@ -617,10 +620,10 @@ class MainWindow(QMainWindow):
                     return
 
         # -- Burn-in + watermark overlays (EXR→Video only) --
-        # Burn-in goes only on shot frames; watermark goes on every frame
-        # (slate + shots) because that's how the live preview behaves.
-        # Both stay as sRGB uint8 RGBA buffers — convert.py linearises them
-        # once and keeps the linear copy for compositing in working space.
+        # Burn-in and watermark are stamped on shot frames only; the slate is
+        # left clean (matching the live preview).  The overlay stays as an sRGB
+        # uint8 RGBA buffer — convert.py linearises it once and keeps the linear
+        # copy for compositing in working space.
         overlay_np = None
         slate_overlay_np = None
         overlay_provider = None
@@ -732,7 +735,8 @@ class MainWindow(QMainWindow):
 
         - *shot_overlay* — combined burn-in + watermark for shot frames, or
           ``None`` when a per-frame token forces per-frame rendering instead.
-        - *slate_overlay* — watermark-only overlay for the slate frame.
+        - *slate_overlay* — always ``None``: burn-in and watermark are stamped
+          on shot frames only, never on the designed slate frame.
         - *overlay_provider* — ``fn(frame_num) -> uint8 RGBA`` used by the
           pipeline when any field contains a per-frame token (e.g. ``<frame>``);
           ``None`` for the fast, render-once path.
@@ -806,17 +810,17 @@ class MainWindow(QMainWindow):
             wm_on and tok.has_per_frame_token(wm_params.get("text", ""))
         )
 
-        # Render the base overlay once (with <frame> collapsed). The slate gets
-        # the watermark-only buffer regardless; shot frames get the combined one.
-        shot_overlay, slate_overlay = _render(None)
+        # Render the base overlay once (with <frame> collapsed). Only shot
+        # frames get an overlay; the slate is left clean.
+        shot_overlay, _ = _render(None)
 
         if per_frame:
             self._append_log("Per-frame tokens detected — overlays render per frame (1 thread)")
-            return None, slate_overlay, lambda f: _render(f)[0]
+            return None, None, lambda f: _render(f)[0]
 
         if shot_overlay is not None:
             self._append_log("Burn-in / watermark overlay rendered")
-        return shot_overlay, slate_overlay, None
+        return shot_overlay, None, None
 
     # -- Slate colorspace + resolution --
 

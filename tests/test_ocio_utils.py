@@ -42,6 +42,26 @@ class TestWorkingSpace:
         space = ocio_utils.get_overlay_authoring_space(config)
         assert isinstance(space, str) and space
 
+    def test_overlay_authoring_prefers_texture_paint_role(self, config):
+        # When the config defines the ``texture_paint`` role, the overlay
+        # authoring space must resolve to it (the idiomatic sRGB texture space).
+        cs = config.getColorSpace("texture_paint")
+        if cs is not None:
+            assert ocio_utils.get_overlay_authoring_space(config) == cs.getName()
+
+    def test_compositing_space_resolves(self, config):
+        space = ocio_utils.get_compositing_space(config)
+        assert isinstance(space, str) and space
+
+    def test_compositing_space_prefers_ap0_on_aces(self, config):
+        # On ACES configs the compositing space should be the AP0 reference
+        # (ACES2065-1); on non-ACES configs it falls back to scene_linear.
+        space = ocio_utils.get_compositing_space(config)
+        if config.getColorSpace("aces_interchange") is not None:
+            assert space == "ACES2065-1"
+        else:
+            assert space == ocio_utils.get_working_space(config)
+
 
 class TestResolveAlias:
     def test_empty_returns_empty(self, config):

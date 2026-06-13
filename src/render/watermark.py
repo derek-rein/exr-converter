@@ -15,6 +15,7 @@ Public API mirrors :mod:`burnin`:
 from __future__ import annotations
 
 import datetime
+import math
 from typing import Any
 
 import numpy as np
@@ -31,6 +32,7 @@ _DEFAULTS: dict[str, Any] = {
     "opacity": 35,
     "size_pct": 9.0,
     "angle": 30.0,
+    "tiled": False,
 }
 
 
@@ -122,7 +124,13 @@ def _watermark_font(px: float) -> QFont:
 
 
 def _paint_watermark(p: QPainter, width: int, height: int, params: dict) -> None:
-    """Paint a single rotated text string centred on the canvas."""
+    """Paint the watermark text on the canvas.
+
+    Draws a single centred line by default, or a repeating diagonal grid that
+    covers the whole frame when ``tiled`` is set.  Tiling stays inside the one
+    overlay buffer — the text is repeatedly stamped via QPainter rather than
+    materialising a large pre-tiled image, so memory stays flat.
+    """
     text = str(params.get("text") or "").strip()
     if not text:
         return
@@ -146,6 +154,11 @@ def _paint_watermark(p: QPainter, width: int, height: int, params: dict) -> None
     text_w = fm.horizontalAdvance(text)
     half_w = text_w / 2.0
 
+    if params.get("tiled"):
+        _paint_tiled(p, width, height, text, text_w, fm, px, opacity)
+        p.resetTransform()
+        return
+
     # Subtle dark backing makes the text legible on bright frames; alpha is
     # tied to the user's opacity so a low-opacity watermark stays light.
     pad_x = px * 0.6
@@ -162,6 +175,46 @@ def _paint_watermark(p: QPainter, width: int, height: int, params: dict) -> None
     p.setPen(fg)
     p.drawText(QPointF(-half_w, 0), text)
     p.resetTransform()
+
+
+def _paint_tiled(
+    p: QPainter,
+    width: int,
+    height: int,
+    text: str,
+    text_w: float,
+    fm: QFontMetricsF,
+    px: float,
+    opacity: float,
+) -> None:
+    """Stamp ``text`` in a brick-offset grid covering the whole rotated frame.
+
+    The painter is already translated to the centre and rotated.  We tile over
+    a square that spans the frame's half-diagonal in every direction so the
+    pattern fully covers the image at any rotation angle, then rely on the
+    painter clip to discard anything outside the canvas.
+    """
+    if text_w <= 0:
+        return
+
+    fg = QColor(255, 255, 255, int(round(opacity * 255)))
+    p.setPen(fg)
+
+    radius = 0.5 * math.hypot(width, height)
+    step_x = text_w + px * 1.6
+    step_y = fm.height() + px * 1.1
+
+    row = 0
+    y = -radius
+    while y <= radius:
+        # Offset alternate rows by half a tile for a less mechanical pattern.
+        x_offset = (step_x / 2.0) if (row % 2) else 0.0
+        x = -radius - step_x + x_offset
+        while x <= radius + step_x:
+            p.drawText(QPointF(x - text_w / 2.0, y), text)
+            x += step_x
+        y += step_y
+        row += 1
 
 
 __all__ = [

@@ -39,6 +39,7 @@ _DEFAULT_WATERMARK = {
     "opacity": 35,
     "size_pct": 9.0,
     "angle": 30.0,
+    "tiled": False,
 }
 
 # Slate metadata fields persisted under ``slate/...`` settings keys.  Each
@@ -124,6 +125,7 @@ class SlateModel(QObject):
         self._watermark_params["angle"] = float(
             settings.value("slate/wm_angle", _DEFAULT_WATERMARK["angle"])
         )
+        self._watermark_params["tiled"] = bool(int(settings.value("slate/wm_tiled", 0)))
 
     @property
     def settings(self) -> QSettings:
@@ -349,6 +351,7 @@ class SlateModel(QObject):
         s.setValue("slate/wm_opacity", int(merged["opacity"]))
         s.setValue("slate/wm_size", float(merged["size_pct"]))
         s.setValue("slate/wm_angle", float(merged["angle"]))
+        s.setValue("slate/wm_tiled", int(bool(merged["tiled"])))
         self.changed.emit("watermark_params")
 
 

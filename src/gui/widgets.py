@@ -18,7 +18,16 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QAction, QIcon, QPainter, QPixmap, QRegularExpressionValidator
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QGuiApplication,
+    QIcon,
+    QPainter,
+    QPen,
+    QPixmap,
+    QRegularExpressionValidator,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -39,6 +48,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QPushButton,
+    QSizeGrip,
     QSizePolicy,
     QSlider,
     QSpinBox,
@@ -427,6 +437,73 @@ _OS_PLACES: list[tuple[str, str, QStandardPaths.StandardLocation]] = [
 ]
 
 
+def _copy_to_clipboard(text: str) -> None:
+    if text:
+        QGuiApplication.clipboard().setText(text)
+
+
+class SizeGrip(QSizeGrip):
+    """A window-corner resize grip that paints its own diagonal-line texture.
+
+    Qt's native ``QSizeGrip`` stops drawing the familiar corner texture as soon
+    as an app-wide QSS stylesheet is applied (the style engine paints nothing),
+    which is why ours rendered blank. We keep ``QSizeGrip``'s built-in resize
+    behaviour and just draw the classic three nested diagonal lines.
+    """
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setFixedSize(16, 16)
+
+    def paintEvent(self, _event) -> None:
+        p = QPainter(self)
+        pen = QPen(QColor(0x70, 0x70, 0x70))
+        pen.setWidth(1)
+        p.setPen(pen)
+        w, h = self.width(), self.height()
+        margin = 3
+        for offset in (0, 4, 8):
+            p.drawLine(w - margin - offset, h - margin, w - margin, h - margin - offset)
+        p.end()
+
+
+class _FavoritesDropList(QListWidget):
+    """List widget that accepts folders dropped from the directory tree or OS."""
+
+    dirs_dropped = Signal(list)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    @staticmethod
+    def _dropped_dirs(event) -> list[str]:
+        md = event.mimeData()
+        if not md.hasUrls():
+            return []
+        return [p for url in md.urls() if (p := url.toLocalFile()) and Path(p).is_dir()]
+
+    def dragEnterEvent(self, event) -> None:
+        if self._dropped_dirs(event):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event) -> None:
+        dirs = self._dropped_dirs(event)
+        if dirs:
+            self.dirs_dropped.emit(dirs)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
+
+
 class _PlacesSidebar(QWidget):
     """Sidebar listing OS locations and user-defined favorite directories."""
 
@@ -442,10 +519,11 @@ class _PlacesSidebar(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._list = QListWidget()
+        self._list = _FavoritesDropList()
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._ctx_menu)
+        self._list.dirs_dropped.connect(self._on_dirs_dropped)
 
         for icon, name, location in _OS_PLACES:
             path = QStandardPaths.writableLocation(location)
@@ -527,13 +605,20 @@ class _PlacesSidebar(QWidget):
             self.navigate_requested.emit(path)
 
     def _add_current(self) -> None:
-        if not self._current_dir or not Path(self._current_dir).is_dir():
+        self.add_favorite(self._current_dir)
+
+    def add_favorite(self, path: str) -> None:
+        if not path or not Path(path).is_dir():
             return
         for i in range(self._fav_start, self._list.count()):
-            if self._list.item(i).data(Qt.ItemDataRole.UserRole) == self._current_dir:
+            if self._list.item(i).data(Qt.ItemDataRole.UserRole) == path:
                 return
-        self._add_fav_item(self._current_dir)
+        self._add_fav_item(path)
         self._save_favorites()
+
+    def _on_dirs_dropped(self, paths: list[str]) -> None:
+        for path in paths:
+            self.add_favorite(path)
 
     def _remove_selected(self) -> None:
         row = self._list.currentRow()
@@ -546,11 +631,14 @@ class _PlacesSidebar(QWidget):
         item = self._list.itemAt(pos)
         if not item:
             return
-        row = self._list.row(item)
-        if row < self._fav_start:
+        path = item.data(Qt.ItemDataRole.UserRole)
+        if not path:
             return
+        row = self._list.row(item)
         menu = QMenu(self)
-        menu.addAction("Remove from Favorites", lambda: self._remove_row(row))
+        menu.addAction("Copy Full Path", lambda: _copy_to_clipboard(path))
+        if row >= self._fav_start:
+            menu.addAction("Remove from Favorites", lambda: self._remove_row(row))
         menu.exec(self._list.viewport().mapToGlobal(pos))
 
     def _remove_row(self, row: int) -> None:
@@ -566,6 +654,28 @@ class _PlacesSidebar(QWidget):
             if path:
                 favs.append(path)
         QSettings().setValue(self._FAVORITES_KEY, favs)
+
+
+def _setup_dir_tree(tree: QTreeView, fs_model: QFileSystemModel, places: _PlacesSidebar) -> None:
+    """Enable dragging folders to favorites + a right-click menu on a dir tree."""
+    tree.setDragEnabled(True)
+    tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+    tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
+    def _menu(pos) -> None:
+        idx = tree.indexAt(pos)
+        if not idx.isValid():
+            return
+        path = fs_model.filePath(idx)
+        if not path:
+            return
+        menu = QMenu(tree)
+        if Path(path).is_dir():
+            menu.addAction("Add to Favorites", lambda: places.add_favorite(path))
+        menu.addAction("Copy Full Path", lambda: _copy_to_clipboard(path))
+        menu.exec(tree.viewport().mapToGlobal(pos))
+
+    tree.customContextMenuRequested.connect(_menu)
 
 
 # ---------------------------------------------------------------------------
@@ -1052,6 +1162,7 @@ class SequenceBrowserDialog(QDialog):
 
         self._searchable_tree = _SearchableTree(self._tree, dirs_only=True)
         self._searchable_tree.result_navigated.connect(self._navigate_to)
+        _setup_dir_tree(self._tree, self._fs_model, self._places)
 
         left_panel = QWidget()
         left_layout = QHBoxLayout(left_panel)
@@ -1344,6 +1455,7 @@ class VideoBrowserDialog(QDialog):
 
         self._searchable_tree = _SearchableTree(self._tree, ext_filter=_VIDEO_EXTS)
         self._searchable_tree.result_navigated.connect(self._navigate_to)
+        _setup_dir_tree(self._tree, self._fs_model, self._places)
 
         left_panel = QWidget()
         left_layout = QHBoxLayout(left_panel)
@@ -1643,7 +1755,7 @@ class ExrCompressionSettingsDialog(QDialog):
             self._zip_spin = QSpinBox()
             self._zip_spin.setRange(1, 9)
             self._zip_spin.setValue(saved)
-            self._zip_spin.setFixedWidth(48)
+            self._zip_spin.setFixedWidth(64)
             self._zip_spin.setToolTip("1 = fastest, 9 = best compression")
             slider.valueChanged.connect(self._zip_spin.setValue)
             self._zip_spin.valueChanged.connect(slider.setValue)

@@ -12,7 +12,9 @@
 APP_NAME := exr_converter
 MACOS_BUNDLE_NAME := EXR Converter
 ENTRY    := main.py
-UV       := uv
+# Drop any inherited VIRTUAL_ENV (e.g. from another activated project) so uv
+# silently uses this project's .venv instead of warning about the mismatch.
+UV       := env -u VIRTUAL_ENV uv
 PYTHON   := $(UV) run python
 RCC      := $(UV) run pyside6-rcc
 BUMP     := python3 scripts/bump_app_version.py

@@ -28,10 +28,12 @@ from PySide6.QtGui import (
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QGraphicsScene,
     QGraphicsView,
     QGroupBox,
@@ -63,6 +65,7 @@ from ..services.exr_prefetch import ExrPrefetchService
 from ..services.frame_cache import FrameCache
 from .timeline_slider import TimelineSlider
 from .token_line_edit import TokenLineEdit
+from .widgets import SizeGrip
 
 # Playback RAM cache — uint16 RGB; 75% prefetch ahead, 25% lookback.
 _PREFETCH_WORKERS = 4
@@ -602,10 +605,14 @@ class SlateFormPanel(QWidget):
         self.watermark_angle_spin.setSuffix("\u00b0")
         self.watermark_angle_spin.setValue(int(wm_params.get("angle", 30)))
 
+        self.watermark_tiled_cb = QCheckBox("Tile across frame")
+        self.watermark_tiled_cb.setChecked(bool(wm_params.get("tiled", False)))
+
         wmf.addRow("Text", self.watermark_text_edit)
         wmf.addRow("Opacity", self.watermark_opacity_spin)
         wmf.addRow("Size", self.watermark_size_spin)
         wmf.addRow("Angle", self.watermark_angle_spin)
+        wmf.addRow("", self.watermark_tiled_cb)
         if self._embed_overlays:
             root.addWidget(wm_group)
         self._watermark_group = wm_group
@@ -614,6 +621,7 @@ class SlateFormPanel(QWidget):
         self.watermark_opacity_spin.setStatusTip("Watermark opacity (0 = invisible)")
         self.watermark_size_spin.setStatusTip("Watermark text height as % of frame height")
         self.watermark_angle_spin.setStatusTip("Rotation angle of the watermark text")
+        self.watermark_tiled_cb.setStatusTip("Repeat the watermark to cover the entire frame")
 
         root.addStretch()
 
@@ -652,6 +660,7 @@ class SlateFormPanel(QWidget):
         self.watermark_opacity_spin.valueChanged.connect(self._on_watermark_changed)
         self.watermark_size_spin.valueChanged.connect(self._on_watermark_changed)
         self.watermark_angle_spin.valueChanged.connect(self._on_watermark_changed)
+        self.watermark_tiled_cb.toggled.connect(self._on_watermark_changed)
 
         # Listen for external model changes so multiple views stay in sync.
         self._model.changed.connect(self._on_model_changed)
@@ -725,6 +734,7 @@ class SlateFormPanel(QWidget):
             "opacity": int(self.watermark_opacity_spin.value()),
             "size_pct": float(self.watermark_size_spin.value()),
             "angle": float(self.watermark_angle_spin.value()),
+            "tiled": self.watermark_tiled_cb.isChecked(),
         }
 
     def burnin_fields(self) -> dict[str, str]:
@@ -860,6 +870,7 @@ class SlateFormPanel(QWidget):
             self.watermark_opacity_spin.setValue(int(p.get("opacity", 35)))
             self.watermark_size_spin.setValue(int(p.get("size_pct", 9)))
             self.watermark_angle_spin.setValue(int(p.get("angle", 30)))
+            self.watermark_tiled_cb.setChecked(bool(p.get("tiled", False)))
         finally:
             self._suppress_emit = False
         self.data_changed.emit(self.slate_data())
@@ -1384,9 +1395,15 @@ class SlateDialog(QDialog):
 
         layout.addWidget(splitter, 1)
 
-        # --- Bottom: status bar (cache controls + OK / Cancel) ---
+        # --- Bottom: status bar ---
+        # Left: hover/status tips (the message area). Right (permanent): a compact
+        # cache cluster, then OK / Cancel. The size grip stays in the corner.
         self._status_bar = QStatusBar()
-        self._status_bar.setSizeGripEnabled(True)
+        # The native size grip renders blank under our QSS stylesheet, so we
+        # disable it and add a self-painted grip in the corner instead.
+        self._status_bar.setSizeGripEnabled(False)
+        self._status_bar.setContentsMargins(8, 0, 0, 0)
+        self._status_bar.setStyleSheet("QStatusBar::item { border: 0; }")
         if self._exr_seq is not None and self._shot_frames:
             self._build_cache_status_bar()
         buttons = QDialogButtonBox(
@@ -1395,6 +1412,7 @@ class SlateDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         self._status_bar.addPermanentWidget(buttons)
+        self._status_bar.addPermanentWidget(SizeGrip(self._status_bar))
         layout.addWidget(self._status_bar)
 
         # --- Live preview wiring ---
@@ -1406,7 +1424,11 @@ class SlateDialog(QDialog):
         self._refresh_timer.timeout.connect(self._refresh_current_frame)
 
         self._form.data_changed.connect(lambda _: self._refresh_timer.start())
+        # React to the slate being enabled/disabled so the timeline can add or
+        # remove the slate frame from the scrubbable range live.
+        self._model.changed.connect(self._on_model_section_changed)
 
+        QTimer.singleShot(0, self._apply_slate_visibility)
         QTimer.singleShot(0, self._refresh_current_frame)
         QTimer.singleShot(0, self._sync_prefetch)
         QTimer.singleShot(0, self._preview.fit_in_view)
@@ -1622,6 +1644,31 @@ class SlateDialog(QDialog):
     def _needs_exr_cache(self, frame: int) -> bool:
         return frame != self._slate_frame and frame in self._shot_frames_set
 
+    def _on_model_section_changed(self, section: str) -> None:
+        """Dialog-level reaction to model changes (the form handles its own)."""
+        if section == "slate_enabled":
+            self._apply_slate_visibility()
+
+    def _apply_slate_visibility(self) -> None:
+        """Add or remove the slate frame from the scrubbable timeline.
+
+        When the slate is disabled it shouldn't be reachable in the preview, so
+        we shrink the timeline range to the shot frames and drop the SLATE
+        marker. If the playhead is parked on the slate we move it onto the first
+        shot frame.
+        """
+        if self._timeline is None:
+            return
+        slate_on = self._model is None or self._model.slate_enabled
+        if slate_on:
+            self._timeline.set_range(self._slate_frame, self._last_shot)
+            self._timeline.set_marker_frames({self._slate_frame: "SLATE"})
+        else:
+            self._timeline.set_range(self._first_shot, self._last_shot)
+            self._timeline.set_marker_frames({})
+            if self._current_frame == self._slate_frame:
+                self._goto_frame(self._first_shot)
+
     def _goto_frame(self, frame: int) -> None:
         """Move playhead to *frame* and refresh the preview."""
         if self._timeline is not None:
@@ -1644,54 +1691,64 @@ class SlateDialog(QDialog):
             )
 
     def _build_cache_status_bar(self) -> None:
-        """RAM cache budget + usage in the dialog status bar (Triton-style)."""
+        """Compact RAM-cache cluster pinned to the right of the status bar.
+
+        Layout: [ | ] Cache [slider] 42%  [====usage====] ⏸ ✕
+        Added without stretch so the message area keeps room for hover tips.
+        """
+        muted = "color: #8a8a8a;"
         cache_host = QWidget()
         row = QHBoxLayout(cache_host)
-        row.setContentsMargins(0, 0, 8, 0)
+        row.setContentsMargins(0, 0, 6, 0)
         row.setSpacing(6)
 
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFrameShadow(QFrame.Shadow.Plain)
+        sep.setStyleSheet("color: #3a3a3a;")
+        row.addWidget(sep)
+
         cache_lbl = QLabel("Cache")
-        cache_lbl.setStyleSheet("font-size: 10px; color: #888;")
+        cache_lbl.setStyleSheet(muted)
         row.addWidget(cache_lbl)
 
         self._cache_pct_slider = QSlider(Qt.Orientation.Horizontal)
         self._cache_pct_slider.setRange(1, 90)
         self._cache_pct_slider.setValue(load_cache_budget_pct(self._model.settings))
-        self._cache_pct_slider.setFixedWidth(72)
+        self._cache_pct_slider.setFixedWidth(80)
         self._cache_pct_slider.setToolTip("Playback RAM cache as % of system memory")
         row.addWidget(self._cache_pct_slider)
 
+        # Single label: percentage on the bar, full GB breakdown in its tooltip.
         self._cache_pct_label = QLabel()
-        self._cache_pct_label.setMinimumWidth(32)
-        self._cache_pct_label.setStyleSheet("font-size: 10px; color: #aaa;")
+        self._cache_pct_label.setMinimumWidth(30)
+        self._cache_pct_label.setStyleSheet(muted)
         row.addWidget(self._cache_pct_label)
-
-        self._cache_gb_label = QLabel()
-        self._cache_gb_label.setMinimumWidth(108)
-        self._cache_gb_label.setStyleSheet("font-size: 10px; color: #666;")
-        row.addWidget(self._cache_gb_label)
 
         self._cache_bar = QProgressBar()
         self._cache_bar.setMaximum(1000)
-        self._cache_bar.setFixedWidth(140)
-        self._cache_bar.setFixedHeight(14)
+        self._cache_bar.setFixedWidth(150)
+        self._cache_bar.setFixedHeight(16)
         self._cache_bar.setTextVisible(True)
+        self._cache_bar.setToolTip("Playback cache memory in use")
         row.addWidget(self._cache_bar)
 
         self._cache_pause_btn = QToolButton()
         self._cache_pause_btn.setText("\u23f8")
         self._cache_pause_btn.setCheckable(True)
-        self._cache_pause_btn.setFixedSize(22, 20)
+        self._cache_pause_btn.setAutoRaise(True)
+        self._cache_pause_btn.setFixedSize(24, 22)
         self._cache_pause_btn.setToolTip("Pause background prefetch")
         row.addWidget(self._cache_pause_btn)
 
         self._cache_clear_btn = QToolButton()
         self._cache_clear_btn.setText("\u2715")
-        self._cache_clear_btn.setFixedSize(22, 20)
+        self._cache_clear_btn.setAutoRaise(True)
+        self._cache_clear_btn.setFixedSize(24, 22)
         self._cache_clear_btn.setToolTip("Clear playback cache")
         row.addWidget(self._cache_clear_btn)
 
-        self._status_bar.addPermanentWidget(cache_host, 1)
+        self._status_bar.addPermanentWidget(cache_host)
 
         self._cache_pct_slider.valueChanged.connect(self._on_cache_pct_changed)
         self._cache_pause_btn.toggled.connect(self._on_cache_pause_toggled)
@@ -1703,7 +1760,9 @@ class SlateDialog(QDialog):
         budget_gb = total_ram_bytes() * pct / 100 / (1024**3)
         total_gb = total_ram_bytes() / (1024**3)
         self._cache_pct_label.setText(f"{pct}%")
-        self._cache_gb_label.setText(f"{budget_gb:.1f} / {total_gb:.1f} GB RAM")
+        tip = f"Playback RAM cache: {budget_gb:.1f} of {total_gb:.1f} GB ({pct}%)"
+        self._cache_pct_label.setToolTip(tip)
+        self._cache_pct_slider.setToolTip(tip)
 
     def _update_cache_usage_bar(self) -> None:
         used = self._shot_cache.current_bytes
@@ -1808,7 +1867,12 @@ class SlateDialog(QDialog):
             return
 
         self._comp_f32 = np.ascontiguousarray(rgba[..., :3].copy(), dtype=np.float32)
-        self._comp_src_space = SLATE_COLORSPACE
+        # The slate is QPainter-rendered in sRGB.  Tag it with the config's
+        # *resolved* sRGB authoring space (e.g. "sRGB Encoded Rec.709 (sRGB)")
+        # rather than the literal "sRGB", which doesn't exist in ACES configs.
+        # Otherwise src→working silently no-ops and working→display double-
+        # encodes the slate — it would then only look right with a Raw view.
+        self._comp_src_space = self._resolve_overlay_auth_space()
         self._working_f32 = None
         self._composed_working_f32 = None
         self._display_f32 = None
@@ -1871,15 +1935,20 @@ class SlateDialog(QDialog):
     # -- Working-space comp pipeline --
 
     def _resolve_working_space(self) -> str:
-        """Return the OCIO working colorspace, or '' if unavailable."""
+        """Return the OCIO compositing colorspace, or '' if unavailable.
+
+        Matches the export pipeline: overlays are composited in a wide-gamut
+        scene-linear space (ACES2065-1 / AP0 when available) so the live
+        preview is colour-accurate to the rendered output.
+        """
         if self._ocio_cfg is None:
             return ""
         if self._working_space:
             return self._working_space
         try:
-            from ..core.ocio_utils import get_working_space
+            from ..core.ocio_utils import get_compositing_space
 
-            self._working_space = get_working_space(self._ocio_cfg)
+            self._working_space = get_compositing_space(self._ocio_cfg)
         except Exception:
             self._working_space = ""
         return self._working_space
@@ -1922,6 +1991,22 @@ class SlateDialog(QDialog):
             return buf.astype(np.float16)
 
         return _transform
+
+    def _resolve_overlay_auth_space(self) -> str:
+        """Resolve the sRGB authoring space for QPainter overlays (slate / burn-in
+        / watermark), matching :func:`convert.run_exr_to_video`.
+
+        Falls back to the literal :data:`SLATE_COLORSPACE` only when no OCIO
+        config is active (the no-colour-management path).
+        """
+        if self._ocio_cfg is None:
+            return SLATE_COLORSPACE
+        try:
+            from ..core.ocio_utils import get_overlay_authoring_space
+
+            return get_overlay_authoring_space(self._ocio_cfg) or SLATE_COLORSPACE
+        except Exception:
+            return SLATE_COLORSPACE
 
     def _get_src_to_working_proc(self, src_space: str):
         """Return a cached OCIO ``src → working`` CPUProcessor (or ``None``)."""
@@ -2224,7 +2309,7 @@ class SlateDialog(QDialog):
     # -- Working-space overlay composite (burn-in + watermark) --
 
     def _composite_overlays_working_space(self, working_f32, is_shot: bool):
-        """Alpha-over burn-in (shot only) + watermark on the working-space frame.
+        """Alpha-over burn-in + watermark (shot frames only) on the working-space frame.
 
         Overlays are authored in display-encoded sRGB (QPainter-rendered)
         and need to be linearised into the working colorspace before
@@ -2238,14 +2323,16 @@ class SlateDialog(QDialog):
         h, w = working_f32.shape[:2]
         out = working_f32
 
+        # Burn-in and watermark apply to shot frames only — the slate is its own
+        # designed frame and shouldn't be stamped over.
         if is_shot:
             burnin_lin = self._cached_burnin_lin_rgba(w, h)
             if burnin_lin is not None:
                 out = _alpha_over_linear(out, burnin_lin)
 
-        wm_lin = self._cached_watermark_lin_rgba(w, h)
-        if wm_lin is not None:
-            out = _alpha_over_linear(out, wm_lin)
+            wm_lin = self._cached_watermark_lin_rgba(w, h)
+            if wm_lin is not None:
+                out = _alpha_over_linear(out, wm_lin)
 
         return out
 
@@ -2267,10 +2354,12 @@ class SlateDialog(QDialog):
 
     def _cached_burnin_lin_rgba(self, w: int, h: int):
         """Return cached linearised burn-in overlay (RGBA float32) or ``None``."""
+        from ..render import tokens as tok
         from ..render.burnin import render_burnin_overlay
 
         burnin_on = self._model is None or self._model.burnin_enabled
-        fields = self._effective_burnin_fields()
+        values = self._token_values()
+        fields = {k: tok.substitute(v, values) for k, v in self._effective_burnin_fields().items()}
         if not burnin_on or not any((v or "").strip() for v in fields.values()):
             sig = ("burnin", w, h, None)
         else:
@@ -2292,9 +2381,11 @@ class SlateDialog(QDialog):
 
     def _cached_watermark_lin_rgba(self, w: int, h: int):
         """Return cached linearised watermark overlay (RGBA float32) or ``None``."""
+        from ..render import tokens as tok
         from ..render.watermark import render_watermark_overlay
 
-        params = self._form.watermark_params()
+        params = dict(self._form.watermark_params())
+        params["text"] = tok.substitute(params.get("text", ""), self._token_values())
         text = (params.get("text") or "").strip()
         wm_on = self._model is None or self._model.watermark_enabled
         if not (wm_on and text):
@@ -2328,6 +2419,32 @@ class SlateDialog(QDialog):
         if any((v or "").strip() for v in manual.values()):
             return manual
         return burnin_fields_from_slate(self._form.slate_data(), self._input_path)
+
+    def _token_values(self) -> dict[str, str]:
+        """Resolve overlay tokens for the frame currently shown in the preview.
+
+        ``<frame>`` reflects the scrubbed frame so the burn-in counter updates
+        live as the timeline moves; the rest come from the slate metadata.
+        """
+        from pathlib import Path
+
+        from ..render import tokens as tok
+
+        slate_render = self._form.slate_data() if self._form is not None else {}
+        w, h = self.resolution()
+        start_f = self._first_shot
+        end_f = self._last_shot
+        pad = max(4, len(str(end_f))) if end_f is not None else 4
+        input_name = Path(self._input_path).name if self._input_path else ""
+        return tok.build_values(
+            slate_render,
+            input_name=input_name,
+            frame=self._current_frame,
+            frame_pad=pad,
+            start_frame=start_f,
+            end_frame=end_f,
+            resolution=f"{w}x{h}",
+        )
 
     # -- Shared --
 

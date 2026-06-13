@@ -281,14 +281,59 @@ def get_working_space(config: OCIO.Config) -> str:
     raise RuntimeError("Could not resolve a scene-linear working colorspace from the OCIO config.")
 
 
+def get_compositing_space(config: OCIO.Config) -> str:
+    """Return the scene-linear space overlays are composited in.
+
+    Slate / burn-in / watermark overlays are authored by QPainter in
+    display-encoded sRGB. To bake them onto frames we linearise them and
+    alpha-over in a scene-linear space. We deliberately prefer the widest
+    available scene-referred gamut — **ACES2065-1 (AP0)**, via the
+    ``aces_interchange`` role — so the user's footage is round-tripped through
+    a gamut that encloses all visible colour and the composite never clips or
+    shifts colours the user actually shot. Where overlay alpha is zero the
+    over is a no-op, so user pixels are preserved bit-for-bit.
+
+    Falls back to the config's ``scene_linear`` working space (e.g. ACEScg or
+    Linear Rec.709) for non-ACES configs that have no AP0 space.
+    """
+    role = getattr(OCIO, "ROLE_INTERCHANGE_SCENE", "aces_interchange")
+    candidates = (
+        role,
+        "ACES2065-1",
+        "ACES - ACES2065-1",
+        "lin_ap0",
+        "aces2065_1",
+    )
+    for name in candidates:
+        try:
+            cs = config.getColorSpace(name)
+            if cs is not None:
+                return cs.getName()
+        except Exception:
+            continue
+    return get_working_space(config)
+
+
 def get_overlay_authoring_space(config: OCIO.Config) -> str:
     """Return the colorspace overlays (slate / burnin / watermark) are painted in.
 
     Overlays are authored in display-encoded sRGB (Qt's standard 8-bit
-    rendering), so this resolves to whatever name the active config uses
-    for sRGB / sRGB-Texture.
+    rendering).  We resolve this via OCIO **roles** first — the standard way
+    configs advertise their sRGB-encoded texture space:
+
+    * ``texture_paint`` — the semantically correct role for app-painted,
+      sRGB-encoded graphics (maps to ``sRGB - Texture`` in ACES configs);
+    * ``color_picking`` — the common sRGB fallback used by colour pickers.
+
+    Role names resolve through ``getColorSpace`` just like aliases.  If neither
+    role is present we fall back to common literal names, then the working
+    space.
     """
+    texture_role = getattr(OCIO, "ROLE_TEXTURE_PAINT", "texture_paint")
+    picking_role = getattr(OCIO, "ROLE_COLOR_PICKING", "color_picking")
     candidates = (
+        texture_role,
+        picking_role,
         "sRGB - Texture",
         "sRGB Texture",
         "Utility - sRGB - Texture",

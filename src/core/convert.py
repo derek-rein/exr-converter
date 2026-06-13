@@ -11,8 +11,8 @@ import PyOpenColorIO as OCIO
 
 from .exr_io import read_exr, read_exr_safe, write_exr
 from .ocio_utils import (
+    get_compositing_space,
     get_overlay_authoring_space,
-    get_working_space,
     linearize_overlay,
     make_cpu_processor,
 )
@@ -424,11 +424,13 @@ def run_exr_to_video(
         res_info = f"{w}x{h}" if scale >= 1.0 else f"{w}x{h} \u2192 {ow}x{oh}"
         log(f"Sequence: {basename} ({total} frames, {res_info})")
 
-    # Resolve working colorspace and pre-linearise overlays ------------------
-    working_space = get_working_space(ocio_cfg)
+    # Resolve compositing colorspace and pre-linearise overlays --------------
+    # Overlays are baked in a wide-gamut scene-linear space (ACES2065-1 / AP0
+    # when available) so the alpha-over never clips the user's footage.
+    working_space = get_compositing_space(ocio_cfg)
     overlay_auth = get_overlay_authoring_space(ocio_cfg)
     if log:
-        log(f"Working space: {working_space}  (overlay auth: {overlay_auth})")
+        log(f"Compositing space: {working_space}  (overlay auth: {overlay_auth})")
 
     burnin_working: np.ndarray | None = None
     if burnin_overlay is not None:
