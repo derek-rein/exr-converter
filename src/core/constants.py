@@ -2,7 +2,7 @@ from __future__ import annotations
 
 APP_ORG = "VFXTools"
 APP_NAME = "EXRConverter"
-APP_VERSION = "0.1.23"
+APP_VERSION = "0.1.24"
 
 GITHUB_REPO = "derek-rein/vfx-tools"
 
