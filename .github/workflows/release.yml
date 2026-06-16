@@ -118,6 +118,7 @@ jobs:
             --include-package=PyOpenColorIO \
             --include-package-data=PyOpenColorIO \
             --include-package=fileseq \
+            --include-data-files=resources/ocio/=resources/ocio/ \
             --quiet \
             "${EXTRA_FLAGS[@]}" \
             main.py
@@ -205,6 +206,26 @@ jobs:
             ls -la dist/main.dist/*.dll dist/main.dist/*.pyd dist/main.dist/*.so 2>/dev/null | sort || true
             echo "--- OpenImageIO dir ---"
             ls -la dist/main.dist/OpenImageIO/ 2>/dev/null || true
+          fi
+
+      - name: Verify bundled OCIO config is present
+        shell: bash
+        run: |
+          CFG="resources/ocio/aces-studio-v4.ocio"
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            ROOT="dist/EXR Converter.app"
+          else
+            ROOT="dist/main.dist"
+          fi
+          # The app resolves the config relative to the bundle, so it must ship
+          # inside it. Search the whole tree (Nuitka may place data under
+          # Contents/MacOS or Contents/Resources on macOS).
+          if find "$ROOT" -type f -name 'aces-studio-v4.ocio' | grep -q .; then
+            echo "OK: bundled OCIO config found:"
+            find "$ROOT" -type f -name 'aces-studio-v4.ocio'
+          else
+            echo "ERROR: $CFG was not bundled into $ROOT" >&2
+            exit 1
           fi
 
       - name: Smoke test
