@@ -116,6 +116,106 @@ def probe_video(path: str) -> tuple[int, int, float, int]:
     return w, h, fps, n_frames
 
 
+def _make_deint_graph(frame, time_base, deint: str):
+    """Build a one-in/one-out ``bwdif`` deinterlace filter graph.
+
+    ``deint`` is bwdif's ``deint`` value: ``"interlaced"`` only touches frames
+    the decoder flagged as interlaced; ``"all"`` forces every frame.
+    ``mode=send_frame`` emits exactly one output frame per input frame, so the
+    EXR sequence keeps its 1:1 frame count, ordering, and numbering.
+    """
+    import av
+
+    graph = av.filter.Graph()
+    src = graph.add_buffer(
+        width=frame.width,
+        height=frame.height,
+        format=frame.format.name,
+        time_base=time_base,
+    )
+    bwdif = graph.add("bwdif", f"mode=send_frame:deint={deint}")
+    sink = graph.add("buffersink")
+    src.link_to(bwdif)
+    bwdif.link_to(sink)
+    graph.configure()
+    return graph
+
+
+def decode_video_frames(container, stream, deinterlace: str = "auto", log=None):
+    """Yield decoded video frames, deinterlacing interlaced sources.
+
+    ``deinterlace``:
+      * ``"off"``  – decode straight through (legacy passthrough).
+      * ``"auto"`` – run frames through ``bwdif`` with ``deint=interlaced`` so
+        only frames flagged interlaced (e.g. 1080i Sony MXF) are deinterlaced;
+        progressive footage passes through untouched.
+      * ``"on"``   – force ``bwdif`` (``deint=all``) on every frame.
+
+    Because ``bwdif`` runs in ``send_frame`` mode the input→output frame count
+    is 1:1, so callers that rely on frame indexing/numbering are unaffected —
+    and a combed frame can never reach the EXR writer.
+    """
+    import av
+
+    if deinterlace == "off":
+        yield from container.decode(stream)
+        return
+
+    deint = "all" if deinterlace == "on" else "interlaced"
+    time_base = getattr(stream, "time_base", None)
+    graph = None
+    logged = False
+
+    def _drain():
+        while True:
+            try:
+                yield graph.pull()
+            except (av.error.BlockingIOError, av.error.EOFError):
+                return
+
+    try:
+        for frame in container.decode(stream):
+            if log and not logged and getattr(frame, "interlaced_frame", False):
+                log(
+                    "Interlaced source detected \u2014 deinterlacing with bwdif "
+                    "(send_frame) so the EXR plate stays progressive"
+                )
+                logged = True
+            if graph is None:
+                graph = _make_deint_graph(frame, time_base, deint)
+            graph.push(frame)
+            yield from _drain()
+        if graph is not None:
+            graph.push(None)  # flush bwdif's look-ahead buffer at EOF
+            yield from _drain()
+    except av.error.FFmpegError:
+        # If the filter graph can't be built/run for this stream, fall back to
+        # undecorated frames rather than failing the whole conversion.
+        if graph is None:
+            yield from container.decode(stream)
+        else:
+            raise
+
+
+def detect_interlaced(path: str) -> bool | None:
+    """Return whether the first decodable video frame is flagged interlaced.
+
+    ``True``/``False`` when determinable, ``None`` when it can't be probed.
+    """
+    import av
+
+    try:
+        container = av.open(path)
+        try:
+            for frame in container.decode(video=0):
+                return bool(getattr(frame, "interlaced_frame", False))
+        finally:
+            container.close()
+    except Exception:
+        return None
+    return None
+
+
 def guess_video_colorspace_candidates(path: str) -> list[str]:
     """Return a ranked list of OCIO color space name candidates for the video.
 
@@ -339,6 +439,11 @@ def probe_video_metadata(path: str) -> dict[str, str]:
                 result[f"{pfx} frames"] = str(sframes)
             if profile:
                 result[f"{pfx} profile"] = profile
+
+        if container.streams.video:
+            interlaced = detect_interlaced(path)
+            if interlaced is not None:
+                result["Video scan"] = "Interlaced" if interlaced else "Progressive"
 
         for i, stream in enumerate(container.streams.audio):
             pfx = "Audio" if i == 0 else f"Audio[{i}]"

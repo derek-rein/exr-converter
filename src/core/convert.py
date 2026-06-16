@@ -18,7 +18,7 @@ from .ocio_utils import (
 )
 from .pool import _alpha_over_rgb, process_frame_e2v, process_frame_v2e
 from .sequence import find_exr_sequence
-from .video import probe_video
+from .video import decode_video_frames, probe_video
 
 ProgressCallback = Callable[[int, int], None]
 LogCallback = Callable[[str], None]
@@ -215,7 +215,7 @@ def run_video_to_exr(
     try:
         with ProcessPoolExecutor(max_workers=n_workers) as pool:
             pending = {}
-            frame_iter = container.decode(stream)
+            frame_iter = decode_video_frames(container, stream, log=log)
             finished = 0
             all_submitted = False
 
@@ -314,7 +314,7 @@ def _v2e_serial(
     idx = 0
     written = 0
     try:
-        for frame in container.decode(stream):
+        for frame in decode_video_frames(container, stream, log=log):
             if cancel_check and cancel_check():
                 raise RuntimeError("Cancelled")
             idx += 1
