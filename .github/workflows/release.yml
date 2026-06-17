@@ -194,7 +194,11 @@ jobs:
 
       - name: Install EGL (Linux smoke-test dependency)
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y libegl1
+        run: |
+          # Refresh the index first; the runner image's cached package list can
+          # point at superseded .deb versions that 404 on the mirror.
+          sudo apt-get update
+          sudo apt-get install -y libegl1
 
       - name: List dist contents (debug)
         if: failure() || success()
