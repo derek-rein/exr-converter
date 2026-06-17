@@ -103,7 +103,7 @@ bundle: resources
 		--include-package=PyOpenColorIO \
 		--include-package-data=PyOpenColorIO \
 		--include-package=fileseq \
-		--include-data-files=resources/ocio/=resources/ocio/ \
+		--include-data-dir=resources/ocio=resources/ocio \
 	--noinclude-dlls='libcrypto*' \
 		--noinclude-dlls='libssl*' \
 		$(ENTRY)
