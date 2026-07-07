@@ -7,7 +7,7 @@
 #   make release PART=patch               # bump + lock + commit + tag + push (triggers Release workflow)
 #   make release PUSH=0                   # … local only; push branch + tag yourself to trigger CI
 
-.PHONY: help run lint fmt test resources bundle clean bump release
+.PHONY: help run lint fmt test test-unit resources bundle clean bump release
 
 APP_NAME := exr_converter
 MACOS_BUNDLE_NAME := EXR Converter
@@ -31,7 +31,7 @@ help:
 	@echo ""
 	@echo "  make run                               # launch the GUI"
 	@echo "  make lint / fmt                        # ruff check / format"
-	@echo "  make test                              # run the pytest suite"
+	@echo "  make test / make test-unit             # full suite / unit tests only"
 	@echo "  make resources                         # regenerate Qt resources"
 	@echo "  make bundle                            # Nuitka standalone build"
 	@echo "  make clean                             # remove build artifacts"
@@ -60,6 +60,9 @@ fmt:
 
 test:
 	QT_QPA_PLATFORM=offscreen $(UV) run pytest
+
+test-unit:
+	QT_QPA_PLATFORM=offscreen $(UV) run pytest -m "not integration"
 
 # ── Qt Resources ─────────────────────────────────────────────────────────────
 

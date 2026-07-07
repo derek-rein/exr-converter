@@ -29,6 +29,9 @@ dev = [
 testpaths = ["tests"]
 addopts = "-ra -q"
 pythonpath = ["."]
+markers = [
+    "integration: end-to-end CLI conversion tests with real or synthetic media",
+]
 
 [tool.ruff]
 target-version = "py313"

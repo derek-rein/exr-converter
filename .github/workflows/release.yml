@@ -246,6 +246,22 @@ jobs:
             dist/main.dist/exr_converter --smoke-test
           fi
 
+      - name: Integration test (built binary)
+        shell: bash
+        timeout-minutes: 10
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            export EXR_CONVERTER_BIN="dist/EXR Converter.app/Contents/MacOS/exr_converter"
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            export EXR_CONVERTER_BIN="dist/main.dist/exr_converter.exe"
+          else
+            export EXR_CONVERTER_BIN="dist/main.dist/exr_converter"
+          fi
+          uv sync --group dev
+          uv run pytest tests/test_integration_conversions.py -v -m integration
+
       - name: Create DMG (macOS)
         if: runner.os == 'macOS'
         shell: bash

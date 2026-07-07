@@ -120,7 +120,8 @@ Nuitka will auto-download `ccache` on first run. See the `Makefile` for the full
 |--------|---------|
 | `make run` | Start the GUI |
 | `make lint` / `make fmt` | Ruff check / format |
-| `make test` | Run the pytest suite |
+| `make test` | Run the pytest suite (unit + integration) |
+| `make test-unit` | Unit tests only (skip integration) |
 | `make resources` | Regenerate `src/rc_resources.py` from `resources.qrc` (needed after icon changes) |
 | `make bundle` | Nuitka standalone bundle under `dist/` |
 | `make clean` | Remove all build artifacts |
