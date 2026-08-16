@@ -4,12 +4,14 @@ import threading
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from ..core.convert_job import ConvertJob
+
 
 class ConvertWorker(QObject):
-    """Runs a conversion on a worker :class:`~PySide6.QtCore.QThread`.
+    """Runs a :class:`~src.core.convert_job.ConvertJob` on a ``QThread``.
 
-    Rebuilds its own OCIO config from ``config_source`` / ``config_path`` so the
-    GUI thread's live :class:`OCIO.Config` is never shared across threads.
+    Rebuilds its own OCIO config from the job's ``config_source`` / ``config_path``
+    so the GUI thread's live :class:`OCIO.Config` is never shared across threads.
     """
 
     progress = Signal(int, int)
@@ -18,10 +20,9 @@ class ConvertWorker(QObject):
     cancelled = Signal()
     finished_ok = Signal()
 
-    def __init__(self, mode: str, kwargs: dict):
+    def __init__(self, job: ConvertJob):
         super().__init__()
-        self._mode = mode
-        self._kwargs = kwargs
+        self._job = job
         self._cancel = threading.Event()
 
     def cancel(self) -> None:
@@ -47,23 +48,19 @@ class ConvertWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
-            from ..core.convert import run_exr_to_video, run_video_to_exr
             from ..core.ocio_utils import load_config_from_source_info
 
-            kwargs = dict(self._kwargs)
+            job = self._job
             # Never use a live GUI-thread OCIO.Config — rebuild from paths.
-            kwargs.pop("ocio_cfg", None)
-            kwargs["ocio_cfg"] = load_config_from_source_info(
-                kwargs.get("config_source", "") or "",
-                kwargs.get("config_path", "") or "",
+            ocio_cfg = load_config_from_source_info(
+                job.config_source or "",
+                job.config_path or "",
             )
-
-            fn = run_video_to_exr if self._mode == "video2exr" else run_exr_to_video
-            fn(
+            job.run(
+                ocio_cfg=ocio_cfg,
                 progress=self._emit_progress,
                 cancel_check=self._cancel_check,
                 log=self._log,
-                **kwargs,
             )
         except Exception as e:
             if self._cancel.is_set() or self._is_cancel_error(e):

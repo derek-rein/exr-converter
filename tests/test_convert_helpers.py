@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+import numpy as np
 import pytest
 
 from src.core.convert import (
     _configure_stream,
     _default_codec_opts,
+    _force_square_sar,
     _fps_to_rate,
     _frame_num_from_path,
+    _mux_u16_video_frame,
     _scaled_dims,
+    _video_frame_from_u16,
+    _with_opaque_alpha_u16,
 )
+from src.core.video import pix_fmt_has_alpha, stream_pixel_aspect
 
 
 class TestScaledDims:
@@ -103,3 +109,83 @@ class TestConfigureStream:
         stream = _FakeStream()
         _configure_stream(stream, "prores", None)
         assert stream.options["profile"] == "3"
+
+
+class TestPixFmtHasAlpha:
+    @pytest.mark.parametrize(
+        "fmt",
+        ["yuva444p10le", "yuva444p12le", "ayuv64le", "rgba64le", "gbrap16le"],
+    )
+    def test_alpha_formats(self, fmt: str) -> None:
+        assert pix_fmt_has_alpha(fmt)
+
+    @pytest.mark.parametrize("fmt", ["yuv422p10le", "yuv444p10le", "yuv420p", "rgb48le", ""])
+    def test_no_alpha_formats(self, fmt: str) -> None:
+        assert not pix_fmt_has_alpha(fmt)
+
+
+class TestStreamPixelAspect:
+    def test_reads_sample_aspect_ratio(self) -> None:
+        class _St:
+            sample_aspect_ratio = Fraction(16, 15)
+            codec_context = None
+
+        assert abs(stream_pixel_aspect(_St()) - 16 / 15) < 1e-6
+
+    def test_missing_is_one(self) -> None:
+        class _St:
+            sample_aspect_ratio = None
+            codec_context = None
+
+        assert stream_pixel_aspect(_St()) == 1.0
+
+    def test_zero_den_is_one(self) -> None:
+        class _St:
+            sample_aspect_ratio = Fraction(0, 1)
+            codec_context = None
+
+        assert stream_pixel_aspect(_St()) == 1.0
+
+
+class TestAlphaAndSquareSarHelpers:
+    def test_with_opaque_alpha(self) -> None:
+        rgb = np.zeros((2, 2, 3), dtype=np.uint16)
+        out = _with_opaque_alpha_u16(rgb)
+        assert out.shape == (2, 2, 4)
+        assert int(out[..., 3].max()) == 65535
+
+    def test_force_square_sar(self) -> None:
+        class _CC:
+            sample_aspect_ratio = Fraction(4, 3)
+
+        class _St:
+            sample_aspect_ratio = Fraction(4, 3)
+            codec_context = _CC()
+
+        stream = _St()
+        _force_square_sar(stream)
+        assert stream.sample_aspect_ratio == Fraction(1, 1)
+        assert stream.codec_context.sample_aspect_ratio == Fraction(1, 1)
+
+    def test_video_frame_from_u16_rgba(self) -> None:
+        arr = np.zeros((4, 6, 4), dtype=np.uint16)
+        vf = _video_frame_from_u16(arr)
+        assert vf.format.name == "rgba64le"
+        assert vf.width == 6 and vf.height == 4
+
+    def test_mux_reformats_to_encoder_pix_fmt(self, tmp_path) -> None:
+        import av
+
+        path = tmp_path / "mux.mov"
+        container = av.open(str(path), mode="w")
+        stream = container.add_stream("libx264", rate=24)
+        stream.width = 16
+        stream.height = 16
+        stream.pix_fmt = "yuv420p"
+        stream.options = {"preset": "ultrafast", "crf": "28"}
+        rgb = np.full((16, 16, 3), 40000, dtype=np.uint16)
+        _mux_u16_video_frame(rgb, stream, container, 16, 16, "yuv420p")
+        for packet in stream.encode():
+            container.mux(packet)
+        container.close()
+        assert path.is_file() and path.stat().st_size > 0

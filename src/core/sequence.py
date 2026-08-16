@@ -212,15 +212,11 @@ def _match_seq_by_stem(
 
 
 def probe_pixel_colorspace(filepath: str) -> str:
-    """Return the OCIO colorspace of the *pixels* in *filepath*, if known.
+    """Return the OCIO colorspace of the pixels in *filepath*, if we wrote it.
 
-    Preference order:
-
-    1. ``exrconverter:dstColorSpace`` — space we wrote after OCIO (always correct
-       for files from this app).
-    2. ``oiio:ColorSpace`` — third-party / OIIO tag (often mangled to
-       ``lin_rec709`` for any scene-linear EXR; treat as weak hint only when
-       our attribute is missing).
+    Only ``exrconverter:dstColorSpace`` is trusted. OIIO's ``oiio:ColorSpace``
+    is often rewritten to ``lin_rec709`` for any scene-linear EXR and is not
+    an OCIO name.
     """
     try:
         import OpenImageIO as oiio
@@ -229,13 +225,9 @@ def probe_pixel_colorspace(filepath: str) -> str:
         if not inp:
             return ""
         try:
-            spec = inp.spec()
-            ours = spec.getattribute("exrconverter:dstColorSpace")
+            ours = inp.spec().getattribute("exrconverter:dstColorSpace")
             if ours:
                 return str(ours)
-            oiio_cs = spec.getattribute("oiio:ColorSpace")
-            if oiio_cs:
-                return str(oiio_cs)
         finally:
             inp.close()
     except Exception:
@@ -363,9 +355,9 @@ def scan_exr_sequences(directory: str) -> list[dict]:
                     comp = spec.getattribute("compression")
                     if comp:
                         compression = str(comp)
-                    cs = spec.getattribute("oiio:ColorSpace")
-                    if cs:
-                        colorspace = str(cs)
+                    ours = spec.getattribute("exrconverter:dstColorSpace")
+                    if ours:
+                        colorspace = str(ours)
                     inp.close()
             except Exception:
                 pass

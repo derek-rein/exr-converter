@@ -15,7 +15,7 @@ import OpenImageIO as oiio
 import pytest
 
 from src.core.convert import _fps_to_rate, run_exr_to_video, run_video_to_exr
-from src.core.exr_io import read_exr, write_exr
+from src.core.exr_io import read_exr, read_image, read_pixel_aspect, square_pixel_dims, write_exr
 from src.core.ocio_utils import resolve_ocio_for_cli
 from src.core.sequence import find_exr_sequence, scan_exr_sequences
 from src.core.video import probe_video
@@ -27,6 +27,7 @@ from tests.support.integration import (
     assert_video_output,
     conversion_ocio_args,
     run_cli,
+    write_synthetic_alpha_video,
     write_synthetic_exr_sequence,
     write_synthetic_video,
 )
@@ -480,6 +481,124 @@ class TestExrToVideoFeatures:
                 pix_fmt_out="yuv420p",
                 codec_key="h264",
             )
+
+
+# ---------------------------------------------------------------------------
+# PAR + alpha
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+class TestParAndAlpha:
+    def test_video_to_exr_passes_sample_aspect(self, tmp_path: Path):
+        vid = tmp_path / "anamorphic.mov"
+        write_synthetic_video(vid, width=80, height=60, frames=2, sample_aspect=(4, 3))
+        out = tmp_path / "exr"
+        result = run_cli(
+            "video2exr",
+            "-i",
+            str(vid),
+            "-o",
+            str(out),
+            "--exr-compression",
+            "zip",
+        )
+        assert result.returncode == 0, result.stderr
+        paths, _ = find_exr_sequence(str(out))
+        par = read_pixel_aspect(paths[0])
+        assert abs(par - 4 / 3) < 1e-3
+
+    def test_exr_to_video_squares_pixels_and_sar(self, tmp_path: Path):
+        exr_dir = tmp_path / "par"
+        exr_dir.mkdir()
+        rgb = np.zeros((60, 80, 3), dtype=np.float32)
+        rgb[..., 1] = 0.3
+        write_exr(
+            str(exr_dir / "plate.1001.exr"),
+            rgb,
+            compression="zip",
+            dst_space="ACEScg",
+            pixel_aspect=4 / 3,
+        )
+        write_exr(
+            str(exr_dir / "plate.1002.exr"),
+            rgb,
+            compression="zip",
+            dst_space="ACEScg",
+            pixel_aspect=4 / 3,
+        )
+        sq_w, sq_h = square_pixel_dims(80, 60, 4 / 3)
+        out = tmp_path / "square.mov"
+        result = run_cli(
+            "exr2video",
+            "-i",
+            str(exr_dir),
+            "-o",
+            str(out),
+            "--codec",
+            "h264",
+            "--fps",
+            "24",
+        )
+        assert result.returncode == 0, result.stderr
+        container = av.open(str(out))
+        stream = container.streams.video[0]
+        assert stream.width == sq_w
+        assert stream.height == sq_h
+        sar = stream.sample_aspect_ratio or stream.codec_context.sample_aspect_ratio
+        container.close()
+        assert sar is not None
+        assert abs(float(sar) - 1.0) < 1e-6
+
+    def test_video_to_exr_keeps_prores_4444_alpha(self, tmp_path: Path):
+        vid = tmp_path / "alpha.mov"
+        write_synthetic_alpha_video(vid, width=16, height=16, frames=2, alpha=32768)
+        out = tmp_path / "exr"
+        result = run_cli(
+            "video2exr",
+            "-i",
+            str(vid),
+            "-o",
+            str(out),
+            "--exr-compression",
+            "zip",
+        )
+        assert result.returncode == 0, result.stderr
+        paths, _ = find_exr_sequence(str(out))
+        rgba = read_image(paths[0], keep_alpha=True)
+        assert rgba.shape[2] == 4
+        assert 0.4 < float(rgba[..., 3].mean()) < 0.6
+
+    def test_exr_to_prores_4444_keeps_alpha(self, tmp_path: Path):
+        exr_dir = tmp_path / "rgba"
+        exr_dir.mkdir()
+        src = np.zeros((16, 16, 4), dtype=np.float32)
+        src[..., 0] = 0.4
+        src[..., 3] = 0.5
+        write_exr(str(exr_dir / "plate.1001.exr"), src, compression="zip", dst_space="ACEScg")
+        write_exr(str(exr_dir / "plate.1002.exr"), src, compression="zip", dst_space="ACEScg")
+        out = tmp_path / "out.mov"
+        cfg = _ocio_cfg()
+        e2v_src, e2v_dst = _spaces_for("exr2video")
+        run_exr_to_video(
+            str(exr_dir),
+            out,
+            cfg,
+            e2v_src,
+            e2v_dst,
+            fps=24,
+            workers=1,
+            video_codec="prores_ks",
+            pix_fmt_out="yuva444p10le",
+            codec_key="prores_4444",
+        )
+        container = av.open(str(out))
+        frame = next(container.decode(video=0))
+        arr = frame.to_ndarray(format="rgba64le")
+        container.close()
+        assert arr.shape[2] == 4
+        mean_a = float(arr[..., 3].mean()) / 65535.0
+        assert 0.35 < mean_a < 0.65
 
 
 # ---------------------------------------------------------------------------

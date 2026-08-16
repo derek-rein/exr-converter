@@ -15,6 +15,7 @@ from src.core.sequence import (
     find_exr_sequence_info,
     looks_like_sequence_pattern,
     parse_dot_sequence_output,
+    probe_pixel_colorspace,
     scan_exr_sequences,
     sequence_looks_scene_referred,
     sequence_pattern_stem,
@@ -248,3 +249,42 @@ class TestNukeStylePatterns:
         paths2, name2 = find_exr_sequence(pattern)
         assert name2 == "chs_010_010_v0001"
         assert len(paths2) == 3
+
+
+class TestProbePixelColorspace:
+    def test_reads_our_dst_attr(self, tmp_path: Path) -> None:
+        path = tmp_path / "ours.exr"
+        write_exr(
+            str(path),
+            np.zeros((4, 4, 3), dtype=np.float32),
+            compression="zip",
+            dst_space="ACEScg",
+        )
+        assert probe_pixel_colorspace(str(path)) == "ACEScg"
+
+    def test_ignores_oiio_colorspace_tag(self, tmp_path: Path) -> None:
+        path = tmp_path / "third.exr"
+        arr = np.zeros((4, 4, 3), dtype=np.float32)
+        spec = oiio.ImageSpec(4, 4, 3, oiio.HALF)
+        spec.attribute("compression", "zip")
+        spec.attribute("oiio:ColorSpace", "lin_rec709")
+        buf = oiio.ImageBuf(spec)
+        buf.set_pixels(oiio.ROI(0, 4, 0, 4, 0, 1, 0, 3), arr)
+        assert buf.write(str(path))
+        assert probe_pixel_colorspace(str(path)) == ""
+
+    def test_missing_file_empty(self, tmp_path: Path) -> None:
+        assert probe_pixel_colorspace(str(tmp_path / "nope.exr")) == ""
+
+    def test_scan_uses_dst_attr(self, tmp_path: Path) -> None:
+        d = tmp_path / "seq"
+        d.mkdir()
+        write_exr(
+            str(d / "plate.1001.exr"),
+            np.zeros((4, 4, 3), dtype=np.float32),
+            compression="zip",
+            dst_space="ACEScg",
+        )
+        rows = scan_exr_sequences(str(d))
+        assert rows
+        assert rows[0].get("colorspace") == "ACEScg"

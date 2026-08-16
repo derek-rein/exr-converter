@@ -36,6 +36,8 @@ class MediaInfo:
     frame_count: int
     kind: str  # "video" | "r3d"
     colorspace_hint: str = ""
+    pixel_aspect: float = 1.0
+    has_alpha: bool = False
 
 
 @runtime_checkable
@@ -440,13 +442,32 @@ class VideoIngestSource:
         deinterlace: str = "auto",
         log_fn: Callable[[str], None] | None = None,
     ) -> None:
-        from .video import probe_video
+        from .video import pix_fmt_has_alpha, probe_video, stream_pixel_aspect
 
         self._path = path
         self._scale = float(scale)
         self._deinterlace = deinterlace
         self._log_fn = log_fn
         w, h, fps, total = probe_video(path)
+        par = 1.0
+        has_a = False
+        try:
+            import av
+
+            c = av.open(path)
+            try:
+                st = c.streams.video[0]
+                par = stream_pixel_aspect(st)
+                pix = ""
+                try:
+                    pix = st.codec_context.pix_fmt or ""
+                except Exception:
+                    pass
+                has_a = pix_fmt_has_alpha(pix)
+            finally:
+                c.close()
+        except Exception:
+            pass
         self._info = MediaInfo(
             path=path,
             width=int(w),
@@ -454,6 +475,8 @@ class VideoIngestSource:
             fps=float(fps) if fps else 24.0,
             frame_count=max(1, int(total)),
             kind="video",
+            pixel_aspect=par if par > 0 else 1.0,
+            has_alpha=has_a,
         )
         self._out_w, self._out_h = scaled_dims(self._info.width, self._info.height, self._scale)
         self._container = None
@@ -517,8 +540,7 @@ class VideoIngestSource:
                         continue
                 if do_resize:
                     frame = frame.reformat(width=ow, height=oh)
-                rgb_u16 = frame.to_ndarray(format="rgb48le")
-                rgb_f32 = np.ascontiguousarray(rgb_u16.astype(np.float32) * (1.0 / 65535.0))
+                rgb_f32 = self._frame_to_f32(frame)
                 yield idx, rgb_f32, {}
                 submitted += 1
                 if target_count is not None and submitted >= target_count:
@@ -527,6 +549,17 @@ class VideoIngestSource:
                     break
         finally:
             self.close()
+
+    def _frame_to_f32(self, frame) -> np.ndarray:
+        if self._info.has_alpha:
+            try:
+                arr = frame.to_ndarray(format="rgba64le")
+                return np.ascontiguousarray(arr.astype(np.float32) * (1.0 / 65535.0))
+            except Exception:
+                arr = frame.to_ndarray(format="rgba")
+                return np.ascontiguousarray(arr.astype(np.float32) * (1.0 / 255.0))
+        rgb_u16 = frame.to_ndarray(format="rgb48le")
+        return np.ascontiguousarray(rgb_u16.astype(np.float32) * (1.0 / 65535.0))
 
 
 class R3DIngestSource:
@@ -553,9 +586,8 @@ class R3DIngestSource:
             colorspace_hint=info.colorspace_hint or "",
         )
         self._out_w, self._out_h = scaled_dims(self._info.width, self._info.height, self._scale)
-        self._base_attrs: dict[str, str] = {
-            f"exrconverter:r3d:{k}": v for k, v in self._clip.clip_metadata_dict().items() if v
-        }
+        raw = {k: v for k, v in self._clip.clip_metadata_dict().items() if v}
+        self._base_attrs: dict[str, str] = {f"exrconverter:r3d:{k}": v for k, v in raw.items()}
         self._sdk_version = info.sdk_version
 
     @property

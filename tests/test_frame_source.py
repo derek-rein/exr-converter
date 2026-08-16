@@ -44,3 +44,34 @@ def test_scaled_dims_even() -> None:
     w, h = scaled_dims(101, 51, 0.5)
     assert w % 2 == 0
     assert h % 2 == 0
+
+
+def test_video_ingest_reads_sar_and_no_alpha(tmp_path: Path) -> None:
+    from src.core.frame_source import VideoIngestSource
+    from tests.support.integration import write_synthetic_video
+
+    vid = tmp_path / "sar.mov"
+    write_synthetic_video(vid, width=80, height=60, frames=1, sample_aspect=(4, 3))
+    src = VideoIngestSource(str(vid))
+    try:
+        assert abs(src.info.pixel_aspect - 4 / 3) < 1e-3
+        assert src.info.has_alpha is False
+    finally:
+        src.close()
+
+
+def test_video_ingest_detects_prores_alpha(tmp_path: Path) -> None:
+    from src.core.frame_source import VideoIngestSource
+    from tests.support.integration import write_synthetic_alpha_video
+
+    vid = tmp_path / "a.mov"
+    write_synthetic_alpha_video(vid, frames=1)
+    src = VideoIngestSource(str(vid))
+    try:
+        assert src.info.has_alpha is True
+        idx, rgb, _attrs = next(src.iter_frames(None))
+        assert idx == 1
+        assert rgb.shape[2] == 4
+        assert 0.4 < float(rgb[..., 3].mean()) < 0.6
+    finally:
+        src.close()

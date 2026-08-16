@@ -39,6 +39,8 @@ EXR_COMPRESSIONS = [
     "b44a",
     "dwaa",
     "dwab",
+    "htj2k256",
+    "htj2k32",
 ]
 DEFAULT_EXR_COMPRESSION = "dwaa"
 

@@ -24,8 +24,11 @@ from a Read — see [nuke.md](./nuke.md).
 
 | Tab | Direction | Notes |
 |-----|-----------|--------|
-| **Video → EXR** | Decode video → OCIO → EXR sequence | **Ingest only** — never slate / burn-in / watermark. Output field uses ``name.####.exr``; that basename is written (not forced to the video stem). Accepts common video containers plus optional **`.r3d` / `.nev`** when the [R3D SDK bridge](./r3d.md) is available (browser thumbs + player preview use low-res R3D decode; convert is full quality; camera/timecode metadata lands on EXRs). |
-| **EXR → Video** | Image sequence → OCIO → video | OpenEXR primary; also DPX, PNG, JPEG, WebP. Slate / burn-in / watermark via that tab’s controls. Sequences may use ``name.####.ext`` or ``name_####.ext`` pads. |
+| **Video → EXR** | Decode video → OCIO → EXR sequence | **Ingest only** — never slate / burn-in / watermark. Output field uses ``name.####.exr``; that basename is written (not forced to the video stem). Accepts common video containers plus optional **`.r3d` / `.nev`** when the [R3D SDK bridge](./r3d.md) is available (browser thumbs + player preview use low-res R3D decode; convert is full quality; camera/timecode metadata lands on EXRs). **ProRes 4444** (and other alpha pixel formats) write a fourth EXR channel. Sample aspect ratio is stored as OpenEXR ``PixelAspectRatio``. |
+| **EXR → Video** | Image sequence → OCIO → video | OpenEXR primary; also DPX, PNG, JPEG, WebP. Slate / burn-in / watermark via that tab’s controls. Sequences may use ``name.####.ext`` or ``name_####.ext`` pads. Non-square EXR pixels (``PixelAspectRatio`` ≠ 1) are resized so the video has **square pixels**. |
+
+Dragging the **Log** splitter up does not squash Input / Output / Options
+fields — the convert form keeps its height and scrolls if the pane is short.
 
 Mode can be forced with `--mode video2exr|exr2video`, or inferred from `--open`
 (`auto`: image-sequence paths open **EXR → Video**, common video extensions open

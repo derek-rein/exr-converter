@@ -42,10 +42,12 @@ from ..core.constants import (
     IMAGE_SEQUENCE_EXTS,
     is_image_sequence_ext,
 )
+from ..core.convert_job import VideoToExrJob, parse_optional_frame_range
 from ..core.ocio_utils import color_space_families, config_source_info
 from ..core.video import is_ignored_media_filename
 from ..services.presets import delete_preset, list_presets, load_preset, save_preset
 from ..services.worker import ConvertWorker
+from .convert_jobs import job_from_convert_tab
 from .preferences import (
     PLAYER_MODE_BUILTIN,
     PreferencesDialog,
@@ -55,6 +57,11 @@ from .preferences import (
 )
 from .size_grip import SizeGrip
 from .widgets import ConvertTab, OcioConfigPanel
+
+# Floor so the log splitter cannot hide the convert form or the log entirely.
+# ConvertTab scrolls internally if the tab page is shorter than the form.
+CONVERT_TABS_MIN_HEIGHT = 200
+LOG_PANE_MIN_HEIGHT = 72
 
 
 class AboutDialog(QDialog):
@@ -187,6 +194,8 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setObjectName("logSplitter")
+        splitter.setChildrenCollapsible(False)
         root.addWidget(splitter)
 
         top = QWidget()
@@ -198,6 +207,7 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(self._ocio_panel)
 
         self._tabs = QTabWidget()
+        self._tabs.setMinimumHeight(CONVERT_TABS_MIN_HEIGHT)
         self._v2e_tab = ConvertTab("video2exr", self._settings)
         self._e2v_tab = ConvertTab("exr2video", self._settings)
         self._tabs.addTab(self._v2e_tab, "Video \u2192 EXR")
@@ -283,6 +293,7 @@ class MainWindow(QMainWindow):
         mono.setPointSize(11)
         self._log.setFont(mono)
         self._log.setObjectName("logPane")
+        self._log.setMinimumHeight(LOG_PANE_MIN_HEIGHT)
         log_layout.addWidget(self._log, 1)
         splitter.addWidget(log_container)
         splitter.setStretchFactor(0, 3)
@@ -588,17 +599,11 @@ class MainWindow(QMainWindow):
         )
 
         frame_range_str = tab.get_frame_range()
-        frame_set: set[int] | None = None
-        if frame_range_str:
-            from ..core.framerange import parse_frame_range
-
-            try:
-                frame_set = set(parse_frame_range(frame_range_str))
-            except ValueError as e:
-                QMessageBox.warning(self, "Frame range", f"Invalid frame range: {e}")
-                return
-            if not frame_set:
-                frame_set = None
+        try:
+            frame_set = parse_optional_frame_range(frame_range_str)
+        except ValueError as e:
+            QMessageBox.warning(self, "Frame range", f"Invalid frame range: {e}")
+            return
 
         # -- Slate / burn-in / watermark: EXR → video only (never Video → EXR) --
         slate_np = None
@@ -656,55 +661,17 @@ class MainWindow(QMainWindow):
                 tab, inp, frame_range_str, frame_set
             )
 
-        if mode == "video2exr":
-            # Sequence name + pad from the output field (name.####.exr).
-            # Empty name → convert falls back to the video stem.
-            try:
-                out_name = tab.get_output_sequence_name()
-            except Exception:
-                out_name = ""
-            try:
-                pattern_pad = tab.get_output_sequence_padding()
-            except Exception:
-                pattern_pad = None
-            pad = int(pattern_pad) if pattern_pad is not None else tab.get_padding()
-            # ocio_cfg intentionally omitted — worker rebuilds from config_source/path.
-            kwargs = dict(
-                video_path=inp,
-                output_dir=Path(out),
-                src_space=src,
-                dst_space=dst,
-                compression=tab.get_compression(),
-                config_source=cs,
-                config_path=cp,
-                scale=tab.get_scale(),
-                padding=pad,
-                start_frame=tab.get_start_frame(),
-                frame_set=frame_set,
-                exr_opts=tab.get_exr_opts() or None,
-                output_name=out_name,
-            )
-        else:
-            _codec_key, _codec, _pix = tab.get_video_codec_info()
-            kwargs = dict(
-                input_spec=inp,
-                output_video=Path(out),
-                src_space=src,
-                dst_space=dst,
-                fps=tab.get_fps(),
-                config_source=cs,
-                config_path=cp,
-                scale=tab.get_scale(),
-                video_codec=_codec,
-                pix_fmt_out=_pix,
-                codec_key=_codec_key,
-                frame_set=frame_set,
-                slate_frame=slate_np,
-                burnin_overlay=overlay_np,
-                slate_overlay=slate_overlay_np,
-                overlay_provider=overlay_provider,
-                codec_opts=tab.get_codec_opts() or None,
-            )
+        job = job_from_convert_tab(
+            tab,
+            mode=mode,
+            config_source=cs,
+            config_path=cp,
+            frame_set=frame_set,
+            slate_frame=slate_np,
+            burnin_overlay=overlay_np,
+            slate_overlay=slate_overlay_np,
+            overlay_provider=overlay_provider,
+        )
 
         out_path = Path(out)
         self._output_folder = str(out_path if out_path.is_dir() else out_path.parent)
@@ -721,19 +688,18 @@ class MainWindow(QMainWindow):
         self._output_seq_start = 1001
         self._output_dst_space = dst
         self._output_fps = 24.0
-        if mode == "video2exr":
-            self._output_seq_dir = str(out_path)
-            written_name = str(kwargs.get("output_name") or Path(inp).stem)
-            self._output_seq_stem = written_name
-            self._output_seq_pad = int(kwargs.get("padding") or tab.get_padding())
-            self._output_seq_start = int(tab.get_start_frame())
+        if isinstance(job, VideoToExrJob):
+            self._output_seq_dir = str(job.output_dir)
+            self._output_seq_stem = job.output_name or Path(job.video_path).stem
+            self._output_seq_pad = int(job.padding)
+            self._output_seq_start = int(job.start_frame)
             vi = getattr(tab, "_video_info", None)
             if vi is not None and getattr(vi, "fps", 0) and float(vi.fps) > 0:
                 self._output_fps = float(vi.fps)
 
         self._append_log(f"--- {mode} ---")
         self._thread = QThread(self)
-        self._worker = ConvertWorker(mode, kwargs)
+        self._worker = ConvertWorker(job)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)
@@ -1101,69 +1067,19 @@ class MainWindow(QMainWindow):
             self._append_log("Burn-in / watermark overlay rendered")
         return shot_overlay, None, None
 
-    # -- Slate colorspace + resolution --
-
-    def _ocio_transform_slate(self, slate, slate_cs: str, dst_space: str):
-        """OCIO-transform the slate frame from its native colorspace to *dst_space*.
-
-        The slate is painted with QPainter and is always sRGB.  This converts it
-        into whatever the pipeline destination is (e.g. ACEScg for EXR output,
-        or Rec.709 for video output).
-        """
-        import numpy as np
-        import PyOpenColorIO as OCIO_mod
-
-        cfg = self._ocio_cfg
-        if cfg is None:
-            return slate
-
-        from ..core.ocio_utils import resolve_alias
-
-        src_name = resolve_alias(cfg, slate_cs)
-        if not src_name:
-            for candidate in ("sRGB", "sRGB - Texture", "Utility - sRGB - Texture", "srgb"):
-                src_name = resolve_alias(cfg, candidate)
-                if src_name:
-                    break
-        if not src_name:
-            self._append_log(
-                "Warning: could not find sRGB colorspace in OCIO config, "
-                "slate will not be color-managed"
-            )
-            return slate
-
-        dst_name = resolve_alias(cfg, dst_space) or dst_space
-        if src_name == dst_name:
-            return slate
-
-        self._append_log(f"Slate OCIO: {src_name} \u2192 {dst_name}")
-        rgb = np.ascontiguousarray(slate[:, :, :3], dtype=np.float32)
-        h, w = rgb.shape[:2]
-        cpu = cfg.getProcessor(src_name, dst_name).getDefaultCPUProcessor()
-        desc = OCIO_mod.PackedImageDesc(rgb, w, h, 3)
-        cpu.apply(desc)
-        result = np.empty_like(slate)
-        result[:, :, :3] = rgb
-        result[:, :, 3] = slate[:, :, 3]
-        return result
+    # -- Slate resolution --
 
     @staticmethod
-    def _detect_slate_resolution(mode: str, inp: str) -> tuple[int, int]:
+    def _detect_slate_resolution(_mode: str, inp: str) -> tuple[int, int]:
         """Probe the input to determine the resolution for the slate frame."""
         try:
-            if mode == "video2exr":
-                from ..core.video import probe_video
+            from ..core.exr_io import read_image
+            from ..core.sequence import find_exr_sequence
 
-                w, h, _fps, _total = probe_video(inp)
-                return w, h
-            else:
-                from ..core.exr_io import read_image
-                from ..core.sequence import find_exr_sequence
-
-                paths, _bn = find_exr_sequence(inp)
-                if paths:
-                    first = read_image(paths[0])
-                    return first.shape[1], first.shape[0]
+            paths, _bn = find_exr_sequence(inp)
+            if paths:
+                first = read_image(paths[0])
+                return first.shape[1], first.shape[0]
         except Exception:
             pass
         return 1920, 1080

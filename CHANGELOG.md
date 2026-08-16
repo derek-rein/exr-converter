@@ -15,6 +15,35 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ---
 
+## [0.9.8] — 2026-08-16
+
+### Changed
+
+- **Convert pipeline:** CLI and the GUI Convert button fill the same job
+  and run the same video↔EXR pipeline.
+- **EXR writes:** always half-float RGB or RGBA (no float option). Colour is
+  OCIO only — dest space is stored as ``exrconverter:dstColorSpace``. Also
+  writes ``FramesPerSecond`` and ``PixelAspectRatio``.
+- **EXR compression:** ``htj2k256`` and ``htj2k32`` (OpenEXR 3.4+).
+- **Video → EXR:** ProRes 4444 / other alpha pixel formats keep alpha on the
+  EXR; sample aspect ratio is passed through as ``PixelAspectRatio``.
+- **EXR → Video:** non-square EXR pixels are resized to square-pixel output.
+- **R3D metadata:** camera / lens / ISO / exposure written as
+  ``exrconverter:r3d:*`` attributes.
+
+### Fixed
+
+- **Convert form:** Input, Output, and Options fields no longer squash into
+  unreadable slivers when the window or log splitter is short — the form keeps
+  its height and scrolls instead.
+- **Sequence color probe:** ignore OIIO's ``oiio:ColorSpace`` tag (often
+  rewritten to ``lin_rec709``). Only ``exrconverter:dstColorSpace`` is used
+  to pick a source space.
+- **EXR → Video:** output is tagged square-pixel (1:1 SAR) after PAR
+  square-up; frames are converted to the encoder pixel format before mux.
+
+---
+
 ## [0.9.7] — 2026-08-11
 
 ### Fixed
@@ -637,7 +666,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.9.7...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.9.8...HEAD
+[0.9.8]: https://github.com/derek-rein/exr-converter/compare/v0.9.7...v0.9.8
 [0.9.7]: https://github.com/derek-rein/exr-converter/compare/v0.9.6...v0.9.7
 [0.9.6]: https://github.com/derek-rein/exr-converter/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/derek-rein/exr-converter/compare/v0.9.4...v0.9.5
