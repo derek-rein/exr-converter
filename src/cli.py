@@ -575,17 +575,15 @@ def run_cli(args: argparse.Namespace) -> int:
         cfg = resolve_ocio_for_cli(args.ocio)
         cs, cp = _resolve_config_source(args.ocio)
 
-        frame_set: set[int] | None = None
-        if getattr(args, "frame_range", ""):
-            from .core.framerange import parse_frame_range
+        from .core.convert_job import (
+            ExrToVideoJob,
+            VideoToExrJob,
+            parse_optional_frame_range,
+        )
 
-            frames = parse_frame_range(args.frame_range)
-            if frames:
-                frame_set = set(frames)
+        frame_set = parse_optional_frame_range(getattr(args, "frame_range", "") or "")
 
         if args.command == "video2exr":
-            from .core.convert import run_video_to_exr
-
             out_dir = (
                 Path(args.output_dir).expanduser()
                 if args.output_dir
@@ -597,18 +595,15 @@ def run_cli(args: argparse.Namespace) -> int:
             src, dst = resolve_v2e_spaces(cfg, args, _log)
             _log(f"OCIO: {src} → {dst}")
 
-            run_video_to_exr(
-                args.input,
-                out_dir,
-                cfg,
-                src,
-                dst,
-                progress=_progress,
-                log=_log,
-                compression=args.exr_compression,
-                workers=workers,
+            job = VideoToExrJob(
+                video_path=args.input,
+                output_dir=out_dir,
+                src_space=src,
+                dst_space=dst,
                 config_source=cs,
                 config_path=cp,
+                compression=args.exr_compression,
+                workers=workers,
                 scale=args.scale,
                 padding=args.padding,
                 start_frame=args.start_frame,
@@ -616,6 +611,7 @@ def run_cli(args: argparse.Namespace) -> int:
                 exr_opts=_exr_opts_from_args(args),
                 deinterlace=getattr(args, "deinterlace", "auto"),
             )
+            job.run(ocio_cfg=cfg, progress=_progress, log=_log)
             _log(f"Done → {out_dir}")
         else:
             codec_key = args.codec
@@ -627,7 +623,6 @@ def run_cli(args: argparse.Namespace) -> int:
                 )
                 return 1
             codec_name, pix_fmt = spec.libav_codec, spec.pix_fmt
-            from .core.convert import run_exr_to_video
 
             out_path = (
                 Path(args.output).expanduser()
@@ -640,25 +635,23 @@ def run_cli(args: argparse.Namespace) -> int:
             src, dst = resolve_e2v_spaces(cfg, args, _log)
             _log(f"OCIO: {src} → {dst}")
 
-            run_exr_to_video(
-                args.input,
-                out_path,
-                cfg,
-                src,
-                dst,
-                args.fps,
-                progress=_progress,
-                log=_log,
-                workers=workers,
+            job = ExrToVideoJob(
+                input_spec=args.input,
+                output_video=out_path,
+                src_space=src,
+                dst_space=dst,
+                fps=args.fps,
                 config_source=cs,
                 config_path=cp,
                 scale=args.scale,
                 video_codec=codec_name,
                 pix_fmt_out=pix_fmt,
                 codec_key=codec_key,
+                workers=workers,
                 frame_set=frame_set,
                 codec_opts=_codec_opts_from_args(args),
             )
+            job.run(ocio_cfg=cfg, progress=_progress, log=_log)
             _log(f"Done → {out_path}")
         print(file=sys.stderr)
     except Exception as e:

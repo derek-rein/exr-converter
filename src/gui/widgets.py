@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -58,6 +59,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QSpinBox,
@@ -3643,6 +3645,8 @@ _EXR_COMPRESSION_HELP: dict[str, str] = {
     "b44a": "Like B44 but flat areas compress further.",
     "dwaa": "Lossy DCT-based, per-scanline. Best lossy ratio at low levels.",
     "dwab": "Lossy DCT-based, per-tile (256 scanlines). Slightly better ratio than DWAA.",
+    "htj2k256": "JPEG 2000 HT lossless, 256-scanline blocks (OpenEXR 3.4+).",
+    "htj2k32": "JPEG 2000 HT lossless, 32-scanline blocks (OpenEXR 3.4+).",
 }
 
 
@@ -4014,6 +4018,25 @@ class _InputProbeWorker(QObject):
             self.failed.emit(str(e))
 
 
+def _form_scroll_area(body: QWidget) -> QScrollArea:
+    """Host a convert form so a short pane scrolls instead of squashing fields.
+
+    The body keeps a Minimum vertical policy (sizeHint is the floor). The
+    scroll area itself does not take tab focus so keyboard order stays on
+    the line edits / combos.
+    """
+    body.setObjectName("convertTabBody")
+    body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+    scroll = QScrollArea()
+    scroll.setObjectName("convertTabScroll")
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    scroll.setWidget(body)
+    return scroll
+
+
 class ConvertTab(QWidget):
     log_message = Signal(str)
     readiness_changed = Signal(bool)
@@ -4029,7 +4052,12 @@ class ConvertTab(QWidget):
         self._input_seq: fileseq.FileSequence | None = None
         self._video_info: VideoInput | None = None
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        body = QWidget()
+        layout = QVBoxLayout(body)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
@@ -4301,6 +4329,8 @@ class ConvertTab(QWidget):
 
         layout.addStretch()
 
+        outer.addWidget(_form_scroll_area(body))
+
         # -- Tab order --
         tab_chain = [
             self.input_path,
@@ -4380,17 +4410,14 @@ class ConvertTab(QWidget):
             return False
         if self._video_info is not None:
             return text == self._video_info.path
-        if self._input_seq is not None:
-            dirn = self._input_seq.dirname().rstrip("/\\")
-            if text.rstrip("/\\") == dirn:
-                return True
-            pad = "#" * max(1, self._input_seq.zfill())
-            display = (
-                f"{self._input_seq.dirname()}{self._input_seq.basename()}"
-                f"{pad}{self._input_seq.extension()}"
-            )
-            return text == display
-        return False
+        seq = self._input_seq
+        if seq is None:
+            return False
+        dirn = str(seq.dirname()).rstrip("/\\")
+        if text.rstrip("/\\") == dirn:
+            return True
+        pad = "#" * max(1, int(seq.zfill()))
+        return text == f"{seq.dirname()}{seq.basename()}{pad}{seq.extension()}"
 
     def _persist_input_path(self, path: str) -> None:
         """Write input path to QSettings and flush (survives kill / crash better)."""
@@ -4469,11 +4496,7 @@ class ConvertTab(QWidget):
             return False
         if not self.output_path.text().strip():
             return False
-        if not self.src_btn.is_valid():
-            return False
-        if not self.dst_btn.is_valid():
-            return False
-        return True
+        return self.src_btn.is_valid() and self.dst_btn.is_valid()
 
     def populate_spaces(
         self,

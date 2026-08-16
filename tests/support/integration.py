@@ -240,8 +240,11 @@ def write_synthetic_video(
     height: int = 36,
     frames: int = 3,
     fps: int = 24,
+    sample_aspect: tuple[int, int] | None = None,
 ) -> None:
     """Write a tiny H.264 clip suitable for CI conversion tests."""
+    from fractions import Fraction
+
     path.parent.mkdir(parents=True, exist_ok=True)
     container = av.open(str(path), mode="w")
     stream = container.add_stream("libx264", rate=fps)
@@ -249,6 +252,8 @@ def write_synthetic_video(
     stream.height = height
     stream.pix_fmt = "yuv420p"
     stream.options = {"preset": "ultrafast", "crf": "23"}
+    if sample_aspect is not None:
+        stream.sample_aspect_ratio = Fraction(sample_aspect[0], sample_aspect[1])
 
     for i in range(frames):
         img = np.zeros((height, width, 3), dtype=np.uint8)
@@ -256,6 +261,38 @@ def write_synthetic_video(
         img[:, :, 1] = 90
         img[:, :, 2] = (150 + i * 10) % 256
         frame = av.VideoFrame.from_ndarray(img, format="rgb24")
+        for packet in stream.encode(frame):
+            container.mux(packet)
+    for packet in stream.encode():
+        container.mux(packet)
+    container.close()
+
+
+def write_synthetic_alpha_video(
+    path: Path,
+    *,
+    width: int = 16,
+    height: int = 16,
+    frames: int = 2,
+    fps: int = 24,
+    alpha: int = 32768,
+) -> None:
+    """Write a tiny ProRes 4444 clip with a constant alpha plane."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    container = av.open(str(path), mode="w")
+    stream = container.add_stream("prores_ks", rate=fps)
+    stream.width = width
+    stream.height = height
+    stream.pix_fmt = "yuva444p10le"
+    stream.options = {"profile": "4"}
+    for i in range(frames):
+        arr = np.zeros((height, width, 4), dtype=np.uint16)
+        arr[:, :, 0] = 20000 + i * 100
+        arr[:, :, 1] = 10000
+        arr[:, :, 2] = 4000
+        arr[:, :, 3] = alpha
+        frame = av.VideoFrame.from_ndarray(arr, format="rgba64le")
+        frame = frame.reformat(width=width, height=height, format="yuva444p10le")
         for packet in stream.encode(frame):
             container.mux(packet)
     for packet in stream.encode():

@@ -5,7 +5,7 @@ from typing import NamedTuple
 
 APP_ORG = "VFXTools"
 APP_NAME = "EXRConverter"
-APP_VERSION = "0.9.7"
+APP_VERSION = "0.9.8"
 
 GITHUB_REPO = "derek-rein/exr-converter"
 
@@ -39,6 +39,8 @@ EXR_COMPRESSIONS = [
     "b44a",
     "dwaa",
     "dwab",
+    "htj2k256",
+    "htj2k32",
 ]
 DEFAULT_EXR_COMPRESSION = "dwaa"
 

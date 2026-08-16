@@ -11,7 +11,7 @@ import av
 import numpy as np
 import PyOpenColorIO as OCIO
 
-from .exr_io import read_image, write_exr
+from .exr_io import fps_to_rational, read_image, read_pixel_aspect, square_pixel_dims, write_exr
 from .ocio_utils import (
     get_compositing_space,
     get_interchange_space,
@@ -22,6 +22,7 @@ from .ocio_utils import (
 )
 from .pool import _alpha_over_rgb, process_frame_e2v, process_frame_v2e
 from .sequence import find_exr_sequence
+from .video import pix_fmt_has_alpha
 
 ProgressCallback = Callable[[int, int], None]
 LogCallback = Callable[[str], None]
@@ -46,15 +47,6 @@ def _ensure_ocio(
     return load_config_from_source_info(config_source, config_path)
 
 
-# Common non-integer broadcast / film rates → exact rationals for libav.
-_FPS_RATIONALS: dict[float, Fraction] = {
-    23.976: Fraction(24000, 1001),
-    23.98: Fraction(24000, 1001),
-    29.97: Fraction(30000, 1001),
-    59.94: Fraction(60000, 1001),
-}
-
-
 def _frame_num_from_path(filepath: str) -> int | None:
     """Extract the frame number from a ``name.####.ext`` filename."""
     import re
@@ -73,16 +65,11 @@ def _frame_num_from_path(filepath: str) -> int | None:
 
 def _fps_to_rate(fps: float) -> Fraction | int:
     """Return a libav-compatible frame rate (prefer exact rationals)."""
-    if fps <= 0:
+    rat = fps_to_rational(fps)
+    if rat is None:
         return 24
-    # Exact integer rates.
-    if abs(fps - round(fps)) < 1e-6:
-        return int(round(fps))
-    for key, rat in _FPS_RATIONALS.items():
-        if abs(fps - key) < 0.01:
-            return rat
-    # Approximate any other float as a reduced fraction (cap denominator).
-    return Fraction(fps).limit_denominator(1001)
+    num, den = rat
+    return num if den == 1 else Fraction(num, den)
 
 
 def _video_metadata(
@@ -189,10 +176,6 @@ def _bake_slate_to_display(
 
     Returns float32 RGB in display space, ready for ``rgb48le`` encoding.
     """
-    import numpy as np
-
-    from .ocio_utils import linearize_overlay
-
     # Keep float precision (no uint8 round-trip). linearize_overlay accepts
     # float32 RGBA in 0–1 sRGB authoring encoding.
     slate = np.asarray(slate_rgba_srgb, dtype=np.float32)
@@ -217,21 +200,56 @@ def _bake_slate_to_display(
     return rgb
 
 
+def _video_frame_from_u16(arr: np.ndarray):
+    """Build a PyAV frame from uint16 RGB or RGBA."""
+    if arr.ndim == 3 and arr.shape[2] >= 4:
+        return av.VideoFrame.from_ndarray(arr[:, :, :4], format="rgba64le")
+    return av.VideoFrame.from_ndarray(arr[:, :, :3], format="rgb48le")
+
+
+def _with_opaque_alpha_u16(arr: np.ndarray) -> np.ndarray:
+    if arr.ndim == 3 and arr.shape[2] >= 4:
+        return arr
+    rgb = arr[:, :, :3] if arr.ndim == 3 else arr
+    a = np.full(rgb.shape[:2] + (1,), 65535, dtype=np.uint16)
+    return np.concatenate([rgb, a], axis=2)
+
+
+def _force_square_sar(stream) -> None:
+    one = Fraction(1, 1)
+    stream.sample_aspect_ratio = one
+    cc = getattr(stream, "codec_context", None)
+    if cc is not None:
+        try:
+            cc.sample_aspect_ratio = one
+        except Exception:
+            pass
+
+
+def _mux_u16_video_frame(arr: np.ndarray, stream, container, w: int, h: int, pix_fmt: str) -> None:
+    vf = _video_frame_from_u16(arr)
+    src_fmt = getattr(getattr(vf, "format", None), "name", None)
+    if vf.width != w or vf.height != h or (pix_fmt and src_fmt != pix_fmt):
+        vf = vf.reformat(width=w, height=h, format=pix_fmt)
+    for packet in stream.encode(vf):
+        container.mux(packet)
+
+
 def _encode_slate_video_frame(
     slate_rgb_display: np.ndarray,
     stream,
     container,
     ow: int,
     oh: int,
-    do_resize: bool,
+    pix_fmt_out: str,
+    *,
+    keep_alpha: bool = False,
 ) -> None:
     """Encode a slate (float32 RGB **already in display space**) as a video frame."""
     rgb_u16 = np.clip(slate_rgb_display * 65535.0, 0.0, 65535.0).astype(np.uint16)
-    vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
-    if do_resize:
-        vf = vf.reformat(width=ow, height=oh)
-    for packet in stream.encode(vf):
-        container.mux(packet)
+    if keep_alpha:
+        rgb_u16 = _with_opaque_alpha_u16(rgb_u16)
+    _mux_u16_video_frame(rgb_u16, stream, container, ow, oh, pix_fmt_out)
 
 
 # ---- video -> exr ----------------------------------------------------------
@@ -373,20 +391,28 @@ def _v2e_serial_from_source(
     fmt = f"0{padding}d"
     written = 0
     for idx_1based, rgb, extra_attrs in src.iter_frames(frame_set, cancel_check=cancel_check):
-        h, w = rgb.shape[:2]
-        buf = np.ascontiguousarray(rgb, dtype=np.float32)
-        desc = OCIO.PackedImageDesc(buf, w, h, 3)
-        cpu.apply(desc)
+        arr = np.ascontiguousarray(rgb, dtype=np.float32)
+        rgb3 = np.ascontiguousarray(arr[:, :, :3])
+        h, w = rgb3.shape[:2]
+        cpu.apply(OCIO.PackedImageDesc(rgb3, w, h, 3))
+        if arr.ndim == 3 and arr.shape[2] >= 4:
+            arr[:, :, :3] = rgb3
+            out = arr[:, :, :4]
+        else:
+            out = rgb3
         frame_num = start_frame + idx_1based - 1
         out_path = output_dir / f"{stem}.{frame_num:{fmt}}.exr"
+        info = getattr(src, "info", None)
         write_exr(
             str(out_path),
-            buf,
+            out,
             compression=compression,
             src_space=src_space,
             dst_space=dst_space,
             exr_opts=exr_opts,
             extra_attrs=extra_attrs or None,
+            pixel_aspect=float(getattr(info, "pixel_aspect", 1.0) or 1.0),
+            fps=float(getattr(info, "fps", 0.0) or 0.0) or None,
         )
         written += 1
         if progress:
@@ -444,6 +470,7 @@ def _v2e_parallel_from_source(
                     raise RuntimeError("Cancelled")
                 frame_num = start_frame + idx_1based - 1
                 out_path = str(output_dir / f"{stem}.{frame_num:{fmt}}.exr")
+                info = getattr(src, "info", None)
                 fut = pool.submit(
                     process_frame_v2e,
                     idx_1based,
@@ -456,6 +483,8 @@ def _v2e_parallel_from_source(
                     dst_space,
                     exr_opts,
                     extra_attrs or None,
+                    float(getattr(info, "pixel_aspect", 1.0) or 1.0),
+                    float(getattr(info, "fps", 0.0) or 0.0) or None,
                 )
                 pending[fut] = idx_1based
 
@@ -551,12 +580,19 @@ def run_exr_to_video(
     if total == 0:
         raise RuntimeError("No image frames to encode.")
 
-    first = read_image(paths[0])
+    keep_alpha = pix_fmt_has_alpha(pix_fmt_out)
+    first = read_image(paths[0], keep_alpha=keep_alpha)
     h, w = first.shape[:2]
-    ow, oh = _scaled_dims(w, h, scale)
+    par = read_pixel_aspect(paths[0])
+    sq_w, sq_h = square_pixel_dims(w, h, par)
+    ow, oh = _scaled_dims(sq_w, sq_h, scale)
     if log:
-        res_info = f"{w}x{h}" if scale >= 1.0 else f"{w}x{h} \u2192 {ow}x{oh}"
-        log(f"Sequence: {basename} ({total} frames, {res_info})")
+        bits = [f"{w}x{h}"]
+        if abs(par - 1.0) >= 1e-4:
+            bits.append(f"PAR {par:g} → square {sq_w}x{sq_h}")
+        if (ow, oh) != (sq_w, sq_h):
+            bits.append(f"scaled {ow}x{oh}")
+        log(f"Sequence: {basename} ({total} frames, {', '.join(bits)})")
 
     # Resolve compositing colorspace and pre-linearise overlays --------------
     # User frames: ocio_cfg src → working → dst (user config only).
@@ -611,6 +647,7 @@ def run_exr_to_video(
             overlay_auth_space=overlay_auth,
             overlay_provider=overlay_provider,
             codec_opts=codec_opts,
+            keep_alpha=keep_alpha,
         )
         return
 
@@ -627,10 +664,10 @@ def run_exr_to_video(
     stream.width = ow
     stream.height = oh
     stream.pix_fmt = pix_fmt_out
+    _force_square_sar(stream)
     _configure_stream(stream, codec_key, codec_opts)
 
     max_inflight = n_workers * 2
-    do_resize = scale < 1.0
 
     try:
         if slate_frame is not None:
@@ -642,7 +679,15 @@ def run_exr_to_video(
                 dst_space,
                 slate_overlay_working,
             )
-            _encode_slate_video_frame(slate_display, stream, container, ow, oh, do_resize)
+            _encode_slate_video_frame(
+                slate_display,
+                stream,
+                container,
+                ow,
+                oh,
+                pix_fmt_out,
+                keep_alpha=keep_alpha,
+            )
             if log:
                 log("Slate frame encoded as first video frame")
 
@@ -671,6 +716,7 @@ def run_exr_to_video(
                         working_space,
                         dst_space,
                         burnin_working,
+                        keep_alpha,
                     )
                     pending[fut] = frame_idx
 
@@ -678,11 +724,7 @@ def run_exr_to_video(
                 nonlocal next_encode
                 while next_encode in ready:
                     rgb_u16 = ready.pop(next_encode)
-                    vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
-                    if do_resize:
-                        vf = vf.reformat(width=ow, height=oh)
-                    for packet in stream.encode(vf):
-                        container.mux(packet)
+                    _mux_u16_video_frame(rgb_u16, stream, container, ow, oh, pix_fmt_out)
                     if progress:
                         progress(next_encode, total)
                     next_encode += 1
@@ -735,6 +777,7 @@ def _e2v_serial(
     overlay_auth_space: str = "",
     overlay_provider: Callable[[int | None], np.ndarray | None] | None = None,
     codec_opts: dict[str, str] | None = None,
+    keep_alpha: bool = False,
 ) -> None:
     cpu_to_working = make_cpu_processor(ocio_cfg, src_space, working_space)
     cpu_to_display = make_cpu_processor(ocio_cfg, working_space, dst_space)
@@ -752,9 +795,8 @@ def _e2v_serial(
     stream.width = w
     stream.height = h
     stream.pix_fmt = pix_fmt_out
+    _force_square_sar(stream)
     _configure_stream(stream, codec_key, codec_opts)
-
-    do_resize = scale < 1.0
 
     try:
         if slate_frame is not None:
@@ -766,18 +808,20 @@ def _e2v_serial(
                 dst_space,
                 slate_overlay_working,
             )
-            _encode_slate_video_frame(slate_display, stream, container, w, h, do_resize)
+            _encode_slate_video_frame(
+                slate_display, stream, container, w, h, pix_fmt_out, keep_alpha=keep_alpha
+            )
             if log:
                 log("Slate frame encoded as first video frame")
 
         for idx, path in enumerate(paths, 1):
             if cancel_check and cancel_check():
                 raise RuntimeError("Cancelled")
-            rgb = read_image(path)
+            rgb = read_image(path, keep_alpha=keep_alpha)
             frame_buf = np.ascontiguousarray(rgb[:, :, :3], dtype=np.float32)
             fh, fw = frame_buf.shape[:2]
-            # *w*/*h* are the (possibly scaled) output dims; process at native
-            # frame resolution and only reformat the VideoFrame if needed.
+            # *w*/*h* are the (possibly scaled / square-pixel) output dims;
+            # process at native frame resolution and reformat the VideoFrame.
             cpu_to_working.apply(OCIO.PackedImageDesc(frame_buf, fw, fh, 3))
 
             # Per-frame tokens (e.g. <frame>) require re-rendering + re-linearising
@@ -798,13 +842,12 @@ def _e2v_serial(
                 frame_buf = np.ascontiguousarray(frame_buf, dtype=np.float32)
 
             cpu_to_display.apply(OCIO.PackedImageDesc(frame_buf, fw, fh, 3))
-            rgb_u16 = np.clip(frame_buf * 65535.0, 0.0, 65535.0).astype(np.uint16)
-
-            vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
-            if do_resize or (fw, fh) != (w, h):
-                vf = vf.reformat(width=w, height=h)
-            for packet in stream.encode(vf):
-                container.mux(packet)
+            if keep_alpha and rgb.shape[2] >= 4:
+                out = np.concatenate([frame_buf, rgb[:, :, 3:4]], axis=2)
+            else:
+                out = frame_buf
+            rgb_u16 = np.clip(out * 65535.0, 0.0, 65535.0).astype(np.uint16)
+            _mux_u16_video_frame(rgb_u16, stream, container, w, h, pix_fmt_out)
             if progress:
                 progress(idx, total)
         for packet in stream.encode():

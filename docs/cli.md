@@ -33,6 +33,9 @@ Related: [GUI](./gui.md) · [Nuke integration](./nuke.md) · [README](../README.
 | `main.py video2exr …` | CLI: video → OCIO → EXR sequence |
 | `main.py exr2video …` | CLI: image sequence (EXR / PNG / JPG / …) → OCIO → video |
 
+CLI convert and the GUI Convert button run the same video↔EXR pipeline.
+Slate / burn-in / watermark stay GUI-only.
+
 Global flags (before the subcommand; convert flags may also appear after it):
 
 | Flag | Meaning |
@@ -89,7 +92,7 @@ uv run python main.py video2exr -i clip.R3D -o /tmp/exr_out \
 | `--ocio` | bundled / `$OCIO` | Config file path |
 | `--src` | auto | Stream color tags / codec ranking → **`Output - Rec.709`** (alias-resolved). R3D/N-RAW defaults toward **Log3G10 REDWideGamutRGB**. Not an OIIO still probe. |
 | `--dst` | `ACEScg` / scene_linear | Destination scene space (role fallbacks; not media probing) |
-| `--exr-compression` | `dwaa` | `none`, `rle`, `zip`, `zips`, `piz`, `pxr24`, `b44`, `b44a`, `dwaa`, `dwab` |
+| `--exr-compression` | `dwaa` | `none`, `rle`, `zip`, `zips`, `piz`, `pxr24`, `b44`, `b44a`, `dwaa`, `dwab`, `htj2k256`, `htj2k32` |
 | `--dwa-level` | library | DWA level for `dwaa`/`dwab` (`0` = lossless) |
 | `--zip-level` | library | ZIP level 1–9 for `zip`/`zips` |
 | `--scale` | `1.0` | e.g. `0.5` half-res |
@@ -101,6 +104,10 @@ uv run python main.py video2exr -i clip.R3D -o /tmp/exr_out \
 
 **Output naming:** `stem.####.exr` inside the output directory (pad width from
 `--padding`). Default directory is `<input_parent>/<stem>/` (same idea as the GUI).
+Writes are always half-float. Video with an alpha pixel format (e.g. ProRes
+4444) keeps a fourth EXR channel. Sample aspect ratio is stored as OpenEXR
+``PixelAspectRatio`` (passed through, not squared). Colour is the OCIO
+``--src`` / ``--dst`` transform — not an OIIO colour rewrite.
 
 **RED R3D / N-RAW:** optional. Requires building the R3D bridge against the
 official proprietary SDK — see [r3d.md](./r3d.md). Without it, `.r3d` / `.nev`
@@ -136,6 +143,10 @@ uv run python main.py exr2video -i ./plate --codec h264 --crf 18
 | `--preset` | codec default | x264 / x265 preset name |
 | `--frame-range` | all | e.g. `1001-1100` |
 | `--workers` | global | Same meaning as `video2exr` |
+
+Non-square EXR ``PixelAspectRatio`` is resized so the encoded video has
+**square pixels**. ``prores_4444`` / ``prores_xq`` and VideoToolbox 4444
+variants keep the EXR alpha channel when present.
 
 **Default output path** when `-o` is omitted: sibling of the sequence folder,
 named after the folder, with a codec-appropriate extension:

@@ -56,21 +56,33 @@ def process_frame_v2e(
     dst_space: str,
     exr_opts: dict[str, str] | None = None,
     extra_attrs: dict[str, str] | None = None,
+    pixel_aspect: float = 1.0,
+    fps: float | None = None,
 ) -> int:
-    """OCIO transform + write one EXR frame. Returns frame index."""
+    """OCIO transform + write one EXR frame. Returns frame index.
+
+    RGB is transformed; alpha (if present) is copied unchanged.
+    """
     cpu = _ensure_cpu(config_source, config_path, src_space, dst_space)
-    h, w = rgb.shape[:2]
-    buf = np.ascontiguousarray(rgb[:, :, :3], dtype=np.float32)
-    desc = OCIO.PackedImageDesc(buf, w, h, 3)
-    cpu.apply(desc)
+    arr = np.ascontiguousarray(rgb, dtype=np.float32)
+    rgb3 = np.ascontiguousarray(arr[:, :, :3])
+    h, w = rgb3.shape[:2]
+    cpu.apply(OCIO.PackedImageDesc(rgb3, w, h, 3))
+    if arr.shape[2] >= 4:
+        arr[:, :, :3] = rgb3
+        out = arr[:, :, :4]
+    else:
+        out = rgb3
     write_exr(
         out_path,
-        buf,
+        out,
         compression=compression,
         src_space=src_space,
         dst_space=dst_space,
         exr_opts=exr_opts,
         extra_attrs=extra_attrs,
+        pixel_aspect=pixel_aspect,
+        fps=fps,
     )
     return idx
 
@@ -84,6 +96,7 @@ def process_frame_e2v(
     working_space: str,
     dst_space: str,
     overlay_working: np.ndarray | None = None,
+    keep_alpha: bool = False,
 ) -> tuple[int, np.ndarray]:
     """Read one still (EXR/PNG/JPG/…), run working-space comp, return (idx, rgb_u16).
 
@@ -104,17 +117,19 @@ def process_frame_e2v(
     cpu_to_working = _ensure_cpu(config_source, config_path, src_space, working_space)
     cpu_to_display = _ensure_cpu(config_source, config_path, working_space, dst_space)
 
-    rgb = read_image(path)
+    rgb = read_image(path, keep_alpha=keep_alpha)
     h, w = rgb.shape[:2]
-    desc = OCIO.PackedImageDesc(rgb, w, h, 3)
-    cpu_to_working.apply(desc)
+    rgb3 = np.ascontiguousarray(rgb[:, :, :3], dtype=np.float32)
+    cpu_to_working.apply(OCIO.PackedImageDesc(rgb3, w, h, 3))
 
     if overlay_working is not None and overlay_working.shape[:2] == (h, w):
-        rgb = _alpha_over_rgb(rgb, overlay_working)
-        rgb = np.ascontiguousarray(rgb, dtype=np.float32)
+        rgb3 = _alpha_over_rgb(rgb3, overlay_working)
+        rgb3 = np.ascontiguousarray(rgb3, dtype=np.float32)
 
-    desc2 = OCIO.PackedImageDesc(rgb, w, h, 3)
-    cpu_to_display.apply(desc2)
-
-    rgb_u16 = np.clip(rgb * 65535.0, 0.0, 65535.0).astype(np.uint16)
+    cpu_to_display.apply(OCIO.PackedImageDesc(rgb3, w, h, 3))
+    if keep_alpha and rgb.shape[2] >= 4:
+        out = np.concatenate([rgb3, rgb[:, :, 3:4]], axis=2)
+    else:
+        out = rgb3
+    rgb_u16 = np.clip(out * 65535.0, 0.0, 65535.0).astype(np.uint16)
     return idx, rgb_u16

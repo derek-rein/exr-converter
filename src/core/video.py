@@ -79,6 +79,37 @@ def _stream_basics(stream) -> tuple[int, int, float, int, str, str]:
     return w, h, fps, n_frames, codec_name, pix_fmt
 
 
+def pix_fmt_has_alpha(pix_fmt: str) -> bool:
+    """True when the libav pixel format carries an alpha plane (e.g. ProRes 4444)."""
+    p = (pix_fmt or "").lower()
+    return any(tok in p for tok in ("yuva", "rgba", "argb", "bgra", "abgr", "ayuv", "gbrap"))
+
+
+def stream_pixel_aspect(stream) -> float:
+    """Sample aspect ratio as a float (1.0 = square pixels)."""
+    cands: list[object] = []
+    try:
+        cands.append(getattr(stream, "sample_aspect_ratio", None))
+    except Exception:
+        pass
+    try:
+        cc = getattr(stream, "codec_context", None)
+        if cc is not None:
+            cands.append(getattr(cc, "sample_aspect_ratio", None))
+    except Exception:
+        pass
+    for sar in cands:
+        if sar is None:
+            continue
+        try:
+            num, den = int(sar.numerator), int(sar.denominator)
+            if num > 0 and den > 0:
+                return float(num) / float(den)
+        except (AttributeError, TypeError, ValueError, ZeroDivisionError):
+            continue
+    return 1.0
+
+
 def probe_video(path: str) -> tuple[int, int, float, int]:
     """Return (width, height, fps, frame_count) using PyAV or the R3D SDK.
 
