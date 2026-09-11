@@ -474,7 +474,7 @@ class OcioConfigPanel(QGroupBox):
                     tip_lines.append(detail)
                 tip_lines.append(
                     "Use the bundled ACES Studio config, or run make ensure-ocio "
-                    "if OpenColorIO was downgraded by oiio-python."
+                    "if OpenColorIO is older than 2.5."
                 )
                 self._set_combo_item_enabled(idx, False)
             self._source_combo.setItemData(

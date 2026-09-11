@@ -136,7 +136,7 @@ def is_ocio_config_loadable(path: str | Path) -> tuple[bool, str]:
     Uses the process-linked :mod:`PyOpenColorIO` (normally 2.5+ after
     ``make ensure-ocio``). Configs that need builtins or profile versions this
     library lacks — e.g. some Foundry Nuke Studio ACES 2.0 configs when OCIO
-    was rewired to 2.4 — return ``(False, …)``.
+    is older than 2.5 — return ``(False, …)``.
     """
     p = Path(path)
     if not p.is_file():
@@ -197,16 +197,15 @@ def _ocio_version_mismatch_hint(runtime: str) -> str:
         return (
             f"Runtime OpenColorIO is {runtime}; this app build needs 2.5+ to load "
             f"the bundled ACES Studio config.\n"
-            f"This is a packaging bug (OpenImageIO’s OCIO 2.4 dylib was linked "
-            f"instead of OpenColorIO 2.5). Install a newer EXR Converter release, "
+            f"This is a packaging bug (PyOpenColorIO was linked to the wrong "
+            f"OpenColorIO library). Install a newer EXR Converter release, "
             f"or run from source with: make ensure-ocio && make run"
         )
     return (
         f"Runtime OpenColorIO is {runtime}; the bundled ACES Studio config "
-        f"needs 2.5+.  oiio-python sometimes rewires PyOpenColorIO to its "
-        f"vendored 2.4 dylib.  Fix with:\n"
+        f"needs 2.5+.  Fix with:\n"
         f"  make ensure-ocio\n"
-        f"  # or: uv pip install --reinstall-package opencolorio 'opencolorio>=2.5.1'"
+        f"  # or: uv pip install --reinstall-package opencolorio 'opencolorio>=2.5.2'"
     )
 
 

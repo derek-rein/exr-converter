@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
 """Repair OpenColorIO linkage inside a Nuitka standalone / app bundle.
 
-Nuitka often collides the two OCIO shared libraries we ship:
+The app’s ``PyOpenColorIO`` (opencolorio wheel) must stay on **2.5.x** so the
+bundled ACES Studio v4 config (profile 2.5) and modern Foundry Nuke configs load.
+Official OpenImageIO wheels do not ship PyOpenColorIO.
 
-* ``PyOpenColorIO`` (opencolorio wheel) → **2.5.x**  — required for the
-  bundled ACES Studio v4 config (profile 2.5) and modern Foundry Nuke configs.
-* ``OpenImageIO/.dylibs/libOpenColorIO.2.4.0`` (oiio-python) → **2.4** —
-  used only by OIIO.
-
-Nuitka rewrites ``PyOpenColorIO.so`` to load the 2.4 dylib at
-``@executable_path`` and drops the 2.5 library. The GUI can still show a green
-status (builtin fallback) while convert fails on the real 2.5 config.
+Nuitka can still flatten or rewrite ``PyOpenColorIO.so`` / ``.pyd`` so it
+loads the wrong shared library (or drops the 2.5 library). The GUI can then
+show a green status (builtin fallback) while convert fails on the real 2.5
+config.
 
 This script:
 
 1. Requires a build-env ``PyOpenColorIO`` whose runtime is >= 2.5.
 2. Copies the correct OCIO shared lib next to ``PyOpenColorIO.so`` / ``.pyd``.
 3. Relinks the extension to that library (``@loader_path`` / ``$ORIGIN``).
-4. Leaves OIIO on 2.4 — it does not need profile-2.5 configs.
 
 Usage::
 
@@ -29,23 +26,16 @@ from __future__ import annotations
 
 import argparse
 import platform
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-_SCRIPTS = Path(__file__).resolve().parent
-if str(_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS))
-
-from oiio_ocio24 import OIIO_OCIO24_DLL, materialize_ocio24_dll, read_ocio24_dll_bytes  # noqa: E402
-
 REQUIRED = (2, 5, 0)
 
 
 def _parse_version(text: str) -> tuple[int, ...]:
-    import re
-
     nums = re.findall(r"\d+", text)
     return tuple(int(n) for n in nums[:3]) if nums else (0,)
 
@@ -111,9 +101,8 @@ def _replace_extension(dest_ext: Path, src_ext: Path) -> Path:
     """Overwrite the bundled extension with the build-env 2.5 module.
 
     Nuitka has been observed to ship a *different, smaller* ``.so`` that
-    references the OpenColorIO **v2_4** C++ ABI and links oiio’s 2.4 dylib.
-    Only swapping the dylib then fails with missing symbols; the extension
-    itself must be restored too.
+    references an older OpenColorIO C++ ABI. Only swapping the dylib then fails
+    with missing symbols; the extension itself must be restored too.
     """
     shutil.copy2(src_ext, dest_ext)
     print(
@@ -131,7 +120,7 @@ def _macos_fix(ext: Path, src_ext: Path, src_lib: Path) -> None:
         ["install_name_tool", "-id", "@loader_path/libOpenColorIO.dylib", str(dest_lib)]
     )
     # Ensure the extension loads the dylib sitting next to it (Nuitka may have
-    # rewritten the original to @executable_path/libOpenColorIO.2.4.0.dylib).
+    # rewritten the original install name to @executable_path).
     out = subprocess.check_output(["otool", "-L", str(ext)], text=True)
     for line in out.splitlines()[1:]:
         dep = line.strip().split(" ", 1)[0]
@@ -214,25 +203,6 @@ def _windows_copy_dll(src: Path, dests: list[Path]) -> None:
         print(f"fix_bundle_ocio: Windows - copied {dest}")
 
 
-def _windows_materialize_ocio24(work_dir: Path) -> Path:
-    """Ensure OpenColorIO_2_4.dll exists on disk; download from PyPI if needed."""
-    path = materialize_ocio24_dll(work_dir)
-    if path is not None and path.is_file():
-        return path
-    # Last resort: write into a temp file under work_dir via raw bytes
-    data = read_ocio24_dll_bytes()
-    if not data:
-        raise SystemExit(
-            "fix_bundle_ocio: cannot obtain OpenColorIO_2_4.dll "
-            "(not in env, uv cache, or PyPI oiio-python wheel). "
-            "Windows OpenImageIO.pyd will fail LoadLibrary."
-        )
-    dest = work_dir / OIIO_OCIO24_DLL
-    dest.write_bytes(data)
-    print(f"fix_bundle_ocio: wrote {dest} ({len(data)} bytes)")
-    return dest
-
-
 def _windows_dist_root(ext: Path) -> Path:
     """Best-effort Nuitka dist root (folder with exr_converter.exe or *.dist)."""
     cur = ext.parent
@@ -246,16 +216,10 @@ def _windows_dist_root(ext: Path) -> Path:
 
 
 def _windows_fix(ext: Path, src_ext: Path, src_lib: Path) -> None:
-    """Restore PyOpenColorIO 2.5 *and* keep OIIO's OpenColorIO 2.4 DLL.
-
-    oiio-python's Windows wheel ships ``OpenColorIO_2_4.dll`` under
-    ``PyOpenColorIO/``. Reinstalling opencolorio 2.5 for the app removes that
-    file; OpenImageIO.pyd then fails with LoadLibraryExW "module not found".
-    """
+    """Restore PyOpenColorIO 2.5 next to the extension and dist root."""
     ext = _replace_extension(ext, src_ext)
     dist_root = _windows_dist_root(ext)
 
-    # App OCIO 2.5 — next to PyOpenColorIO.pyd and dist root.
     # Keep the exact filename from the opencolorio wheel (OpenColorIO_2_5.dll).
     _windows_copy_dll(
         src_lib,
@@ -264,42 +228,6 @@ def _windows_fix(ext: Path, src_ext: Path, src_lib: Path) -> None:
             dist_root / src_lib.name,
         ],
     )
-
-    # OIIO OCIO 2.4 — required for OpenImageIO.pyd LoadLibrary on Windows.
-    # Fetch from env / uv cache / PyPI if ensure_ocio did not already place it.
-    staging = dist_root / "_ocio24_staging"
-    ocio24 = _windows_materialize_ocio24(staging)
-
-    dests_24 = [
-        dist_root / OIIO_OCIO24_DLL,
-        dist_root / "OpenImageIO" / OIIO_OCIO24_DLL,
-    ]
-    for oiio_pyd in dist_root.rglob("OpenImageIO*.pyd"):
-        dests_24.append(oiio_pyd.parent / OIIO_OCIO24_DLL)
-    # Also next to flattened openimageio.dll (Nuitka lowercases some names)
-    for dll in dist_root.glob("[Oo]pen[Ii]mage[Ii][Oo]*.dll"):
-        dests_24.append(dll.parent / OIIO_OCIO24_DLL)
-
-    _windows_copy_dll(ocio24, dests_24)
-
-    # Hard fail if still missing (case-insensitive check on Windows).
-    found = any(
-        p.is_file()
-        for p in dist_root.rglob("*")
-        if p.is_file() and p.name.lower() == OIIO_OCIO24_DLL.lower()
-    )
-    if not found:
-        raise SystemExit(f"fix_bundle_ocio: {OIIO_OCIO24_DLL} still missing under {dist_root}")
-    print(f"fix_bundle_ocio: verified {OIIO_OCIO24_DLL} present in Windows bundle")
-
-    # Cleanup staging dir if empty of other files
-    try:
-        if staging.is_dir():
-            for p in staging.iterdir():
-                p.unlink(missing_ok=True)
-            staging.rmdir()
-    except OSError:
-        pass
 
 
 def fix_bundle(root: Path) -> None:

@@ -124,10 +124,12 @@ Prefer `make` / `uv run` over system `python` so the project venv is used.
 
 ### OCIO pitfall
 
-Bundled ACES Studio config needs **OpenColorIO 2.5+**. Installing or upgrading
-`oiio-python` can rewire `PyOpenColorIO` to a vendored **2.4** dylib. Symptom:
-config version 2.5 cannot load on library 2.4. Fix: `make ensure-ocio` or
-`make sync` (`scripts/ensure_ocio.py`).
+Bundled ACES Studio config needs **OpenColorIO 2.5+**, which comes from the
+independent `opencolorio` package. Official `OpenImageIO` wheels do **not**
+ship `PyOpenColorIO`. Symptom if the runtime is too old: config version 2.5
+cannot load. Fix: `make ensure-ocio` or `make sync` (`scripts/ensure_ocio.py`).
+Nuitka standalone builds still run `scripts/fix_bundle_ocio.py` so
+`PyOpenColorIO` keeps the 2.5 shared library.
 
 ### Qt / tests
 
@@ -377,7 +379,7 @@ applies).
 | Tag exists locally not on remote | After merge, retag if needed, `git push origin vX.Y.Z`. Never force-push a published public tag lightly |
 | Gate red on Release | Fix forward with a new patch; prefer not rewriting a published tag |
 | Wrong version in GUI binary | Tag must be `vX.Y.Z` matching `pyproject.toml`; Nuitka must include that file (`--include-data-files=pyproject.toml=pyproject.toml`) |
-| OCIO 2.4 vs 2.5 in CI/local | `scripts/ensure_ocio.py` / `make ensure-ocio` |
+| PyOpenColorIO not 2.5+ / Nuitka linkage | `scripts/ensure_ocio.py` / `make ensure-ocio`; bundles: `scripts/fix_bundle_ocio.py` |
 | `Unable to reserve cache` (setup-uv) | Benign race if two writers share a key; CI/Release use `cache-suffix` + lint `save-cache: false` |
 | Two Release runs for one tag | Concurrency group `release-vX.Y.Z` queues; avoid double-trigger (tag push + dispatch) |
 

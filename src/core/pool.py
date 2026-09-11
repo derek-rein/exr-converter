@@ -35,7 +35,7 @@ def _ensure_cpu(
             return cached
 
     # Prefer the shared loader so version-mismatch errors include the fix hint
-    # (oiio-python can rewire PyOpenColorIO onto a 2.4 dylib).
+    # (Nuitka / a stale venv can leave PyOpenColorIO on a library older than 2.5).
     cfg = load_config_from_source_info(config_source, config_path)
     proc = cfg.getProcessor(src_space, dst_space).getDefaultCPUProcessor()
 

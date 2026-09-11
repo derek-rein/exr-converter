@@ -33,7 +33,7 @@ help:
 	@echo ""
 	@echo "  make run                               # launch the GUI"
 	@echo "  make sync                              # uv sync + ensure OCIO 2.5+ linkage"
-	@echo "  make ensure-ocio                       # repair OpenColorIO if oiio rewired it to 2.4"
+	@echo "  make ensure-ocio                       # repair OpenColorIO if runtime is older than 2.5"
 	@echo "  make lint / fmt                        # ruff check / format"
 	@echo "  make typecheck                         # basedpyright"
 	@echo "  make test / make test-unit             # full suite / unit tests only"
@@ -55,8 +55,8 @@ help:
 	@echo "Current tags: git tag -l 'v*' --sort=-v:refname | head"
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
-# oiio-python can rewire PyOpenColorIO.so to its vendored OCIO 2.4 dylib, which
-# cannot load the bundled ACES Studio v4 config (profile 2.5). Reinstall OCIO last.
+# Bundled ACES Studio v4 needs OpenColorIO 2.5+. Official OpenImageIO wheels
+# do not ship PyOpenColorIO; still verify the independent opencolorio wheel.
 
 sync:
 	$(UV) sync
@@ -160,7 +160,7 @@ bundle: resources
 		--include-module=exr_prores \
 		$(ENTRY)
 	mv dist/main.app "dist/$(MACOS_BUNDLE_NAME).app"
-	# Nuitka rewires PyOpenColorIO → OIIO’s OCIO 2.4; put 2.5 back.
+	# Nuitka can rewrite PyOpenColorIO away from the 2.5 library; put 2.5 back.
 	$(PYTHON) scripts/fix_bundle_ocio.py "dist/$(MACOS_BUNDLE_NAME).app"
 	# Optional R3D runtime (bridge + RED Redistributable only) into private app dir.
 	-$(PYTHON) scripts/install_r3d_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"

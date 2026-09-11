@@ -47,7 +47,7 @@ Then open it normally (double-click, or right-click → **Open**). If macOS stil
 |-------|--------|
 | **Language & tooling** | Python 3.13, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [Nuitka](https://nuitka.net/) for standalone bundles |
 | **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.8), Nuke-inspired dark theme |
-| **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`oiio-python`), [OpenColorIO 2.5](https://opencolorio.org/) display/render transforms with a wide-gamut scene-linear **compositing space** for all overlay (slate / burn-in / watermark) compositing — prefers **ACES2065-1 (AP0)** via the `aces_interchange` role so sRGB-authored overlays are linearised and alpha-over'd without ever clipping or shifting the user's footage; falls back to the `scene_linear` role (e.g. ACEScg) on non-ACES configs.<br>Bundles the official **ACES Studio Config v4** (from [ASWF OpenColorIO-Config-ACES](https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES), BSD-3-Clause) which includes dozens of camera IDTs including **Apple Log** (iPhone 15/16 Pro cinematic / ProRes Log), ARRI LogC3/4, RED Log3G10, Sony S-Log/Venice, Canon, DJI, and many more. |
+| **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`OpenImageIO` 3.1+), [OpenColorIO 2.5](https://opencolorio.org/) display/render transforms with a wide-gamut scene-linear **compositing space** for all overlay (slate / burn-in / watermark) compositing — prefers **ACES2065-1 (AP0)** via the `aces_interchange` role so sRGB-authored overlays are linearised and alpha-over'd without ever clipping or shifting the user's footage; falls back to the `scene_linear` role (e.g. ACEScg) on non-ACES configs.<br>Bundles the official **ACES Studio Config v4** (from [ASWF OpenColorIO-Config-ACES](https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES), BSD-3-Clause) which includes dozens of camera IDTs including **Apple Log** (iPhone 15/16 Pro cinematic / ProRes Log), ARRI LogC3/4, RED Log3G10, Sony S-Log/Venice, Canon, DJI, and many more. |
 | **Video & sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences & ranges; optional **RED R3D SDK** bridge for `.r3d` / `.nev`; optional **oxideav-prores** PyO3 extension (`exr_prores`) for experimental cross-platform **12-bit** ProRes-compatible encode in release builds |
 | **Slate / burn-in / watermark** | Native **QPainter** preview and offscreen capture (no embedded browser); burn-in and watermark are linearised into the working space and alpha-composited per-frame, then OCIO-transformed to display before encode |
 
@@ -165,10 +165,10 @@ cd exr-converter
 make sync   # uv sync + ensure OpenColorIO 2.5+ (see below)
 ```
 
-> **OpenColorIO 2.5 note:** The bundled ACES Studio config needs OCIO **2.5+**.
-> Installing / upgrading `oiio-python` can rewire `PyOpenColorIO` to its vendored
-> **2.4** dylib. If you see *“config is version 2.5… library (2.4.0) is not able
-> to load”*, run `make ensure-ocio` (or `make sync`).
+> **OpenColorIO 2.5 note:** The bundled ACES Studio config needs OCIO **2.5+**,
+> which comes from the independent `opencolorio` package (not OpenImageIO).
+> If you see *“config is version 2.5… library is not able to load”*, run
+> `make ensure-ocio` (or `make sync`).
 
 ## Building from source
 

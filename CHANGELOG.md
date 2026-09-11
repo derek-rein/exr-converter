@@ -13,6 +13,13 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Changed
+
+- **OpenImageIO:** official ASWF wheels (`OpenImageIO` ≥ 3.1.17) instead of
+  unofficial `oiio-python`. Same `import OpenImageIO as oiio`; EXR / DPX / PNG /
+  JPEG / WebP unchanged. App color management stays on independent
+  **OpenColorIO 2.5.2+** (`opencolorio`). NumPy is no longer capped at 2.2.6.
+
 ---
 
 ## [0.9.12] — 2026-09-05
