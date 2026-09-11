@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.9.13] — 2026-09-11
+
 ### Changed
 
 - **OpenImageIO:** official ASWF wheels (`OpenImageIO` ≥ 3.1.17) instead of
@@ -736,7 +740,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.9.12...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.9.13...HEAD
+[0.9.13]: https://github.com/derek-rein/exr-converter/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/derek-rein/exr-converter/compare/v0.9.11...v0.9.12
 [0.9.11]: https://github.com/derek-rein/exr-converter/compare/v0.9.10...v0.9.11
 [0.9.10]: https://github.com/derek-rein/exr-converter/compare/v0.9.9...v0.9.10
