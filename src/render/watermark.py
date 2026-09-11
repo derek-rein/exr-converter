@@ -106,6 +106,8 @@ def composite_watermark(
 
     result_buf = oiio.ImageBufAlgo.over(fg_buf, bg_buf)
     pixels = result_buf.get_pixels(oiio.FLOAT)
+    if pixels is None:
+        raise RuntimeError(f"OIIO over() returned no pixels: {result_buf.geterror()}")
     rgb = pixels[:, :, :3]
     return np.clip(rgb * 65535.0, 0.0, 65535.0).astype(np.uint16)
 

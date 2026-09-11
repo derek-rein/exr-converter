@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Ensure the runtime OpenColorIO library is 2.5+ (matches the bundled config).
 
-``oiio-python`` sometimes rewires ``PyOpenColorIO`` to its vendored OpenColorIO
-**2.4**. This script reinstalls ``opencolorio`` so PyOpenColorIO is 2.5+ again.
+App color management uses the independent ``opencolorio`` wheel
+(``PyOpenColorIO``). Official ``OpenImageIO`` wheels do not ship PyOpenColorIO
+and no longer rewire it onto a vendored 2.4 library.
 
-**Windows:** reinstalling opencolorio overwrites oiio's ``PyOpenColorIO/`` tree
-and drops ``OpenColorIO_2_4.dll``, which OpenImageIO still needs. We restore
-that DLL next to the OpenImageIO package for Nuitka packaging / LoadLibrary.
+This script still reinstalls ``opencolorio`` if the linked runtime is older
+than 2.5 (broken env, stale venv, or a Nuitka bundle that needs repair).
 """
 
 from __future__ import annotations
@@ -17,14 +17,7 @@ import sys
 from pathlib import Path
 
 REQUIRED = (2, 5, 0)
-PACKAGE = "opencolorio>=2.5.1"
-
-# Shared helper lives next to this script.
-_SCRIPTS = Path(__file__).resolve().parent
-if str(_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS))
-
-from oiio_ocio24 import materialize_ocio24_dll, oiio_package_dir  # noqa: E402
+PACKAGE = "opencolorio>=2.5.2"
 
 
 def _parse_version(text: str) -> tuple[int, ...]:
@@ -50,25 +43,6 @@ def _is_broken() -> tuple[bool, str]:
     if _parse_version(ver) < REQUIRED:
         return True, ver
     return False, ver
-
-
-def _preserve_oiio_ocio24_dll() -> None:
-    """Keep OpenColorIO_2_4.dll next to OpenImageIO for Windows LoadLibrary."""
-    oiio = oiio_package_dir()
-    if oiio is None:
-        return
-    if sys.platform != "win32":
-        # Still useful if a Windows wheel was inspected cross-platform; no-op OK.
-        pass
-    path = materialize_ocio24_dll(oiio)
-    if path is None and sys.platform == "win32":
-        print(
-            "ensure_ocio: WARNING — could not restore OpenColorIO_2_4.dll; "
-            "Windows OpenImageIO.pyd may fail LoadLibrary in the Nuitka bundle.",
-            file=sys.stderr,
-        )
-    elif path is not None:
-        print(f"ensure_ocio: OIIO OCIO 2.4 ready at {path}")
 
 
 def _reinstall() -> int:
@@ -114,12 +88,10 @@ def main() -> int:
     broken, ver = _is_broken()
     if not broken:
         print(f"ensure_ocio: OK - OpenColorIO {ver}")
-        _preserve_oiio_ocio24_dll()
         return 0
 
     print(
         f"ensure_ocio: OpenColorIO runtime is {ver!r}, need >= {'.'.join(map(str, REQUIRED))}.\n"
-        "  (oiio-python often rewires PyOpenColorIO to its vendored 2.4 library.)\n"
         f"  Reinstalling {PACKAGE} ...",
         file=sys.stderr,
     )
@@ -133,7 +105,6 @@ def main() -> int:
         return 2
 
     print(f"ensure_ocio: repaired - OpenColorIO {ver}")
-    _preserve_oiio_ocio24_dll()
 
     try:
         code = "import PyOpenColorIO as o; print(o.__file__)"

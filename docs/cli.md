@@ -218,7 +218,7 @@ otherwise.
   (`ACEScg` / scene_linear for video→EXR; Rec.709 for EXR→video), not media
   probing. Names remap via `find_equivalent_space` when needed.
 - Packaged app needs **OpenColorIO 2.5+** for the bundled ACES Studio v4 config.
-  From source: `make ensure-ocio` if OIIO rewired you to 2.4.
+  From source: `make ensure-ocio` if the runtime library is older than 2.5.
 
 ---
 

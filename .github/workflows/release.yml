@@ -152,8 +152,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
-      # oiio-python can rewire PyOpenColorIO to a vendored 2.4 dylib; bundled
-      # ACES Studio is config v2.5 and needs library 2.5+ (same as CI).
+      # Bundled ACES Studio is config v2.5 and needs library 2.5+.
       - name: Ensure OpenColorIO 2.5+ linkage
         run: uv run python scripts/ensure_ocio.py
 
@@ -252,7 +251,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends patchelf
 
-      # oiio-python may rewire PyOpenColorIO.so → OCIO 2.4; reinstall 2.5 first.
+      # Confirm PyOpenColorIO.so stays on OCIO 2.5 (not a stale/vendored library).
       - name: Ensure OpenColorIO 2.5+ linkage
         run: uv run python scripts/ensure_ocio.py
 
@@ -380,9 +379,8 @@ jobs:
         if: runner.os == 'macOS'
         run: mv dist/main.app "dist/EXR Converter.app"
 
-      # Nuitka often links PyOpenColorIO.so to OIIO’s libOpenColorIO.2.4.0.dylib
-      # and drops the 2.5 dylib. Re-copy 2.5 and rewrite the install name so the
-      # bundled ACES Studio v4 config (profile 2.5) can load.
+      # Nuitka can flatten/relink PyOpenColorIO.so away from the 2.5 library.
+      # Restore 2.5 from the build env and rewrite the install name.
       - name: Fix OpenColorIO 2.5 linkage in bundle
         shell: bash
         run: |
@@ -391,13 +389,12 @@ jobs:
           else
             uv run python scripts/fix_bundle_ocio.py dist/main.dist
           fi
-          # Windows: OIIO needs OpenColorIO_2_4.dll on the DLL search path.
           if [ "$RUNNER_OS" == "Windows" ]; then
             echo "--- OCIO / OIIO DLLs in dist ---"
             find dist/main.dist -iname '*OpenColorIO*' -o -iname 'OpenImageIO*' 2>/dev/null | sort || true
-            test -f dist/main.dist/OpenColorIO_2_4.dll \
-              || find dist/main.dist -name 'OpenColorIO_2_4.dll' | grep -q . \
-              || { echo "ERROR: OpenColorIO_2_4.dll missing from Windows bundle" >&2; exit 1; }
+            test -f dist/main.dist/OpenColorIO_2_5.dll \
+              || find dist/main.dist -name 'OpenColorIO_2_5.dll' | grep -q . \
+              || { echo "ERROR: OpenColorIO_2_5.dll missing from Windows bundle" >&2; exit 1; }
           fi
 
       # Ship only Redistributable dylibs/so/dll + our bridge (private app dir).

@@ -149,7 +149,7 @@ long (text elides; width follows the layout).
   space via interchange when the user config provides it. Convert of *your*
   footage still uses only the selected config.
 - Bundled ACES Studio needs **OpenColorIO 2.5+**. From source, run
-  `make ensure-ocio` if OIIO rewired you to 2.4.
+  `make ensure-ocio` if the runtime library is older than 2.5.
 
 ---
 
