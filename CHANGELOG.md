@@ -20,6 +20,9 @@ rolling the `[Unreleased]` section into a versioned heading.
   `VARIANT` / `BSTR` / `BOOL`, and the Win dispatch factory entry point).
   Linux is unchanged. After merge, re-dispatch Release for `v0.10.0` from
   `main` with `source_ref=main` so Mac/Win binaries can ship `.braw` support.
+- **Windows BRAW bridge link:** compile MIDL ``BlackmagicRawAPI_i.c`` so
+  ``IID_IBlackmagicRaw*`` COM GUIDs resolve (header + dispatch obj only
+  declared them). Re-dispatch Release the same way after this lands.
 
 ---
 

@@ -45,27 +45,46 @@ def _header_ok(include: Path) -> bool:
     ).is_file()
 
 
+def _find_iid_c(include: Path) -> Path | None:
+    """MIDL IID definitions (``BlackmagicRawAPI_i.c``) — required on Windows."""
+    exact = include / "BlackmagicRawAPI_i.c"
+    if exact.is_file():
+        return exact
+    matches = sorted(include.glob("*_i.c"))
+    return matches[0] if matches else None
+
+
 def _prepare_windows_include(include: Path, out_dir: Path) -> Path:
-    """Generate BlackmagicRawAPI.h from the official IDL when missing (Win SDK)."""
-    if (include / "BlackmagicRawAPI.h").is_file():
-        return include
+    """Stage Win headers and generate BlackmagicRawAPI.h + *_i.c via MIDL.
+
+    The MIDL header only *declares* ``IID_IBlackmagicRaw*``. Definitions live in
+    ``BlackmagicRawAPI_i.c`` (``/iid``). Linking the dispatch obj alone is not
+    enough — those GUID symbols must be compiled in.
+    """
     idl = include / "BlackmagicRawAPI.idl"
-    if not idl.is_file():
-        raise SystemExit(
-            f"Windows BRAW SDK missing BlackmagicRawAPI.h and .idl under {include}"
-        )
+    if not (include / "BlackmagicRawAPI.h").is_file() and not idl.is_file():
+        raise SystemExit(f"Windows BRAW SDK missing BlackmagicRawAPI.h and .idl under {include}")
     gen = out_dir / "win_include"
     gen.mkdir(parents=True, exist_ok=True)
     for name in (
         "BlackmagicRawAPIDispatch.h",
         "BlackmagicRawAPIDispatch.cpp",
         "BlackmagicRawAPI.idl",
+        "BlackmagicRawAPI.h",
+        "BlackmagicRawAPI_i.c",
     ):
         src = include / name
-        if src.is_file():
+        if src.is_file() and not (gen / name).is_file():
             shutil.copy2(src, gen / name)
     generated = gen / "BlackmagicRawAPI.h"
-    if not generated.is_file():
+    iid_c = _find_iid_c(gen)
+    if not generated.is_file() or iid_c is None:
+        staged_idl = gen / "BlackmagicRawAPI.idl"
+        if not staged_idl.is_file():
+            raise SystemExit(
+                f"Windows BRAW SDK missing BlackmagicRawAPI.idl under {include} "
+                "(needed to generate COM IID source)"
+            )
         cmd = [
             "midl.exe",
             "/nologo",
@@ -75,16 +94,24 @@ def _prepare_windows_include(include: Path, out_dir: Path) -> Path:
             "/env",
             "x64",
             "/Oicf",
+            "/notlb",
             "/out",
             str(gen),
             "/h",
             "BlackmagicRawAPI.h",
-            str(gen / "BlackmagicRawAPI.idl"),
+            "/iid",
+            "BlackmagicRawAPI_i.c",
+            str(staged_idl),
         ]
-        safe_print("Generating BlackmagicRawAPI.h via midl ...", file=sys.stderr)
+        safe_print(
+            "Generating BlackmagicRawAPI.h + BlackmagicRawAPI_i.c via midl ...",
+            file=sys.stderr,
+        )
         subprocess.check_call(cmd)
     if not generated.is_file():
         raise SystemExit("midl did not produce BlackmagicRawAPI.h")
+    if _find_iid_c(gen) is None:
+        raise SystemExit("midl did not produce BlackmagicRawAPI_i.c (COM IID definitions)")
     return gen
 
 
@@ -182,9 +209,7 @@ def build(include: Path, libraries: Path, out_dir: Path, verbose: bool) -> Path:
         include = _prepare_windows_include(include, out_dir)
         # Factory entry points live in BlackmagicRawAPIDispatch.h (not the MIDL header).
         if not (include / "BlackmagicRawAPIDispatch.h").is_file():
-            raise SystemExit(
-                f"Windows BRAW SDK missing BlackmagicRawAPIDispatch.h under {include}"
-            )
+            raise SystemExit(f"Windows BRAW SDK missing BlackmagicRawAPIDispatch.h under {include}")
     dispatch = _find_dispatch(include)
     if system == "Windows":
         win_common = [
@@ -204,12 +229,27 @@ def build(include: Path, libraries: Path, out_dir: Path, verbose: bool) -> Path:
         if dispatch is not None:
             sources.append(dispatch)
         else:
-            raise SystemExit(
-                f"Missing BlackmagicRawAPIDispatch.cpp next to headers in {include}"
-            )
+            raise SystemExit(f"Missing BlackmagicRawAPIDispatch.cpp next to headers in {include}")
+        iid_c = _find_iid_c(include)
+        if iid_c is None:
+            raise SystemExit(f"Missing BlackmagicRawAPI_i.c (MIDL IID definitions) under {include}")
+        sources.append(iid_c)
         for src in sources:
             obj = out_dir / f"{src.stem}.obj"
-            cmd = [*win_common, str(src), f"/Fo{obj}"]
+            if src.suffix.lower() == ".c":
+                cmd = [
+                    "cl.exe",
+                    "/nologo",
+                    "/O2",
+                    "/MD",
+                    f"/I{include}",
+                    f"/I{HDR_DIR}",
+                    "/c",
+                    str(src),
+                    f"/Fo{obj}",
+                ]
+            else:
+                cmd = [*win_common, str(src), f"/Fo{obj}"]
             if verbose:
                 print(" ".join(cmd), file=sys.stderr)
             subprocess.check_call(cmd)
@@ -244,9 +284,7 @@ def build(include: Path, libraries: Path, out_dir: Path, verbose: bool) -> Path:
         if dispatch is not None:
             sources.append(dispatch)
         elif system == "Linux":
-            raise SystemExit(
-                f"Missing BlackmagicRawAPIDispatch.cpp next to headers in {include}"
-            )
+            raise SystemExit(f"Missing BlackmagicRawAPIDispatch.cpp next to headers in {include}")
         for src in sources:
             obj = out_dir / f"{src.stem}.o"
             compile_cpp = [cxx, *common, "-c", str(src), "-o", str(obj)]
