@@ -80,15 +80,18 @@ def _stream_basics(stream) -> tuple[int, int, float, int, str, str]:
 
 
 def probe_video(path: str) -> tuple[int, int, float, int]:
-    """Return (width, height, fps, frame_count) using PyAV or the R3D SDK.
+    """Return (width, height, fps, frame_count) using PyAV or optional RAW SDKs.
 
-    RED R3D / N-RAW (``.r3d`` / ``.nev``) use the optional R3D bridge when
-    available. Other formats use PyAV, falling back through codec_context, a
-    deep libavformat probe, and a single-frame decode when the default probe
-    doesn't surface stream attributes (e.g. Sony Venice MXFs).
+    RED R3D / N-RAW (``.r3d`` / ``.nev``) and Blackmagic RAW (``.braw``) use
+    the optional native bridges when available. Other formats use PyAV, falling
+    back through codec_context, a deep libavformat probe, and a single-frame
+    decode when the default probe doesn't surface stream attributes
+    (e.g. Sony Venice MXFs).
     """
     from pathlib import Path
 
+    from .braw import is_available as braw_available
+    from .braw import is_braw_path, probe_braw
     from .r3d import is_available as r3d_available
     from .r3d import is_r3d_path, probe_r3d
 
@@ -102,6 +105,13 @@ def probe_video(path: str) -> tuple[int, int, float, int]:
 
             raise RuntimeError(unavailable_reason())
         return probe_r3d(path)
+
+    if is_braw_path(path):
+        if not braw_available():
+            from .braw import unavailable_reason
+
+            raise RuntimeError(unavailable_reason())
+        return probe_braw(path)
 
     import av
 
@@ -288,10 +298,13 @@ def guess_video_colorspace_candidates(path: str) -> list[str]:
     characteristics. The caller should try each candidate through alias
     resolution until one matches the active OCIO config.
     """
+    from .braw import braw_src_colorspace_candidates, is_braw_path
     from .r3d import is_r3d_path, r3d_src_colorspace_candidates
 
     if is_r3d_path(path):
         return r3d_src_colorspace_candidates(path)
+    if is_braw_path(path):
+        return braw_src_colorspace_candidates(path)
 
     import av
 
@@ -409,6 +422,7 @@ _VIDEO_SUFFIXES = {
     ".ts",
     ".r3d",
     ".nev",
+    ".braw",
 }
 
 # OS / desktop metadata that often sits next to media and can share an extension
@@ -459,7 +473,9 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
         if entry.suffix.lower() not in _VIDEO_SUFFIXES:
             continue
         row: dict[str, str] = {"name": entry.name, "path": str(entry)}
-        # R3D / N-RAW — PyAV cannot probe these; use the optional SDK bridge.
+        # R3D / N-RAW / BRAW — PyAV cannot probe these; use optional SDK bridges.
+        from .braw import is_available as braw_available
+        from .braw import is_braw_path, probe_braw
         from .r3d import is_available as r3d_available
         from .r3d import is_r3d_path, probe_r3d
 
@@ -483,6 +499,31 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
             except Exception:
                 row.setdefault("resolution", "")
                 row.setdefault("codec", "R3D")
+                row.setdefault("fps", "")
+                row.setdefault("duration", "")
+            results.append(row)
+            continue
+
+        if is_braw_path(entry):
+            try:
+                if braw_available():
+                    vw, vh, fps, nframes = probe_braw(entry)
+                    row["resolution"] = f"{vw}x{vh}" if vw and vh else ""
+                    row["codec"] = "BRAW"
+                    row["fps"] = f"{fps:.3f}".rstrip("0").rstrip(".") if fps else ""
+                    if nframes and fps:
+                        dur = nframes / fps
+                        row["duration"] = f"{dur:.2f}s"
+                    else:
+                        row["duration"] = ""
+                else:
+                    row["resolution"] = ""
+                    row["codec"] = "BRAW (SDK missing)"
+                    row["fps"] = ""
+                    row["duration"] = ""
+            except Exception:
+                row.setdefault("resolution", "")
+                row.setdefault("codec", "BRAW")
                 row.setdefault("fps", "")
                 row.setdefault("duration", "")
             results.append(row)

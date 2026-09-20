@@ -85,14 +85,17 @@ uv run python main.py video2exr -i plate.mov --frame-range 1-100 --workers 4
 # Optional RED R3D / N-RAW (requires local R3D SDK bridge — docs/r3d.md):
 uv run python main.py video2exr -i clip.R3D -o /tmp/exr_out \
   --src "Log3G10 REDWideGamutRGB" --dst ACEScg
+# Optional Blackmagic RAW (requires local BRAW SDK bridge — docs/braw.md):
+uv run python main.py video2exr -i clip.braw -o /tmp/exr_out \
+  --src ACES2065-1 --dst ACEScg
 ```
 
 | Option | Default | Notes |
 |--------|---------|--------|
-| `-i` / `--input` | *(required)* | Input video file (also `.r3d` / `.nev` when R3D support is built) |
+| `-i` / `--input` | *(required)* | Input video file (also `.r3d` / `.nev` when R3D support is built; `.braw` when BRAW support is built) |
 | `-o` / `--output-dir` | `<input_dir>/<stem>/` | Directory for EXR frames |
 | `--ocio` | bundled / `$OCIO` | Config file path |
-| `--src` | auto | Stream color tags / codec ranking → **`Output - Rec.709`** (alias-resolved). R3D/N-RAW defaults toward **Log3G10 REDWideGamutRGB**. Not an OIIO still probe. |
+| `--src` | auto | Stream color tags / codec ranking → **`Output - Rec.709`** (alias-resolved). R3D/N-RAW defaults toward **Log3G10 REDWideGamutRGB**. BRAW defaults toward **ACES2065-1** (Linear ACES AP0). Not an OIIO still probe. |
 | `--dst` | `ACEScg` / scene_linear | Destination scene space (role fallbacks; not media probing) |
 | `--exr-compression` | `dwaa` | `none`, `rle`, `zip`, `zips`, `piz`, `pxr24`, `b44`, `b44a`, `dwaa`, `dwab` |
 | `--dwa-level` | library | DWA level for `dwaa`/`dwab` (`0` = lossless) |
@@ -110,6 +113,11 @@ uv run python main.py video2exr -i clip.R3D -o /tmp/exr_out \
 **RED R3D / N-RAW:** optional. Requires building the R3D bridge against the
 official proprietary SDK — see [r3d.md](./r3d.md). Without it, `.r3d` / `.nev`
 inputs error with a clear missing-SDK message.
+
+**Blackmagic RAW:** optional. Requires building the BRAW bridge against the
+official proprietary SDK — see [braw.md](./braw.md). Without it, `.braw`
+inputs error with a clear missing-SDK message. Decode is Linear ACES AP0
+(CPU).
 
 ---
 

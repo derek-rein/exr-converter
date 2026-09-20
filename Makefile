@@ -8,7 +8,7 @@
 #   make release PUSH=0                   # … local only; push branch + tag yourself to trigger CI
 
 .PHONY: help run lint typecheck fmt test test-unit resources bundle clean bump release \
-	sync ensure-ocio docs-serve docs-build r3d-bridge r3d-sdk-fetch oxideav-prores
+	sync ensure-ocio docs-serve docs-build r3d-bridge r3d-sdk-fetch braw-bridge oxideav-prores
 
 APP_NAME := exr_converter
 MACOS_BUNDLE_NAME := EXR Converter
@@ -43,6 +43,7 @@ help:
 	@echo "  make docs-serve / docs-build           # Hugo site from docs/ (local / CI)"
 	@echo "  make r3d-sdk-fetch                     # download private R3D SDK (CI feed / gh auth)"
 	@echo "  make r3d-bridge                        # build optional RED R3D bridge (needs SDK)"
+	@echo "  make braw-bridge                       # build optional Blackmagic RAW bridge (needs SDK)"
 	@echo "  make oxideav-prores                    # build PyO3 oxideav 12-bit ProRes extension"
 	@echo ""
 	@echo "  make bump PART=patch|minor|major       # bump version (no git)"
@@ -73,6 +74,11 @@ r3d-sdk-fetch:
 
 r3d-bridge:
 	$(PYTHON) scripts/build_r3d_bridge.py
+
+# Optional Blackmagic RAW SDK bridge (proprietary SDK; not required for normal builds).
+# Discovers BRAW_SDK_ROOT, ~/.braw-sdk, or /usr/lib64/blackmagic/BlackmagicRAWSDK.
+braw-bridge:
+	$(PYTHON) scripts/build_braw_bridge.py
 
 # Optional true 12-bit ProRes (oxideav-prores via PyO3). Needs Rust + maturin.
 oxideav-prores:
@@ -122,6 +128,8 @@ bundle: resources
 	$(PYTHON) scripts/ensure_ocio.py
 	# Optional R3D: build bridge when SDK is present (local stash or prior fetch).
 	-@$(PYTHON) scripts/build_r3d_bridge.py
+	# Optional BRAW: build bridge when Blackmagic RAW SDK is present.
+	-@$(PYTHON) scripts/build_braw_bridge.py
 	# Optional oxideav 12-bit ProRes PyO3 extension (skip quietly if no Rust).
 	-@$(PYTHON) scripts/build_oxideav_prores.py
 	$(PYTHON) -m nuitka \
@@ -164,6 +172,8 @@ bundle: resources
 	$(PYTHON) scripts/fix_bundle_ocio.py "dist/$(MACOS_BUNDLE_NAME).app"
 	# Optional R3D runtime (bridge + RED Redistributable only) into private app dir.
 	-$(PYTHON) scripts/install_r3d_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
+	# Optional BRAW runtime (bridge + Blackmagic Libraries only) into private app dir.
+	-$(PYTHON) scripts/install_braw_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
 
 # ── Docs site (Hugo → GitHub Pages) ──────────────────────────────────────────
 # Source of truth: docs/*.md  ·  site config/theme: site/  ·  preview: http://127.0.0.1:1313/
