@@ -28,6 +28,17 @@ failed — dual triggers race and waste runner minutes.
 not match `pyproject.toml` version (except explicit emergency
 `source_ref=` rebuilds).
 
+**Emergency rebuild of an existing tag** (packaging / native-bridge hotfix on
+`main`, same version, do not move the published tag):
+
+```bash
+gh workflow run Release --ref main -f tag=v0.10.0 -f source_ref=main
+```
+
+That checks out `main` for the build while still publishing GitHub Release
+`v0.10.0`. A plain re-run of the failed tag job will **not** pick up commits
+that landed after the tag.
+
 **Provenance:** each asset gets a Cosign `.sigstore.json` bundle **and** a
 GitHub Attestations record (`gh attestation verify`). Release notes include the
 CHANGELOG section for that version plus verify commands. Optional SignPath

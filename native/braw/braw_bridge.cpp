@@ -26,6 +26,10 @@
 
 #if defined(_WIN32)
 #  include <ole2.h>
+#  include <oleauto.h>
+#  include "BlackmagicRawAPIDispatch.h"
+/* Win SDK uses COM VARIANT; Mac/Linux headers typedef their own Variant. */
+using Variant = VARIANT;
 #elif defined(__APPLE__)
 #  include <CoreFoundation/CoreFoundation.h>
 #endif
@@ -90,13 +94,15 @@ BmdStr make_bmd_string(const char *utf8) {
     if (utf8 == nullptr) {
         return nullptr;
     }
-    const int n = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, nullptr, 0);
-    if (n <= 0) {
+    /* -1 includes the trailing NUL; SysAllocStringLen adds its own terminator. */
+    const int needed = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, nullptr, 0);
+    if (needed <= 0) {
         return nullptr;
     }
-    BSTR s = SysAllocStringLen(nullptr, static_cast<UINT>(n));
+    const UINT wchar_count = static_cast<UINT>(needed - 1);
+    BSTR s = SysAllocStringLen(nullptr, wchar_count);
     if (s != nullptr) {
-        MultiByteToWideChar(CP_UTF8, 0, utf8, -1, s, n);
+        MultiByteToWideChar(CP_UTF8, 0, utf8, -1, s, needed);
     }
     return s;
 }
@@ -180,12 +186,40 @@ private:
     BmdStr m_str;
 };
 
+/* REFIID is GUID/IID& on Win/Linux and CFUUIDBytes on Mac — no operator== on Mac. */
+bool iid_equals(REFIID a, REFIID b) { return std::memcmp(&a, &b, sizeof(a)) == 0; }
+
+bool iid_is_iunknown(REFIID iid) {
+#if defined(_WIN32)
+    return iid_equals(iid, IID_IUnknown);
+#elif defined(__APPLE__)
+#  if defined(IUnknownUUID)
+    const CFUUIDBytes unknown = CFUUIDGetUUIDBytes(IUnknownUUID);
+    return std::memcmp(&iid, &unknown, sizeof(unknown)) == 0;
+#  elif defined(IID_IUnknown)
+    return iid_equals(iid, IID_IUnknown);
+#  else
+    /* COM IUnknown: 00000000-0000-0000-C000-000000000046 */
+    static const CFUUIDBytes k_iunknown = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46};
+    return std::memcmp(&iid, &k_iunknown, sizeof(k_iunknown)) == 0;
+#  endif
+#else
+    return iid_equals(iid, IID_IUnknown);
+#endif
+}
+
 std::string variant_to_string(const Variant &value) {
     switch (value.vt) {
         case blackmagicRawVariantTypeString:
             return bmd_string_utf8(value.bstrVal);
         case blackmagicRawVariantTypeU8:
+#if defined(_WIN32)
+            return std::to_string(static_cast<unsigned>(value.bVal));
+#else
             return std::to_string(static_cast<unsigned>(value.uiVal));
+#endif
         case blackmagicRawVariantTypeS16:
             return std::to_string(value.iVal);
         case blackmagicRawVariantTypeU16:
@@ -305,12 +339,12 @@ public:
         if (ppvOut == nullptr) {
             return E_POINTER;
         }
-        if (iid == IID_IUnknown) {
+        if (iid_is_iunknown(iid)) {
             *ppvOut = static_cast<IUnknown *>(this);
             AddRef();
             return S_OK;
         }
-        if (iid == IID_IBlackmagicRawCallback) {
+        if (iid_equals(iid, IID_IBlackmagicRawCallback)) {
             *ppvOut = static_cast<IBlackmagicRawCallback *>(this);
             AddRef();
             return S_OK;
@@ -503,7 +537,11 @@ void select_pipeline_device() {
 }
 
 HRESULT apply_cpu_pipeline(IBlackmagicRawConfiguration *cfg) {
+#if defined(_WIN32)
+    BOOL cpu_ok = FALSE;
+#else
     bool cpu_ok = false;
+#endif
     if (SUCCEEDED(cfg->IsPipelineSupported(blackmagicRawPipelineCPU, &cpu_ok)) && cpu_ok) {
         const HRESULT hr = cfg->SetPipeline(blackmagicRawPipelineCPU, nullptr, nullptr);
         if (FAILED(hr)) {
@@ -542,10 +580,24 @@ HRESULT configure_pipeline(IBlackmagicRaw *codec) {
     }
 
     if (g_sdk_version.empty()) {
+#if defined(_WIN32)
+        BSTR ver = nullptr;
+        if (SUCCEEDED(cfg->GetVersion(&ver)) && ver != nullptr) {
+            g_sdk_version = bmd_string_utf8(ver);
+            SysFreeString(ver);
+        }
+#elif defined(__APPLE__)
+        CFStringRef ver = nullptr;
+        if (SUCCEEDED(cfg->GetVersion(&ver)) && ver != nullptr) {
+            g_sdk_version = bmd_string_utf8(ver);
+            CFRelease(ver);
+        }
+#else
         const char *ver = nullptr;
         if (SUCCEEDED(cfg->GetVersion(&ver)) && ver != nullptr) {
             g_sdk_version = ver;
         }
+#endif
     }
     cfg->Release();
     return S_OK;
@@ -579,7 +631,7 @@ int braw_bridge_initialize(const char *libs_path) {
     }
 #endif
 
-#if defined(__APPLE__)
+#if defined(_WIN32) || defined(__APPLE__)
     OwnedBmdString path(libs_path);
     g_factory = CreateBlackmagicRawFactoryInstanceFromPath(path.get());
 #else
@@ -688,6 +740,9 @@ void *braw_bridge_open(const char *utf8_path) {
     BmdStr cam = nullptr;
     if (SUCCEEDED(out->clip->GetCameraType(&cam)) && cam != nullptr) {
         out->camera_type = bmd_string_utf8(cam);
+#if defined(_WIN32) || defined(__APPLE__)
+        free_bmd_string(cam);
+#endif
     }
     return out;
 }
@@ -890,5 +945,8 @@ int braw_bridge_timecode(void *handle, uint32_t frame_index, char *buf, size_t b
         return 0;
     }
     copy_cstr(buf, buf_len, bmd_string_utf8(tc));
+#if defined(_WIN32) || defined(__APPLE__)
+    free_bmd_string(tc);
+#endif
     return buf[0] != '\0' ? 1 : 0;
 }

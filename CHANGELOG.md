@@ -13,6 +13,14 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Fixed
+
+- **BRAW bridge compiles on macOS and Windows:** the C ABI wrapper now uses
+  SDK-accurate types per platform (Mac `CFUUIDBytes` / `CFStringRef`, Windows
+  `VARIANT` / `BSTR` / `BOOL`, and the Win dispatch factory entry point).
+  Linux is unchanged. After merge, re-dispatch Release for `v0.10.0` from
+  `main` with `source_ref=main` so Mac/Win binaries can ship `.braw` support.
+
 ---
 
 ## [0.10.0] — 2026-09-20

@@ -185,6 +185,16 @@ The **Release** workflow (Nuitka multi-OS):
 If the secret is missing, Release still publishes the app **without** BRAW
 support (`.braw` convert reports SDK missing — same as R3D).
 
+The bridge must match each SDK ABI: Linux `Variant` / `const char*`, macOS
+`CFUUIDBytes` + `CFStringRef`, Windows COM `VARIANT` / `BSTR` / `BOOL` plus
+`BlackmagicRawAPIDispatch.h` for `CreateBlackmagicRawFactoryInstanceFromPath`.
+A tag-only re-run of Release rebuilds the tagged commit. To pick up a
+bridge compile hotfix already on `main` without moving the tag:
+
+```bash
+gh workflow run Release --ref main -f tag=v0.10.0 -f source_ref=main
+```
+
 ```bash
 # Dedicated fine-grained PAT with read on derek-rein/braw-sdk-private Releases
 gh secret set BRAW_SDK_READ_TOKEN --repo derek-rein/exr-converter

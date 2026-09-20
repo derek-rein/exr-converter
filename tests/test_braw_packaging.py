@@ -72,6 +72,19 @@ def test_is_sdk_root_include_at_top(tmp_path: Path) -> None:
     assert _find_sdk_root(tmp_path) == tmp_path
 
 
+def test_bridge_source_has_macos_windows_sdk_shims() -> None:
+    """Guard against Linux-only COM assumptions that break Mac/Win Release."""
+    src = (ROOT / "native" / "braw" / "braw_bridge.cpp").read_text()
+    assert "BlackmagicRawAPIDispatch.h" in src
+    assert "using Variant = VARIANT" in src
+    assert "iid_equals" in src
+    assert "IUnknownUUID" in src
+    assert "CFStringRef ver" in src
+    assert "BSTR ver" in src
+    assert "BOOL cpu_ok" in src
+    assert "CreateBlackmagicRawFactoryInstanceFromPath(path.get())" in src
+
+
 def test_header_ok_accepts_windows_idl(tmp_path: Path) -> None:
     inc = tmp_path / "Include"
     inc.mkdir()
