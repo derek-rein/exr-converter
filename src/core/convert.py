@@ -21,12 +21,14 @@ from .constants import OXIDEAV_PRORES_KEYS
 from .errors import ConversionCancelled
 from .exr_io import read_image, write_exr
 from .ocio_utils import (
+    export_dest_label,
     get_compositing_space,
     get_interchange_space,
     get_internal_overlay_authoring_space,
     linearize_overlay,
     load_config_from_source_info,
     make_cpu_processor,
+    make_export_processor,
 )
 from .oxideav_prores import is_available as oxideav_prores_available
 from .oxideav_prores import open_writer, unavailable_reason, write_rgb48_frame
@@ -241,7 +243,7 @@ def _bake_slate_to_display(
         rgb = _alpha_over_rgb(rgb, slate_overlay_working)
         rgb = np.ascontiguousarray(rgb, dtype=np.float32)
 
-    cpu_to_display = make_cpu_processor(ocio_cfg, working_space, dst_space)
+    cpu_to_display = make_export_processor(ocio_cfg, working_space, dst_space)
     cpu_to_display.apply(OCIO.PackedImageDesc(rgb, w, h, 3))
     return rgb
 
@@ -323,7 +325,8 @@ def _e2v_oxideav(
 
     if log:
         log(
-            f"OCIO: {src_space} → {working_space} → {dst_space}  "
+            f"OCIO: {src_space} → {working_space} → "
+            f"{export_dest_label(ocio_cfg, working_space, dst_space)}  "
             f"(oxideav-prores {codec_key}, in-process)"
         )
 
@@ -419,7 +422,7 @@ def _e2v_oxideav(
                 _drain_ready()
         else:
             cpu_to_working = make_cpu_processor(ocio_cfg, src_space, working_space)
-            cpu_to_display = make_cpu_processor(ocio_cfg, working_space, dst_space)
+            cpu_to_display = make_export_processor(ocio_cfg, working_space, dst_space)
             auth_space = overlay_auth_space or get_internal_overlay_authoring_space()
             for _idx, path in enumerate(paths, 1):
                 if cancel_check and cancel_check():
@@ -878,7 +881,10 @@ def run_exr_to_video(
         return
 
     if log:
-        log(f"OCIO: {src_space} \u2192 {working_space} \u2192 {dst_space}  ({n_workers} workers)")
+        log(
+            f"OCIO: {src_space} \u2192 {working_space} \u2192 "
+            f"{export_dest_label(ocio_cfg, working_space, dst_space)}  ({n_workers} workers)"
+        )
 
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
@@ -1011,10 +1017,13 @@ def _e2v_serial(
     codec_opts: dict[str, str] | None = None,
 ) -> None:
     cpu_to_working = make_cpu_processor(ocio_cfg, src_space, working_space)
-    cpu_to_display = make_cpu_processor(ocio_cfg, working_space, dst_space)
+    cpu_to_display = make_export_processor(ocio_cfg, working_space, dst_space)
     auth_space = overlay_auth_space or get_internal_overlay_authoring_space()
     if log:
-        log(f"OCIO: {src_space} \u2192 {working_space} \u2192 {dst_space}  (single-threaded)")
+        log(
+            f"OCIO: {src_space} \u2192 {working_space} \u2192 "
+            f"{export_dest_label(ocio_cfg, working_space, dst_space)}  (single-threaded)"
+        )
 
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)

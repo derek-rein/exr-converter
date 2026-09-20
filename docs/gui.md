@@ -153,6 +153,16 @@ long (text elides; width follows the layout).
   a tooltip when the linked OpenColorIO cannot load them.
 - Source / destination spaces follow the **active (user) config**; aliases are
   remapped where possible (`find_equivalent_space`).
+- **EXR → Video destination:** if the dest name is an OCIO **display**
+  (``sRGB - Display``, ``Rec.1886 Rec.709 - Display``, …) convert applies that
+  display plus the config’s default **view** for the working space — on ACES
+  2.0 Studio that is **ACES 2.0 - SDR 100 nits (Rec.709)**, matching Nuke /
+  DJV. A colorspace-only hop to a display uses the config
+  ``default_view_transform`` (**Un-tone-mapped**) and will lift shadows / clip
+  highlights. Utility dests such as ``sRGB Encoded Rec.709 (sRGB)`` stay
+  colorimetric (no view). The convert log shows ``display / view`` when a
+  view is applied. The built-in player already used display/view; export now
+  matches.
 - **App-internal paint** (slate / burn-in / watermark) is linearised on a private
   ACES **app anchor** config (CG/Studio built-in) with guaranteed `texture_paint`
   and `aces_interchange` (ACES2065-1), then bridged into the user compositing

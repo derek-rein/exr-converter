@@ -143,7 +143,7 @@ uv run python main.py exr2video -i ./plate --codec h264 --crf 18
 | `--fps` | `24` | Frame rate |
 | `--ocio` | bundled / `$OCIO` | Config file path |
 | `--src` | format-aware | EXR/DPX: metadata / `scene_linear`. PNG/JPEG/WebP: sRGB-ish display space |
-| `--dst` | `Output - Rec.709` | Display / delivery space |
+| `--dst` | `Output - Rec.709` | Display / delivery space. On ACES 2.0 configs that name remaps to **Rec.1886 Rec.709 - Display**; convert then applies the viewing-rule default view (**ACES 2.0 - SDR 100 nits (Rec.709)** for ACEScg), not Un-tone-mapped. Pass a utility encoding (``sRGB Encoded Rec.709 (sRGB)``) for colorimetric-only. |
 | `--scale` | `1.0` | Output scale |
 | `--codec` | `prores` | Codec key — see ladder below (default = ProRes 422 HQ, **10-bit** software) |
 | `--crf` | codec default | H.264 / HEVC quality |
@@ -225,7 +225,10 @@ otherwise.
   then **`Output - Rec.709`**; **exr2video** uses still metadata / format
   (scene-linear vs sRGB-ish). Omitted **`--dst`**: fixed defaults + roles
   (`ACEScg` / scene_linear for video→EXR; Rec.709 for EXR→video), not media
-  probing. Names remap via `find_equivalent_space` when needed.
+  probing. Names remap via `find_equivalent_space` when needed. **exr2video**
+  dest names that are OCIO **displays** bake the viewing-rule default view
+  (ACES 2.0 SDR Rec.709 on current Studio configs), matching Nuke/DJV — not
+  Un-tone-mapped.
 - Packaged app needs **OpenColorIO 2.5+** for the bundled ACES Studio v4 config.
   From source: `make ensure-ocio` if the runtime library is older than 2.5.
 

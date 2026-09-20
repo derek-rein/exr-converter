@@ -427,7 +427,11 @@ _EQUIV_GROUPS: tuple[tuple[str, ...], ...] = (
         "ACEScc",
         "ACES - ACEScc",
     ),
-    # Display-referred Rec.709 / video output (prefer proper display transforms)
+    # Rec.709 *delivery* names. ACES 1.x "Output - Rec.709" baked RRT+ODT into
+    # a colorspace. ACES 2.0 dropped that name; the equivalent *display* is
+    # Rec.1886 Rec.709 - Display. EXR→Video then applies the config default
+    # view (see :func:`make_export_processor`) — do not treat the display
+    # encoding alone as the old Output transform.
     (
         "Output - Rec.709",
         "Rec.1886 Rec.709 - Display",
@@ -569,6 +573,73 @@ def find_equivalent_space(config: OCIO.Config, name: str) -> str:
 
 def make_cpu_processor(config: OCIO.Config, src: str, dst: str) -> OCIO.CPUProcessor:
     return config.getProcessor(src, dst).getDefaultCPUProcessor()
+
+
+def is_ocio_display(config: OCIO.Config, name: str) -> bool:
+    """True when *name* is an OCIO display (not merely a display-encoded space)."""
+    if not name:
+        return False
+    try:
+        return name in list(config.getDisplays())
+    except Exception:
+        return False
+
+
+def resolve_export_display_view(
+    config: OCIO.Config,
+    src_space: str,
+    dst_space: str,
+) -> tuple[str, str] | None:
+    """Return ``(display, view)`` when EXR→Video dest *dst_space* is a display.
+
+    ACES 2.0 Studio/CG configs set ``default_view_transform: Un-tone-mapped``.
+    ``Config.getProcessor(scene, displayCS)`` therefore skips the ACES output
+    transform. Nuke / DJV / this app's player use ``DisplayViewTransform`` with
+    the viewing-rule default (``ACES 2.0 - SDR 100 nits (Rec.709)`` for
+    scene-linear ACEScg). Export must do the same when the user picks a
+    display as destination.
+
+    Non-display destinations (``ACEScg``, ``sRGB Encoded Rec.709 (sRGB)``, …)
+    return ``None`` so the caller keeps a plain colorspace transform.
+    """
+    if not dst_space or not is_ocio_display(config, dst_space):
+        return None
+    view = ""
+    if src_space:
+        try:
+            view = str(config.getDefaultView(dst_space, src_space) or "")
+        except Exception:
+            view = ""
+    if not view:
+        try:
+            view = str(config.getDefaultView(dst_space) or "")
+        except Exception:
+            view = ""
+    if not view:
+        return None
+    try:
+        if view not in list(config.getViews(dst_space)):
+            return None
+    except Exception:
+        return None
+    return dst_space, view
+
+
+def make_export_processor(config: OCIO.Config, src_space: str, dst_space: str) -> OCIO.CPUProcessor:
+    """Working → dest processor for EXR→Video (display/view when dest is a display)."""
+    pair = resolve_export_display_view(config, src_space, dst_space)
+    if pair is not None:
+        display, view = pair
+        return make_display_processor(config, src_space, display, view)
+    return make_cpu_processor(config, src_space, dst_space)
+
+
+def export_dest_label(config: OCIO.Config, src_space: str, dst_space: str) -> str:
+    """Human-readable dest for convert logs (``display / view`` when applicable)."""
+    pair = resolve_export_display_view(config, src_space, dst_space)
+    if pair is not None:
+        return f"{pair[0]} / {pair[1]}"
+    return dst_space
 
 
 # ---------------------------------------------------------------------------
