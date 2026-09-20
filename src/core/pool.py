@@ -14,20 +14,21 @@ import numpy as np
 import PyOpenColorIO as OCIO
 
 from .exr_io import read_image, write_exr
-from .ocio_utils import load_config_from_source_info
+from .ocio_utils import load_config_from_source_info, make_export_processor
 
 # Workers cache up to two CPUProcessors: one for src→working (OCIO load
 # stage) and one for working→display (OCIO display stage).  Each is keyed
 # on (config_source, config_path, src, dst) so they only rebuild when the
 # args change.
 _worker_cpus: dict[tuple[str, str, str, str], OCIO.CPUProcessor] = {}
+_worker_export_cpus: dict[tuple[str, str, str, str], OCIO.CPUProcessor] = {}
 _worker_cpus_lock = threading.Lock()
 
 
 def _ensure_cpu(
     config_source: str, config_path: str, src_space: str, dst_space: str
 ) -> OCIO.CPUProcessor:
-    """Return a cached CPUProcessor, rebuilding only when args change."""
+    """Return a cached ColorSpaceTransform CPUProcessor, rebuilding when args change."""
     key = (config_source, config_path, src_space, dst_space)
     with _worker_cpus_lock:
         cached = _worker_cpus.get(key)
@@ -45,6 +46,27 @@ def _ensure_cpu(
         if existing is not None:
             return existing
         _worker_cpus[key] = proc
+        return proc
+
+
+def _ensure_export_cpu(
+    config_source: str, config_path: str, src_space: str, dst_space: str
+) -> OCIO.CPUProcessor:
+    """Cached EXR→Video dest processor (display/view when *dst_space* is a display)."""
+    key = (config_source, config_path, src_space, dst_space)
+    with _worker_cpus_lock:
+        cached = _worker_export_cpus.get(key)
+        if cached is not None:
+            return cached
+
+    cfg = load_config_from_source_info(config_source, config_path)
+    proc = make_export_processor(cfg, src_space, dst_space)
+
+    with _worker_cpus_lock:
+        existing = _worker_export_cpus.get(key)
+        if existing is not None:
+            return existing
+        _worker_export_cpus[key] = proc
         return proc
 
 
@@ -112,7 +134,7 @@ def process_frame_e2v(
         If the frame cannot be read.
     """
     cpu_to_working = _ensure_cpu(config_source, config_path, src_space, working_space)
-    cpu_to_display = _ensure_cpu(config_source, config_path, working_space, dst_space)
+    cpu_to_display = _ensure_export_cpu(config_source, config_path, working_space, dst_space)
 
     rgb = read_image(path)
     h, w = rgb.shape[:2]

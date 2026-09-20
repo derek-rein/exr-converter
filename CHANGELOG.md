@@ -13,6 +13,20 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Fixed
+
+- **EXR → Video ACES 2.0 Rec.709 looks lifted / blown:** destination names such
+  as **sRGB - Display** or **Rec.1886 Rec.709 - Display** are OCIO *displays*,
+  not the old ACES 1.x ``Output - Rec.709`` (RRT+ODT) colorspace. Convert used
+  a colorspace transform, which on ACES 2.0 Studio/CG configs applies the
+  config ``default_view_transform`` (**Un-tone-mapped**): shadows lift and
+  values above 1.0 clip to white. Nuke 17 / DJV use **ACES 2.0 - SDR 100 nits
+  (Rec.709)** on that display. Export now uses the same
+  ``DisplayViewTransform`` as the built-in player when the dest is a display
+  (viewing-rule default for the working space). Utility encodings
+  (``sRGB Encoded Rec.709 (sRGB)``) stay colorimetric. Convert log prints
+  ``display / view``.
+
 ### Added
 
 - **Blackmagic RAW (`.braw`):** optional SDK bridge (same class of feature as

@@ -6,7 +6,10 @@ if the runtime OCIO has no usable builtin.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+import PyOpenColorIO as OCIO
 import pytest
 
 from src.core import ocio_utils
@@ -245,3 +248,93 @@ class TestDisplayViewSelection:
             pytest.skip("no sdr-video encoding in this config")
         display, view = ocio_utils.default_display_view(config, color_space=video_cs)
         assert display and view
+
+
+@pytest.fixture(scope="module")
+def aces20_studio():
+    """ACES 2.0 Studio config (builtin, else bundled file)."""
+    last_err: Exception | None = None
+    try:
+        return OCIO.Config.CreateFromBuiltinConfig("studio-config-v4.0.0_aces-v2.0_ocio-v2.5")
+    except Exception as e:
+        last_err = e
+
+    bundled = Path(__file__).resolve().parents[1] / "resources" / "ocio" / "aces-studio-v4.ocio"
+    if bundled.is_file():
+        try:
+            return OCIO.Config.CreateFromFile(str(bundled))
+        except Exception as e:
+            last_err = e
+    pytest.skip(f"no ACES 2.0 studio config: {last_err}")
+
+
+class TestExportDisplayView:
+    """EXR→Video must bake DisplayView, not Un-tone-mapped ColorSpaceTransform."""
+
+    def test_display_dest_resolves_aces20_sdr_view(self, aces20_studio):
+        pair = ocio_utils.resolve_export_display_view(aces20_studio, "ACEScg", "sRGB - Display")
+        assert pair == ("sRGB - Display", "ACES 2.0 - SDR 100 nits (Rec.709)")
+        pair_1886 = ocio_utils.resolve_export_display_view(
+            aces20_studio, "ACES2065-1", "Rec.1886 Rec.709 - Display"
+        )
+        assert pair_1886 == (
+            "Rec.1886 Rec.709 - Display",
+            "ACES 2.0 - SDR 100 nits (Rec.709)",
+        )
+
+    def test_utility_dest_stays_colorspace(self, aces20_studio):
+        assert (
+            ocio_utils.resolve_export_display_view(
+                aces20_studio, "ACEScg", "sRGB Encoded Rec.709 (sRGB)"
+            )
+            is None
+        )
+        assert ocio_utils.resolve_export_display_view(aces20_studio, "ACEScg", "ACEScg") is None
+
+    def test_export_matches_display_view_not_untonemapped(self, aces20_studio):
+        mid = np.array([[0.18, 0.18, 0.18]], dtype=np.float32)
+        hi = np.array([[4.0, 4.0, 4.0]], dtype=np.float32)
+        shadow = np.array([[0.01, 0.01, 0.01]], dtype=np.float32)
+
+        export = ocio_utils.make_export_processor(aces20_studio, "ACEScg", "sRGB - Display")
+        colorspace = ocio_utils.make_cpu_processor(aces20_studio, "ACEScg", "sRGB - Display")
+        view_proc = ocio_utils.make_display_processor(
+            aces20_studio,
+            "ACEScg",
+            "sRGB - Display",
+            "ACES 2.0 - SDR 100 nits (Rec.709)",
+        )
+
+        def apply(proc, rgb):
+            buf = np.array(rgb, dtype=np.float32, copy=True)
+            proc.apply(OCIO.PackedImageDesc(buf, 1, 1, 3))
+            return buf[0]
+
+        mid_export = apply(export, mid)
+        mid_cs = apply(colorspace, mid)
+        mid_view = apply(view_proc, mid)
+        assert np.allclose(mid_export, mid_view, atol=1e-5)
+        assert mid_export[0] < 0.40
+        assert mid_cs[0] > 0.44
+        assert mid_cs[0] - mid_export[0] > 0.08
+
+        hi_export = apply(export, hi)
+        hi_cs = apply(colorspace, hi)
+        assert hi_export[0] < 1.0
+        assert hi_cs[0] > 1.5
+
+        sh_export = apply(export, shadow)
+        sh_cs = apply(colorspace, shadow)
+        assert sh_export[0] < 0.03
+        assert sh_cs[0] > 0.08
+
+    def test_export_label_includes_view(self, aces20_studio):
+        label = ocio_utils.export_dest_label(aces20_studio, "ACEScg", "sRGB - Display")
+        assert "sRGB - Display" in label
+        assert "ACES 2.0 - SDR 100 nits (Rec.709)" in label
+        util = ocio_utils.export_dest_label(aces20_studio, "ACEScg", "sRGB Encoded Rec.709 (sRGB)")
+        assert util == "sRGB Encoded Rec.709 (sRGB)"
+
+    def test_output_rec709_maps_to_display_encoding(self, aces20_studio):
+        hit = ocio_utils.find_equivalent_space(aces20_studio, "Output - Rec.709")
+        assert hit == "Rec.1886 Rec.709 - Display"
