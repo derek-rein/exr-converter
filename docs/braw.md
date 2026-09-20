@@ -99,7 +99,7 @@ cd /path/to/exr-converter
 make braw-bridge
 # → build/braw/libbraw_bridge.so + build/braw/redistributable/
 
-# Or pull the same tarball CI uses (needs gh auth or R3D_SDK_READ_TOKEN):
+# Or pull the same tarball CI uses (needs gh auth or BRAW_SDK_READ_TOKEN):
 make braw-sdk-fetch   # → .braw-sdk/BlackmagicRAWSDK-6.0 (gitignored)
 make braw-bridge
 ```
@@ -121,8 +121,7 @@ Override at runtime:
 | `BRAW_SDK_ROOT` | Unpacked SDK root for **building** the bridge |
 | `EXR_CONVERTER_BRAW_BRIDGE` | Path to `libbraw_bridge.*` (or its directory) |
 | `EXR_CONVERTER_BRAW_LIBS` / `BRAW_SDK_LIBS` | Folder containing `libBlackmagicRawAPI.*` |
-| `R3D_SDK_READ_TOKEN` | Same PAT / secret as the R3D private feed (default) |
-| `BRAW_SDK_READ_TOKEN` | Optional override if you want a BRAW-only token |
+| `BRAW_SDK_READ_TOKEN` | Dedicated PAT that can download the private BRAW Release asset |
 
 Convert:
 
@@ -171,9 +170,8 @@ bridge. Never headers, samples, `profile.braw`, or SDK documentation.
 
 The **Release** workflow (Nuitka multi-OS):
 
-1. If secret **`R3D_SDK_READ_TOKEN`** is set (same PAT as the R3D feed) →
-   download `sdk-6.0` / `BlackmagicRAWSDK-6.0-full.tar.gz` from the private
-   repo. Optional override: **`BRAW_SDK_READ_TOKEN`**.
+1. If secret **`BRAW_SDK_READ_TOKEN`** is set → download `sdk-6.0` /
+   `BlackmagicRAWSDK-6.0-full.tar.gz` from the private repo.
 2. Build `libbraw_bridge` (macOS / Linux / Windows + MSVC). On Windows the
    official SDK ships `BlackmagicRawAPI.idl`; the build runs `midl` to
    generate `BlackmagicRawAPI.h` into `build/braw/win_include/` (not into
@@ -182,17 +180,12 @@ The **Release** workflow (Nuitka multi-OS):
    to the executable.
 4. Refuse the build if headers / `.a` / `.lib` appear under that folder.
 
-If that token is missing, Release still publishes the app **without** BRAW
+If the secret is missing, Release still publishes the app **without** BRAW
 support (`.braw` convert reports SDK missing — same as R3D).
 
-One secret covers both private feeds. Ensure the existing fine-grained PAT
-behind **`R3D_SDK_READ_TOKEN`** also has **read** access to
-`derek-rein/braw-sdk-private` Releases (add that repo to the PAT allowlist).
-No second `gh secret set` is required.
-
 ```bash
-# Only if rotating the existing shared PAT (already used for R3D):
-gh secret set R3D_SDK_READ_TOKEN --repo derek-rein/exr-converter
+# Dedicated fine-grained PAT with read on derek-rein/braw-sdk-private Releases
+gh secret set BRAW_SDK_READ_TOKEN --repo derek-rein/exr-converter
 ```
 
 Local `make bundle` builds and installs the runtime when `BRAW_SDK_ROOT` is
@@ -206,7 +199,7 @@ set or after `make braw-sdk-fetch`.
 |---------|-----|
 | `BRAW bridge library not found` | `make braw-bridge` / set `EXR_CONVERTER_BRAW_BRIDGE` |
 | `Blackmagic RAW runtime libraries not found` | Set `EXR_CONVERTER_BRAW_LIBS` to the SDK `Libraries` folder |
-| CI skips BRAW | Secret `R3D_SDK_READ_TOKEN` not set, or the PAT cannot read `braw-sdk-private` |
+| CI skips BRAW | Secret `BRAW_SDK_READ_TOKEN` not set or cannot read private release |
 | `CreateBlackmagicRawFactoryInstanceFromPath failed` | Wrong folder (must contain `libBlackmagicRawAPI.so` / `.dylib` / `.dll`) |
 | Wrong colors | Use ACES2065-1 source — decode is Linear AP0, not BMD Film |
 | `._….braw` in browser | macOS AppleDouble metadata — hidden from the video browser |

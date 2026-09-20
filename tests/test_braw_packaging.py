@@ -24,18 +24,24 @@ from install_braw_into_bundle import (  # noqa: E402
 )
 
 
-def test_token_uses_r3d_secret_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_token_uses_braw_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("BRAW_SDK_READ_TOKEN", "braw-pat")
+    assert _token() == "braw-pat"
+
+
+def test_token_does_not_use_r3d_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("BRAW_SDK_READ_TOKEN", raising=False)
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.setenv("R3D_SDK_READ_TOKEN", "shared-pat")
-    assert _token() == "shared-pat"
+    monkeypatch.setenv("R3D_SDK_READ_TOKEN", "r3d-pat")
 
+    def _no_gh(*_a: object, **_k: object) -> str:
+        raise OSError("no gh")
 
-def test_token_braw_override_wins(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BRAW_SDK_READ_TOKEN", "braw-only")
-    monkeypatch.setenv("R3D_SDK_READ_TOKEN", "shared-pat")
-    assert _token() == "braw-only"
+    monkeypatch.setattr("fetch_braw_sdk.subprocess.check_output", _no_gh)
+    assert _token() == ""
 
 
 def test_is_sdk_root_linux_layout(tmp_path: Path) -> None:

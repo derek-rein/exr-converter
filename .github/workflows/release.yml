@@ -290,19 +290,17 @@ jobs:
           sudo apt-get install -y --no-install-recommends g++ uuid-dev
 
       # Optional Blackmagic RAW SDK (private feed). Builds libbraw_bridge.
-      # Reuses R3D_SDK_READ_TOKEN (same PAT as derek-rein/r3d-sdk-private).
-      # Optional override: BRAW_SDK_READ_TOKEN. Without a token, Release still
-      # ships; BRAW convert reports SDK missing.
+      # Secret BRAW_SDK_READ_TOKEN must read derek-rein/braw-sdk-private releases.
+      # Without the secret, Release still ships; BRAW convert reports SDK missing.
       - name: Fetch private BRAW SDK
         id: braw_sdk
         shell: bash
         env:
-          R3D_SDK_READ_TOKEN: ${{ secrets.R3D_SDK_READ_TOKEN }}
           BRAW_SDK_READ_TOKEN: ${{ secrets.BRAW_SDK_READ_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${BRAW_SDK_READ_TOKEN:-}" ] && [ -z "${R3D_SDK_READ_TOKEN:-}" ]; then
-            echo "R3D_SDK_READ_TOKEN not set — skipping BRAW bridge"
+          if [ -z "${BRAW_SDK_READ_TOKEN:-}" ]; then
+            echo "BRAW_SDK_READ_TOKEN not set — skipping BRAW bridge"
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

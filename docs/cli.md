@@ -116,9 +116,9 @@ inputs error with a clear missing-SDK message.
 
 **Blackmagic RAW:** optional. Requires building the BRAW bridge against the
 official proprietary SDK — see [braw.md](./braw.md). Public Releases ship
-the bridge when secret `R3D_SDK_READ_TOKEN` can also read `braw-sdk-private`.
-Without it, `.braw` inputs error with a clear missing-SDK message. Decode is
-Linear ACES AP0 (CPU).
+the bridge when secret `BRAW_SDK_READ_TOKEN` is set. Without it, `.braw`
+inputs error with a clear missing-SDK message. Decode is Linear ACES AP0
+(CPU).
 
 ---
 

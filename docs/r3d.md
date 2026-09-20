@@ -112,7 +112,7 @@ Override discovery:
 | `EXR_CONVERTER_R3D_BRIDGE` | Path to `libr3d_bridge.*` (or its directory) |
 | `EXR_CONVERTER_R3D_LIBS` / `R3D_SDK_LIBS` | Folder containing `REDR3D.*` redistributables |
 | `EXR_CONVERTER_R3D_CPU` | Set to `1` to skip GPU decode (CPU only) |
-| `R3D_SDK_READ_TOKEN` | PAT that can download the private Release asset (same secret also fetches the BRAW feed when that PAT can read `braw-sdk-private`) |
+| `R3D_SDK_READ_TOKEN` | PAT that can download the private Release asset |
 
 Convert:
 
@@ -135,9 +135,7 @@ The **Release** workflow (Nuitka multi-OS):
 If the secret is missing, Release still publishes the app **without** R3D support.
 
 ```bash
-# Set or rotate the secret (fine-grained PAT with read on r3d-sdk-private).
-# The same PAT / secret also fetches the BRAW feed — add braw-sdk-private
-# to the PAT allowlist (no second secret).
+# Set or rotate the secret (fine-grained PAT with read on r3d-sdk-private is ideal)
 gh secret set R3D_SDK_READ_TOKEN --repo derek-rein/exr-converter
 ```
 

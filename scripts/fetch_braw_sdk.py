@@ -5,9 +5,7 @@ Expects a GitHub Release on a **private** repo (default: derek-rein/braw-sdk-pri
 with asset ``BlackmagicRAWSDK-6.0-full.tar.gz`` (or override via env).
 
 Auth (first match wins):
-  * ``BRAW_SDK_READ_TOKEN`` (optional override)
-  * ``R3D_SDK_READ_TOKEN`` (same secret / PAT as the R3D private feed)
-  * ``GH_TOKEN`` / ``GITHUB_TOKEN``
+  * ``BRAW_SDK_READ_TOKEN`` / ``GH_TOKEN`` / ``GITHUB_TOKEN``
   * ``gh auth token`` (local developer machines)
 
 Usage:
@@ -41,12 +39,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _token() -> str:
-    for key in (
-        "BRAW_SDK_READ_TOKEN",
-        "R3D_SDK_READ_TOKEN",
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
-    ):
+    for key in ("BRAW_SDK_READ_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"):
         val = os.environ.get(key, "").strip()
         if val:
             return val
@@ -213,8 +206,7 @@ def main() -> None:
     token = _token()
     if not token:
         raise SystemExit(
-            "No GitHub token. Set R3D_SDK_READ_TOKEN (same secret as the R3D "
-            "feed), or BRAW_SDK_READ_TOKEN, or run `gh auth login`."
+            "No GitHub token. Set BRAW_SDK_READ_TOKEN (or GH_TOKEN), or run `gh auth login`."
         )
 
     cache.mkdir(parents=True, exist_ok=True)
