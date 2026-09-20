@@ -485,12 +485,12 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
         from .r3d import is_available as r3d_available
         from .r3d import is_r3d_path, probe_r3d
 
-        if is_r3d_path(entry):
+        if is_r3d_path(entry.path):
             try:
                 if r3d_available():
-                    vw, vh, fps, nframes = probe_r3d(entry)
+                    vw, vh, fps, nframes = probe_r3d(entry.path)
                     row["resolution"] = f"{vw}x{vh}" if vw and vh else ""
-                    row["codec"] = "R3D" if entry.suffix.lower() == ".r3d" else "N-RAW"
+                    row["codec"] = "R3D" if suffix == ".r3d" else "N-RAW"
                     row["fps"] = f"{fps:.3f}".rstrip("0").rstrip(".") if fps else ""
                     if nframes and fps:
                         dur = nframes / fps
@@ -511,7 +511,7 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
             continue
 
         try:
-            container = av.open(str(entry))
+            container = av.open(entry.path)
             vs = container.streams.video[0] if container.streams.video else None
             fps = 0.0
             vw = vh = 0
@@ -523,7 +523,7 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
             if vs and (not (vw and vh) or not fps or not codec_name):
                 # Default probe was too shallow — retry with a deeper one.
                 container.close()
-                container = av.open(str(entry), options=_DEEP_PROBE_OPTS)
+                container = av.open(entry.path, options=_DEEP_PROBE_OPTS)
                 vs = container.streams.video[0] if container.streams.video else None
                 if vs:
                     w2, h2, fps2, n2, c2, _ = _stream_basics(vs)

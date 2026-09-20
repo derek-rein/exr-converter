@@ -136,9 +136,7 @@ def resolve_video_browser_path(
     if path_is_dir(p):
         directory = str(p)
     elif (
-        path_is_file(p)
-        and p.suffix.lower() in video_exts
-        and not is_ignored_media_filename(p.name)
+        path_is_file(p) and p.suffix.lower() in video_exts and not is_ignored_media_filename(p.name)
     ):
         directory = str(p.parent)
         select_path = str(p)

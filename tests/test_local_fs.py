@@ -10,9 +10,9 @@ from types import SimpleNamespace
 import pytest
 
 from src.core.local_fs import (
-    ONLINE_ONLY_LABEL,
     _FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
     _UF_DATALESS,
+    ONLINE_ONLY_LABEL,
     can_probe_media,
     entry_is_file,
     is_cloud_placeholder,
@@ -241,9 +241,7 @@ def test_find_image_seqs_survives_listdir_oserror(
     assert _find_image_seqs(str(tmp_path)) == []
 
 
-def test_browser_thumbs_skip_placeholders(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_browser_thumbs_skip_placeholders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from src.gui.browser_thumbs import load_browser_thumbnail_rgb, load_video_thumbnail_rgb
 
     p = tmp_path / "a.exr"
