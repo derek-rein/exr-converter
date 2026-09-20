@@ -81,7 +81,7 @@ BRAW_BRIDGE_API size_t braw_bridge_decode_buffer_bytes(
 
 BRAW_BRIDGE_API const char *braw_bridge_last_error(void);
 
-/* Always "cpu" for this first implementation. */
+/* ``metal``, ``cuda``, ``opencl``, or ``cpu`` after initialize. */
 BRAW_BRIDGE_API const char *braw_bridge_decoder_kind(void);
 
 /* Clip metadata *key* (UTF-8). Returns 1 if present, 0 if missing, -1 on error. */

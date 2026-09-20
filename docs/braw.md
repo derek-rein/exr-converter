@@ -22,7 +22,7 @@ Related: [CLI](./cli.md) · [GUI](./gui.md) · [R3D / N-RAW](./r3d.md) ·
 | Decode | Official **OpenEXRTranscode** default: **Linear** gamma + **ACES AP0** gamut, post-3D LUT **disabled**, `RGBF32` |
 | OCIO | Auto-detect source space prefers **ACES2065-1** (`lin_ap0`) on the bundled ACES Studio config |
 | Output | Same video→EXR pipeline (EXR compression, scale ladder, frame range, workers) |
-| GPU | **CPU only** in this first integration. CUDA / OpenCL / Metal can be added later. |
+| GPU | **macOS Metal** (then OpenCL if Metal is unavailable). **Windows / Linux:** CUDA, then OpenCL. CPU fallback if GPU setup fails or decoder libs are missing. Force CPU with `EXR_CONVERTER_BRAW_CPU=1`. |
 | Preview | Sequence player + video browser (half-res decode for scrub) |
 | Thumbnails | Grid thumbs via eighth-res decode |
 | Metadata | Clip + per-frame timecode written to EXR as ``exrconverter:braw:*`` attrs |
@@ -122,6 +122,7 @@ Override at runtime:
 | `EXR_CONVERTER_BRAW_BRIDGE` | Path to `libbraw_bridge.*` (or its directory) |
 | `EXR_CONVERTER_BRAW_LIBS` / `BRAW_SDK_LIBS` | Folder containing `libBlackmagicRawAPI.*` |
 | `BRAW_SDK_READ_TOKEN` | Dedicated PAT that can download the private BRAW Release asset |
+| `EXR_CONVERTER_BRAW_CPU` | Set to `1` to skip GPU decode (CPU only) |
 
 Convert:
 
@@ -162,7 +163,8 @@ Windows:<dist>/braw/
 ```
 
 Only runtime dynamic libraries from the SDK `Libraries/` folder plus our
-bridge. Never headers, samples, `profile.braw`, or SDK documentation.
+bridge — including GPU decoder libs (`libDecoderCUDA` / `libDecoderOpenCL` /
+`DecoderMetal`). Never headers, samples, `profile.braw`, or SDK documentation.
 
 ---
 
@@ -203,6 +205,6 @@ set or after `make braw-sdk-fetch`.
 | `CreateBlackmagicRawFactoryInstanceFromPath failed` | Wrong folder (must contain `libBlackmagicRawAPI.so` / `.dylib` / `.dll`) |
 | Wrong colors | Use ACES2065-1 source — decode is Linear AP0, not BMD Film |
 | `._….braw` in browser | macOS AppleDouble metadata — hidden from the video browser |
-| GPU not used | Expected — this build forces the CPU pipeline |
+| Convert log says `CPU` on a GPU machine | GPU init failed (Metal / CUDA / OpenCL). Rebuild `make braw-bridge`. CUDA needs an NVIDIA driver + `libDecoderCUDA`; OpenCL needs a GPU ICD + `libDecoderOpenCL`; macOS needs `DecoderMetal` in the framework. Force CPU with `EXR_CONVERTER_BRAW_CPU=1` to compare. |
 
 Official sample clip (from the SDK package, not this repo): `profile.braw`.

@@ -118,7 +118,7 @@ inputs error with a clear missing-SDK message.
 official proprietary SDK — see [braw.md](./braw.md). Public Releases ship
 the bridge when secret `BRAW_SDK_READ_TOKEN` is set. Without it, `.braw`
 inputs error with a clear missing-SDK message. Decode is Linear ACES AP0
-(CPU).
+(Metal / CUDA / OpenCL when available, otherwise CPU).
 
 ---
 

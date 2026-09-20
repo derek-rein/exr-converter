@@ -16,6 +16,7 @@ from src.core.braw import (
     braw_src_colorspace_candidates,
     decode_mode_for_scale,
     is_braw_path,
+    preferred_decoder_kinds,
 )
 
 
@@ -38,6 +39,15 @@ def test_decode_mode_for_scale() -> None:
     assert decode_mode_for_scale(1.0) == DECODE_FULL
     assert decode_mode_for_scale(0.5) == DECODE_HALF
     assert decode_mode_for_scale(0.25) == DECODE_QUARTER
+
+
+def test_preferred_decoder_kinds_order() -> None:
+    kinds = preferred_decoder_kinds()
+    assert kinds[-1] == "cpu"
+    if sys.platform == "darwin":
+        assert kinds == ("metal", "opencl", "cpu")
+    else:
+        assert kinds == ("cuda", "opencl", "cpu")
 
 
 def test_decoder_kind_when_unavailable() -> None:
@@ -223,3 +233,7 @@ def test_decode_profile_braw_one_frame() -> None:
         assert rgb.shape[0] == info.height or rgb.shape[0] > 0
         assert rgb.shape[1] == info.width or rgb.shape[1] > 0
         assert rgb.size > 0
+        from src.core.braw import decoder_kind
+
+        kind = decoder_kind()
+        assert kind in preferred_decoder_kinds()

@@ -206,7 +206,7 @@ def sdk_version() -> str:
 
 
 def decoder_kind() -> str:
-    """``cpu`` when initialized (GPU pipelines are not wired yet)."""
+    """``metal``, ``cuda``, ``opencl``, ``cpu``, or empty if not initialized."""
     if not ensure_initialized() or _lib is None:
         return ""
     try:
