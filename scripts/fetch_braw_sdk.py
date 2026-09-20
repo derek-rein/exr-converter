@@ -104,12 +104,18 @@ def _api_download(repo: str, tag: str, asset: str, dest: Path, token: str) -> No
 
 
 def _is_sdk_root(path: Path) -> bool:
-    """True if *path* is an unpacked Blackmagic RAW SDK root."""
+    """True if *path* is an unpacked Blackmagic RAW SDK root.
+
+    Windows official trees ship ``BlackmagicRawAPI.idl`` instead of
+    ``BlackmagicRawAPI.h`` (MIDL generates the header at build time).
+    """
     markers = (
         path / "Linux" / "Include" / "BlackmagicRawAPI.h",
         path / "Mac" / "Include" / "BlackmagicRawAPI.h",
         path / "Win" / "Include" / "BlackmagicRawAPI.h",
+        path / "Win" / "Include" / "BlackmagicRawAPI.idl",
         path / "Include" / "BlackmagicRawAPI.h",
+        path / "Include" / "BlackmagicRawAPI.idl",
     )
     return any(p.is_file() for p in markers)
 

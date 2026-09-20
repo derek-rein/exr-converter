@@ -37,7 +37,55 @@ OUT_DIR = ROOT / "build" / "braw"
 
 
 def _header_ok(include: Path) -> bool:
-    return (include / "BlackmagicRawAPI.h").is_file()
+    """Linux/macOS ship BlackmagicRawAPI.h; Windows ships the IDL + dispatch."""
+    if (include / "BlackmagicRawAPI.h").is_file():
+        return True
+    return (include / "BlackmagicRawAPI.idl").is_file() and (
+        include / "BlackmagicRawAPIDispatch.h"
+    ).is_file()
+
+
+def _prepare_windows_include(include: Path, out_dir: Path) -> Path:
+    """Generate BlackmagicRawAPI.h from the official IDL when missing (Win SDK)."""
+    if (include / "BlackmagicRawAPI.h").is_file():
+        return include
+    idl = include / "BlackmagicRawAPI.idl"
+    if not idl.is_file():
+        raise SystemExit(
+            f"Windows BRAW SDK missing BlackmagicRawAPI.h and .idl under {include}"
+        )
+    gen = out_dir / "win_include"
+    gen.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "BlackmagicRawAPIDispatch.h",
+        "BlackmagicRawAPIDispatch.cpp",
+        "BlackmagicRawAPI.idl",
+    ):
+        src = include / name
+        if src.is_file():
+            shutil.copy2(src, gen / name)
+    generated = gen / "BlackmagicRawAPI.h"
+    if not generated.is_file():
+        cmd = [
+            "midl.exe",
+            "/nologo",
+            "/W1",
+            "/char",
+            "signed",
+            "/env",
+            "x64",
+            "/Oicf",
+            "/out",
+            str(gen),
+            "/h",
+            "BlackmagicRawAPI.h",
+            str(gen / "BlackmagicRawAPI.idl"),
+        ]
+        safe_print("Generating BlackmagicRawAPI.h via midl ...", file=sys.stderr)
+        subprocess.check_call(cmd)
+    if not generated.is_file():
+        raise SystemExit("midl did not produce BlackmagicRawAPI.h")
+    return gen
 
 
 def _find_sdk(explicit: str | None) -> tuple[Path, Path, Path]:
@@ -128,9 +176,11 @@ def build(include: Path, libraries: Path, out_dir: Path, verbose: bool) -> Path:
 
     out_dir.mkdir(parents=True, exist_ok=True)
     out_lib = out_dir / f"libbraw_bridge.{ext}"
-    dispatch = _find_dispatch(include)
 
     system = platform.system()
+    if system == "Windows":
+        include = _prepare_windows_include(include, out_dir)
+    dispatch = _find_dispatch(include)
     if system == "Windows":
         win_common = [
             "cl.exe",
@@ -148,6 +198,10 @@ def build(include: Path, libraries: Path, out_dir: Path, verbose: bool) -> Path:
         sources = [SRC]
         if dispatch is not None:
             sources.append(dispatch)
+        else:
+            raise SystemExit(
+                f"Missing BlackmagicRawAPIDispatch.cpp next to headers in {include}"
+            )
         for src in sources:
             obj = out_dir / f"{src.stem}.obj"
             cmd = [*win_common, str(src), f"/Fo{obj}"]
@@ -162,6 +216,9 @@ def build(include: Path, libraries: Path, out_dir: Path, verbose: bool) -> Path:
             "/MD",
             *[str(o) for o in objs],
             f"/Fe{out_lib}",
+            "/link",
+            "ole32.lib",
+            "oleaut32.lib",
         ]
         if verbose:
             print(" ".join(cmd), file=sys.stderr)

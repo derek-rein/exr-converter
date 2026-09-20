@@ -172,7 +172,10 @@ The **Release** workflow (Nuitka multi-OS):
 
 1. If secret **`BRAW_SDK_READ_TOKEN`** is set → download `sdk-6.0` /
    `BlackmagicRAWSDK-6.0-full.tar.gz` from the private repo.
-2. Build `libbraw_bridge` (macOS / Linux / Windows + MSVC).
+2. Build `libbraw_bridge` (macOS / Linux / Windows + MSVC). On Windows the
+   official SDK ships `BlackmagicRawAPI.idl`; the build runs `midl` to
+   generate `BlackmagicRawAPI.h` into `build/braw/win_include/` (not into
+   the SDK tree).
 3. After Nuitka, copy **bridge + runtime Libraries only** into `…/braw/` next
    to the executable.
 4. Refuse the build if headers / `.a` / `.lib` appear under that folder.
