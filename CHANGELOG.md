@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.10.0] — 2026-09-20
+
 ### Fixed
 
 - **EXR → Video ACES 2.0 Rec.709 looks lifted / blown:** destination names such
@@ -779,7 +783,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.9.13...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/derek-rein/exr-converter/compare/v0.9.13...v0.10.0
 [0.9.13]: https://github.com/derek-rein/exr-converter/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/derek-rein/exr-converter/compare/v0.9.11...v0.9.12
 [0.9.11]: https://github.com/derek-rein/exr-converter/compare/v0.9.10...v0.9.11
