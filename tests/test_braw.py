@@ -18,6 +18,7 @@ from src.core.braw import (
     is_braw_path,
     preferred_decoder_kinds,
 )
+from src.core.braw.paths import find_redistributable_dir
 
 
 def test_is_braw_path_extensions() -> None:
@@ -109,6 +110,27 @@ def test_bridge_candidates_include_exe_braw_dir(monkeypatch, tmp_path: Path) -> 
     cands = braw_mod._bridge_candidates()
     assert any(p.name == bridge_name and "braw" in p.parts for p in cands)
     assert bridge.resolve() in {p.resolve() for p in cands if p.exists()}
+
+
+def test_find_redistributable_dir_macos_contents_frameworks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Packaged Mac apps relocate BlackmagicRawAPI.framework to Contents/Frameworks."""
+    fake_exe = tmp_path / "Contents" / "MacOS" / "exr_converter"
+    fake_exe.parent.mkdir(parents=True)
+    fake_exe.write_bytes(b"")
+    fw = tmp_path / "Contents" / "Frameworks" / "BlackmagicRawAPI.framework"
+    fw.mkdir(parents=True)
+    (fw / "BlackmagicRawAPI").write_bytes(b"")
+
+    monkeypatch.setattr(sys, "executable", str(fake_exe))
+    monkeypatch.setattr(sys, "argv", [str(fake_exe)])
+    if hasattr(sys, "frozen"):
+        monkeypatch.delattr(sys, "frozen", raising=False)
+
+    found = find_redistributable_dir(None)
+    assert found is not None
+    assert found.resolve() == fw.parent.resolve()
 
 
 def _force_braw_unavailable() -> tuple:

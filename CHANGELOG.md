@@ -15,6 +15,13 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Fixed
 
+- **macOS Release codesign with BRAW:** `BlackmagicRawAPI.framework` now
+  installs under `Contents/Frameworks/` (bridge stays in `Contents/MacOS/braw/`)
+  and is signed inside-out before the app. A nested framework under
+  `Contents/MacOS` made ad-hoc `codesign --deep` fail with `bundle format is
+  ambiguous`. GPU decoder binaries inside the framework still ship. After
+  merge, re-dispatch Release for `v0.10.0` from `main` with
+  `source_ref=main`.
 - **BRAW bridge compiles on macOS and Windows:** the C ABI wrapper now uses
   SDK-accurate types per platform (Mac `CFUUIDBytes` / `CFStringRef`, Windows
   `VARIANT` / `BSTR` / `BOOL`, and the Win dispatch factory entry point).

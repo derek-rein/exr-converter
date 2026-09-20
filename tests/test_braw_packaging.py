@@ -23,6 +23,7 @@ from fetch_braw_sdk import (  # noqa: E402
 )
 from install_braw_into_bundle import (  # noqa: E402
     _assert_runtime_only,
+    _bridge_name,
     _is_forbidden_file,
     install,
 )
@@ -166,7 +167,6 @@ def test_install_copies_runtime_and_refuses_headers(tmp_path: Path) -> None:
     build = tmp_path / "build"
     redist = build / "redistributable"
     redist.mkdir(parents=True)
-    from install_braw_into_bundle import _bridge_name
 
     (build / _bridge_name()).write_bytes(b"bridge")
     (redist / "libBlackmagicRawAPI.so").write_bytes(b"api")
@@ -182,3 +182,64 @@ def test_install_copies_runtime_and_refuses_headers(tmp_path: Path) -> None:
     assert (dest / "libBlackmagicRawAPI.so").is_file()
     assert not (dest / "BlackmagicRawAPI.h").exists()
     assert not (dest / "Include").exists()
+
+
+def _stub_braw_build_with_framework(tmp_path: Path) -> Path:
+    """Minimal redistributable that matches the official Mac SDK Libraries/."""
+    build = tmp_path / "build"
+    redist = build / "redistributable"
+    fw = redist / "BlackmagicRawAPI.framework"
+    versions = fw / "Versions" / "A"
+    versions.mkdir(parents=True)
+    (versions / "BlackmagicRawAPI").write_bytes(b"fw-bin")
+    (versions / "DecoderMetal").write_bytes(b"gpu-decoder")
+    headers = fw / "Headers"
+    headers.mkdir()
+    (headers / "BlackmagicRawAPI.h").write_text("// must not ship\n")
+    (build / _bridge_name()).write_bytes(b"bridge")
+    return build
+
+
+def test_install_macos_app_puts_framework_under_contents_frameworks(tmp_path: Path) -> None:
+    """codesign --deep fails if BlackmagicRawAPI.framework sits under MacOS."""
+    build = _stub_braw_build_with_framework(tmp_path)
+    app = tmp_path / "EXR Converter.app"
+    macos = app / "Contents" / "MacOS"
+    macos.mkdir(parents=True)
+
+    dest = install(app, build_dir=build)
+    assert dest is not None
+    assert dest == macos / "braw"
+    assert (dest / _bridge_name()).is_file()
+    assert not (dest / "BlackmagicRawAPI.framework").exists()
+
+    fw = app / "Contents" / "Frameworks" / "BlackmagicRawAPI.framework"
+    assert fw.is_dir()
+    assert (fw / "Versions" / "A" / "BlackmagicRawAPI").is_file()
+    assert (fw / "Versions" / "A" / "DecoderMetal").is_file()
+    assert not (fw / "Headers").exists()
+    assert not list(fw.rglob("*.h"))
+
+
+def test_install_flat_dist_keeps_framework_beside_bridge(tmp_path: Path) -> None:
+    """Linux/Windows (and non-.app) keep the SDK tree under braw/."""
+    build = _stub_braw_build_with_framework(tmp_path)
+    bundle = tmp_path / "main.dist"
+    bundle.mkdir()
+    dest = install(bundle, build_dir=build)
+    assert dest is not None
+    assert (dest / "BlackmagicRawAPI.framework").is_dir()
+    assert (dest / "BlackmagicRawAPI.framework" / "Versions" / "A" / "DecoderMetal").is_file()
+    assert not (dest / "BlackmagicRawAPI.framework" / "Headers").exists()
+
+
+def test_install_macos_app_keeps_loose_redist_next_to_bridge(tmp_path: Path) -> None:
+    build = _stub_braw_build_with_framework(tmp_path)
+    (build / "redistributable" / "libInstructionSetServices.dylib").write_bytes(b"iss")
+    app = tmp_path / "EXR Converter.app"
+    (app / "Contents" / "MacOS").mkdir(parents=True)
+
+    dest = install(app, build_dir=build)
+    assert dest is not None
+    assert (dest / "libInstructionSetServices.dylib").is_file()
+    assert (app / "Contents" / "Frameworks" / "BlackmagicRawAPI.framework").is_dir()

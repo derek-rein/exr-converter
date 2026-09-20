@@ -22,10 +22,38 @@ def redistributable_marker() -> str:
     """Primary runtime library filename that must sit next to decoder .so/.dylib/.dll."""
     system = platform.system()
     if system == "Darwin":
+        # Official Mac SDK ships BlackmagicRawAPI.framework, not a loose dylib.
         return "libBlackmagicRawAPI.dylib"
     if system == "Windows":
         return "BlackmagicRawAPI.dll"
     return "libBlackmagicRawAPI.so"
+
+
+def _macos_framework_roots(exe_dir: Path) -> list[Path]:
+    """Contents/Frameworks — required codesign location for nested BRAW frameworks."""
+    roots: list[Path] = []
+    if exe_dir.name == "MacOS" and exe_dir.parent.name == "Contents":
+        fw = exe_dir.parent / "Frameworks"
+        roots.extend((fw, fw / "braw"))
+    elif exe_dir.name == "Contents" and (exe_dir / "MacOS").is_dir():
+        fw = exe_dir / "Frameworks"
+        roots.extend((fw, fw / "braw"))
+    elif (exe_dir / "Contents" / "Frameworks").is_dir():
+        fw = exe_dir / "Contents" / "Frameworks"
+        roots.extend((fw, fw / "braw"))
+    return roots
+
+
+def _looks_like_braw_runtime_dir(path: Path) -> bool:
+    """True if *path* holds the Blackmagic RAW API library or framework."""
+    marker = redistributable_marker()
+    if (path / marker).is_file():
+        return True
+    if (path / "BlackmagicRawAPI.framework").is_dir():
+        return True
+    if path.name == "BlackmagicRawAPI.framework" and path.is_dir():
+        return True
+    return any(path.glob("libBlackmagicRawAPI*")) or any(path.glob("BlackmagicRawAPI*"))
 
 
 def bridge_candidates() -> list[Path]:
@@ -77,7 +105,7 @@ def bridge_candidates() -> list[Path]:
 
 
 def redistributable_candidates(bridge_path: Path | None) -> list[Path]:
-    """Folders that may contain libBlackmagicRawAPI.* (same dir as bridge after install)."""
+    """Folders that may contain libBlackmagicRawAPI.* or BlackmagicRawAPI.framework."""
     marker = redistributable_marker()
 
     roots: list[Path] = []
@@ -102,6 +130,7 @@ def redistributable_candidates(bridge_path: Path | None) -> list[Path]:
     for exe_dir in runtime_exe_dirs():
         roots.append(exe_dir / "braw")
         roots.append(exe_dir)
+        roots.extend(_macos_framework_roots(exe_dir))
 
     pkg_root = package_root_from_file(__file__, parents=4)
     roots.append(pkg_root / "build" / "braw" / "redistributable")
@@ -132,11 +161,16 @@ def redistributable_candidates(bridge_path: Path | None) -> list[Path]:
 
 
 def find_redistributable_dir(bridge_path: Path | None) -> Path | None:
-    """Return the first folder that contains the Blackmagic RAW API library."""
-    marker = redistributable_marker()
+    """Return the first folder that contains the Blackmagic RAW API library.
+
+    On a packaged macOS app the factory path is ``Contents/Frameworks``
+    (parent of ``BlackmagicRawAPI.framework``), not ``Contents/MacOS/braw``.
+    """
     for cand in redistributable_candidates(bridge_path):
-        if (cand / marker).is_file():
-            return cand
-        if any(cand.glob("libBlackmagicRawAPI*")) or any(cand.glob("BlackmagicRawAPI*")):
+        if not cand.is_dir():
+            continue
+        if cand.name == "BlackmagicRawAPI.framework":
+            return cand.parent
+        if _looks_like_braw_runtime_dir(cand):
             return cand
     return None

@@ -470,20 +470,39 @@ jobs:
           else
             uv run python scripts/install_braw_into_bundle.py dist/main.dist
           fi
-          # Sanity: no headers/static libs leaked into the private braw dir.
+          # Sanity: no headers/static libs leaked. On macOS the SDK ships
+          # BlackmagicRawAPI.framework — it must live under Contents/Frameworks
+          # (a nested framework under Contents/MacOS makes codesign --deep
+          # report "bundle format is ambiguous").
           if [ "$RUNNER_OS" == "macOS" ]; then
             BRAW_DIR="dist/EXR Converter.app/Contents/MacOS/braw"
+            BRAW_FW="dist/EXR Converter.app/Contents/Frameworks"
+            test -d "$BRAW_DIR"
+            if [ -e "$BRAW_DIR/BlackmagicRawAPI.framework" ]; then
+              echo "ERROR: BlackmagicRawAPI.framework must not live under Contents/MacOS" >&2
+              find "$BRAW_DIR" | head -50
+              exit 1
+            fi
+            test -d "$BRAW_FW/BlackmagicRawAPI.framework"
+            CHECK_DIRS=("$BRAW_DIR" "$BRAW_FW")
           else
             BRAW_DIR="dist/main.dist/braw"
+            CHECK_DIRS=("$BRAW_DIR")
+            test -d "$BRAW_DIR"
           fi
-          test -d "$BRAW_DIR"
-          if find "$BRAW_DIR" \( -iname '*.a' -o -iname '*.lib' -o -iname 'BlackmagicRawAPI.h' -o -iname '*.h' \) | grep -q .; then
-            echo "ERROR: forbidden SDK artifacts under $BRAW_DIR" >&2
-            find "$BRAW_DIR" | head -50
-            exit 1
-          fi
+          for d in "${CHECK_DIRS[@]}"; do
+            if find "$d" \( -iname '*.a' -o -iname '*.lib' -o -iname 'BlackmagicRawAPI.h' -o -iname '*.h' \) | grep -q .; then
+              echo "ERROR: forbidden SDK artifacts under $d" >&2
+              find "$d" | head -50
+              exit 1
+            fi
+          done
           echo "OK: BRAW runtime in $BRAW_DIR"
           ls -la "$BRAW_DIR" | head -20
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            echo "OK: BRAW framework in $BRAW_FW"
+            ls -la "$BRAW_FW" | head -20
+          fi
 
       - name: Slim macOS bundle
         if: runner.os == 'macOS'
@@ -508,7 +527,8 @@ jobs:
           # redistributables under r3d/ or braw/, or the oxideav PyO3
           # extension — strip can break extension load).
           find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) \
-            ! -path '*/r3d/*' ! -path '*/braw/*' ! -path '*exr_prores*' -exec strip -x {} +
+            ! -path '*/r3d/*' ! -path '*/braw/*' ! -path '*exr_prores*' \
+            ! -path '*.framework/*' -exec strip -x {} +
 
           echo "Bundle size after slimming:"
           du -sh "$APP"
@@ -523,6 +543,20 @@ jobs:
           # every executable page must carry a valid signature or the kernel
           # kills the process at dlopen ("CODESIGNING / Invalid Page"). Re-sign
           # everything inside-out so the embedded module hashes match again.
+          #
+          # Nested BRAW frameworks live in Contents/Frameworks (not MacOS).
+          # Sign them deepest-first, then dylibs, then the main exe, then
+          # the outer app. --deep on a .framework under Contents/MacOS
+          # fails with "bundle format is ambiguous".
+          if [ -d "$APP/Contents/Frameworks" ]; then
+            while IFS= read -r fw; do
+              [ -n "$fw" ] || continue
+              codesign --force --sign - --timestamp=none "$fw"
+            done < <(
+              find "$APP/Contents/Frameworks" -name '*.framework' \
+                | awk '{ print length, $0 }' | sort -nr | cut -d' ' -f2-
+            )
+          fi
           find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) \
             -exec codesign --force --sign - --timestamp=none {} +
           QT_LIB="$APP/Contents/MacOS/PySide6/Qt/lib"

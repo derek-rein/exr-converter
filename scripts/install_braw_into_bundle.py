@@ -7,7 +7,14 @@ Layout written (private app directory)::
   <bundle>/braw/libBlackmagicRawAPI.* …
   <bundle>/braw/… (other SDK Libraries runtime files)
 
-On macOS app bundles, *bundle* is ``Contents/MacOS`` (next to the executable).
+On macOS app bundles:
+
+  Contents/MacOS/braw/libbraw_bridge.dylib     (next to the executable, like R3D)
+  Contents/Frameworks/BlackmagicRawAPI.framework
+  Contents/Frameworks/<other *.framework>      (GPU decoder runtime stays intact)
+
+A nested ``.framework`` under ``Contents/MacOS`` makes ``codesign --deep``
+report ``bundle format is ambiguous (could be app or framework)``.
 
 Usage::
 
@@ -75,6 +82,10 @@ def _bridge_name() -> str:
     return "libbraw_bridge.so"
 
 
+def _is_macos_app(target: Path) -> bool:
+    return target.suffix == ".app" or target.name.endswith(".app")
+
+
 def _macos_exec_dir(app: Path) -> Path:
     mac_os = app / "Contents" / "MacOS"
     if mac_os.is_dir():
@@ -82,11 +93,29 @@ def _macos_exec_dir(app: Path) -> Path:
     return app
 
 
+def _macos_frameworks_dir(app: Path) -> Path:
+    return app / "Contents" / "Frameworks"
+
+
 def resolve_install_root(target: Path) -> Path:
     target = target.resolve()
-    if target.suffix == ".app" or target.name.endswith(".app"):
+    if _is_macos_app(target):
         return _macos_exec_dir(target)
     return target
+
+
+def _is_framework_dir(path: Path) -> bool:
+    return path.is_dir() and path.name.endswith(".framework")
+
+
+def _strip_framework_headers(root: Path) -> None:
+    """Framework trees sometimes carry a Headers/ symlink — strip it."""
+    for headers in list(root.rglob("Headers")):
+        if headers.is_dir() or headers.is_symlink():
+            if headers.is_symlink() or headers.is_file():
+                headers.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(headers)
 
 
 def install(target: Path, build_dir: Path = BUILD) -> Path | None:
@@ -110,7 +139,13 @@ def install(target: Path, build_dir: Path = BUILD) -> Path | None:
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
 
+    fw_root: Path | None = None
+    if _is_macos_app(target):
+        fw_root = _macos_frameworks_dir(target)
+        fw_root.mkdir(parents=True, exist_ok=True)
+
     shutil.copy2(bridge, dest / bridge.name)
+    installed_frameworks: list[Path] = []
     for item in redist.iterdir():
         if is_macos_junk_name(item.name):
             continue
@@ -121,18 +156,32 @@ def install(target: Path, build_dir: Path = BUILD) -> Path | None:
         elif item.is_dir():
             if _is_forbidden_dir_name(item.name):
                 continue
-            shutil.copytree(item, dest / item.name, ignore=ignore_macos_junk)
+            # Nested .framework under Contents/MacOS confuses codesign --deep.
+            target_dir = fw_root if fw_root is not None and _is_framework_dir(item) else dest
+            dest_item = target_dir / item.name
+            if dest_item.exists():
+                shutil.rmtree(dest_item)
+            shutil.copytree(item, dest_item, ignore=ignore_macos_junk)
+            if _is_framework_dir(dest_item):
+                installed_frameworks.append(dest_item)
 
-    # Framework trees sometimes carry a Headers/ symlink — strip it.
-    for headers in list(dest.rglob("Headers")):
-        if headers.is_dir() or headers.is_symlink():
-            if headers.is_symlink() or headers.is_file():
-                headers.unlink(missing_ok=True)
-            else:
-                shutil.rmtree(headers)
+    _strip_framework_headers(dest)
+    if fw_root is not None:
+        _strip_framework_headers(fw_root)
+        # Refuse to leave a framework next to the executable (Release re-sign).
+        leftover = [p for p in dest.iterdir() if _is_framework_dir(p)]
+        if leftover:
+            preview = "\n".join(str(p) for p in leftover)
+            raise SystemExit(
+                f"ERROR: .framework must live under Contents/Frameworks, not {dest}:\n{preview}"
+            )
 
     _assert_runtime_only(dest)
+    for fw in installed_frameworks:
+        _assert_runtime_only(fw)
     safe_print(f"Installed BRAW runtime -> {dest}")
+    for fw in installed_frameworks:
+        safe_print(f"Installed BRAW framework -> {fw}")
     return dest
 
 
