@@ -8,6 +8,7 @@ Usage:
   BRAW_SDK_ROOT=/path/to/slim python3 scripts/build_braw_bridge.py
   # slim/ layout: Linux/Include/BlackmagicRawAPI.h + Linux/Libraries/*.so
   # or conventional: /usr/lib64/blackmagic/BlackmagicRAWSDK
+  # or: python3 scripts/fetch_braw_sdk.py && python3 scripts/build_braw_bridge.py
 
 Outputs:
   build/braw/libbraw_bridge.{dylib,so,dll}
@@ -91,7 +92,9 @@ def _find_sdk(explicit: str | None) -> tuple[Path, Path, Path]:
     raise SystemExit(
         "Blackmagic RAW SDK not found. Set BRAW_SDK_ROOT to the unpacked SDK "
         "(e.g. slim/ with Linux/Include + Linux/Libraries), or place it at "
-        "~/.braw-sdk or /usr/lib64/blackmagic/BlackmagicRAWSDK. See docs/braw.md."
+        "~/.braw-sdk or /usr/lib64/blackmagic/BlackmagicRAWSDK, or run: "
+        "python3 scripts/fetch_braw_sdk.py  (private CI feed). "
+        "See docs/braw.md."
     )
 
 

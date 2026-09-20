@@ -60,10 +60,37 @@ This repo only contains *our* bridge source (`native/braw/`) and Python glue
 
 ---
 
+## Where the full SDK lives (maintainers)
+
+| Location | Purpose |
+|----------|---------|
+| `~/.braw-sdk/` or `~/code/braw-sdk-private/BlackmagicRAWSDK-6.0/` | Local full SDK unpack (headers + runtime Libraries) |
+| Private GitHub repo [`derek-rein/braw-sdk-private`](https://github.com/derek-rein/braw-sdk-private) | README + package script only (**no SDK blobs in git**) |
+| Private Release tag `sdk-6.0` asset `BlackmagicRAWSDK-6.0-full.tar.gz` | **CI build-time feed** for public `exr-converter` Releases |
+
+Public **GitHub Release artifacts** for EXR Converter may include only:
+
+- `libbraw_bridge.{dylib,so,dll}`
+- Blackmagic `Libraries/` runtime dynamic libraries (and the macOS `.framework` binary)
+
+…under a private app folder (`…/braw/`), never headers, samples, `profile.braw`,
+or SDK documentation.
+
+### Refresh the private CI feed
+
+```bash
+# After unpacking a new official SDK as BlackmagicRAWSDK-6.0/
+cd ~/code/braw-sdk-private
+./scripts/package_release.sh
+# retags/uploads BlackmagicRAWSDK-6.0-full.tar.gz to release sdk-6.0
+```
+
+---
+
 ## Developer setup (local)
 
 ```bash
-# Unpack the official Linux SDK (example slim layout):
+# Unpack the official SDK (example slim layout):
 #   ~/.braw-sdk/slim/Linux/Include/BlackmagicRawAPI.h
 #   ~/.braw-sdk/slim/Linux/Libraries/libBlackmagicRawAPI.so
 
@@ -71,6 +98,10 @@ export BRAW_SDK_ROOT="$HOME/.braw-sdk/slim"
 cd /path/to/exr-converter
 make braw-bridge
 # → build/braw/libbraw_bridge.so + build/braw/redistributable/
+
+# Or pull the same tarball CI uses (needs gh auth or BRAW_SDK_READ_TOKEN):
+make braw-sdk-fetch   # → .braw-sdk/BlackmagicRAWSDK-6.0 (gitignored)
+make braw-bridge
 ```
 
 Discovery (first match wins):
@@ -90,6 +121,7 @@ Override at runtime:
 | `BRAW_SDK_ROOT` | Unpacked SDK root for **building** the bridge |
 | `EXR_CONVERTER_BRAW_BRIDGE` | Path to `libbraw_bridge.*` (or its directory) |
 | `EXR_CONVERTER_BRAW_LIBS` / `BRAW_SDK_LIBS` | Folder containing `libBlackmagicRawAPI.*` |
+| `BRAW_SDK_READ_TOKEN` | PAT that can download the private Release asset |
 
 Convert:
 
@@ -132,10 +164,29 @@ Windows:<dist>/braw/
 Only runtime dynamic libraries from the SDK `Libraries/` folder plus our
 bridge. Never headers, samples, `profile.braw`, or SDK documentation.
 
-Release CI does **not** currently fetch a private BRAW SDK (unlike R3D). Local
-`make bundle` builds and installs the runtime when `BRAW_SDK_ROOT` is set.
-macOS / Windows packaging is the same layout once those SDK trees are present;
-only Linux has been smoke-tested in this integration.
+---
+
+## CI / GitHub Release builds
+
+The **Release** workflow (Nuitka multi-OS):
+
+1. If secret **`BRAW_SDK_READ_TOKEN`** is set → download `sdk-6.0` /
+   `BlackmagicRAWSDK-6.0-full.tar.gz` from the private repo.
+2. Build `libbraw_bridge` (macOS / Linux / Windows + MSVC).
+3. After Nuitka, copy **bridge + runtime Libraries only** into `…/braw/` next
+   to the executable.
+4. Refuse the build if headers / `.a` / `.lib` appear under that folder.
+
+If the secret is missing, Release still publishes the app **without** BRAW
+support (`.braw` convert reports SDK missing — same as R3D).
+
+```bash
+# Set or rotate the secret (fine-grained PAT with read on braw-sdk-private)
+gh secret set BRAW_SDK_READ_TOKEN --repo derek-rein/exr-converter
+```
+
+Local `make bundle` builds and installs the runtime when `BRAW_SDK_ROOT` is
+set or after `make braw-sdk-fetch`.
 
 ---
 
@@ -145,6 +196,7 @@ only Linux has been smoke-tested in this integration.
 |---------|-----|
 | `BRAW bridge library not found` | `make braw-bridge` / set `EXR_CONVERTER_BRAW_BRIDGE` |
 | `Blackmagic RAW runtime libraries not found` | Set `EXR_CONVERTER_BRAW_LIBS` to the SDK `Libraries` folder |
+| CI skips BRAW | Secret `BRAW_SDK_READ_TOKEN` not set or cannot read private release |
 | `CreateBlackmagicRawFactoryInstanceFromPath failed` | Wrong folder (must contain `libBlackmagicRawAPI.so` / `.dylib` / `.dll`) |
 | Wrong colors | Use ACES2065-1 source — decode is Linear AP0, not BMD Film |
 | `._….braw` in browser | macOS AppleDouble metadata — hidden from the video browser |

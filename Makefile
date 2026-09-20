@@ -8,7 +8,8 @@
 #   make release PUSH=0                   # … local only; push branch + tag yourself to trigger CI
 
 .PHONY: help run lint typecheck fmt test test-unit resources bundle clean bump release \
-	sync ensure-ocio docs-serve docs-build r3d-bridge r3d-sdk-fetch braw-bridge oxideav-prores
+	sync ensure-ocio docs-serve docs-build r3d-bridge r3d-sdk-fetch \
+	braw-bridge braw-sdk-fetch oxideav-prores
 
 APP_NAME := exr_converter
 MACOS_BUNDLE_NAME := EXR Converter
@@ -43,6 +44,7 @@ help:
 	@echo "  make docs-serve / docs-build           # Hugo site from docs/ (local / CI)"
 	@echo "  make r3d-sdk-fetch                     # download private R3D SDK (CI feed / gh auth)"
 	@echo "  make r3d-bridge                        # build optional RED R3D bridge (needs SDK)"
+	@echo "  make braw-sdk-fetch                    # download private BRAW SDK (CI feed / gh auth)"
 	@echo "  make braw-bridge                       # build optional Blackmagic RAW bridge (needs SDK)"
 	@echo "  make oxideav-prores                    # build PyO3 oxideav 12-bit ProRes extension"
 	@echo ""
@@ -77,6 +79,10 @@ r3d-bridge:
 
 # Optional Blackmagic RAW SDK bridge (proprietary SDK; not required for normal builds).
 # Discovers BRAW_SDK_ROOT, ~/.braw-sdk, or /usr/lib64/blackmagic/BlackmagicRAWSDK.
+# CI: make braw-sdk-fetch then braw-bridge (needs BRAW_SDK_READ_TOKEN / gh auth).
+braw-sdk-fetch:
+	$(PYTHON) scripts/fetch_braw_sdk.py
+
 braw-bridge:
 	$(PYTHON) scripts/build_braw_bridge.py
 
