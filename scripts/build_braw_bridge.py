@@ -180,6 +180,11 @@ def build(include: Path, libraries: Path, out_dir: Path, verbose: bool) -> Path:
     system = platform.system()
     if system == "Windows":
         include = _prepare_windows_include(include, out_dir)
+        # Factory entry points live in BlackmagicRawAPIDispatch.h (not the MIDL header).
+        if not (include / "BlackmagicRawAPIDispatch.h").is_file():
+            raise SystemExit(
+                f"Windows BRAW SDK missing BlackmagicRawAPIDispatch.h under {include}"
+            )
     dispatch = _find_dispatch(include)
     if system == "Windows":
         win_common = [
