@@ -24,7 +24,7 @@ from a Read — see [nuke.md](./nuke.md).
 
 | Tab | Direction | Notes |
 |-----|-----------|--------|
-| **Video → EXR** | Decode video → OCIO → EXR sequence | **Ingest only** — never slate / burn-in / watermark. Output field uses ``name.####.exr``; that basename is written (not forced to the video stem). Accepts common video containers plus optional **`.r3d` / `.nev`** when the [R3D SDK bridge](./r3d.md) is available (browser thumbs + player preview use low-res R3D decode; convert is full quality — **Metal GPU** on macOS, **CUDA / OpenCL** on Windows and Linux; camera/timecode metadata lands on EXRs). |
+| **Video → EXR** | Decode video → OCIO → EXR sequence | **Ingest only** — never slate / burn-in / watermark. Output field uses ``name.####.exr``; that basename is written (not forced to the video stem). Accepts common video containers plus optional **`.r3d` / `.nev`** when the [R3D SDK bridge](./r3d.md) is available (browser thumbs + player preview use low-res R3D decode; convert is full quality — **Metal GPU** on macOS, **CUDA / OpenCL** on Windows and Linux; camera/timecode metadata lands on EXRs) and optional **`.braw`** when the [Blackmagic RAW bridge](./braw.md) is available (CPU decode to Linear ACES AP0 / `ACES2065-1`). |
 | **EXR → Video** | Image sequence → OCIO → video | OpenEXR primary; also DPX, PNG, JPEG, WebP. Slate / burn-in / watermark via that tab’s controls. Sequences may use ``name.####.ext`` or ``name_####.ext`` pads. |
 
 Dragging the **Log** splitter up does not squash Input / Output / Options
@@ -80,7 +80,7 @@ prefers a basename matching the folder name when several sequences share the
 folder). The slate editor reuses the player with live burn-in/watermark overlays.
 
 **Video browser filters:** only real media extensions are listed (``.r3d``,
-``.nev``, ``.mov``, ``.mp4``, …). macOS **AppleDouble** Finder sidecars
+``.nev``, ``.braw``, ``.mov``, ``.mp4``, …). macOS **AppleDouble** Finder sidecars
 (``._clip.R3D``) that appear next to clips on network shares or non-HFS
 volumes are hidden — they share the media extension but are resource-fork
 metadata, not video. RED **`.RMD`** metadata files are never listed (not a

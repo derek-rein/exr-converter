@@ -104,12 +104,29 @@ class AboutDialog(QDialog):
         except Exception:
             r3d_line = ""
 
+        braw_line = ""
+        try:
+            from ..core.braw import decoder_kind as braw_kind
+            from ..core.braw import is_available as braw_available
+            from ..core.braw import sdk_version as braw_sdk_version
+
+            if braw_available():
+                ver = braw_sdk_version() or "loaded"
+                kind = braw_kind()
+                extra = f" · {kind}" if kind else ""
+                braw_line = f"<br>Blackmagic RAW SDK: {ver}{extra}"
+            else:
+                braw_line = "<br>Blackmagic RAW: not available (optional)"
+        except Exception:
+            braw_line = ""
+
         deps = (
             f"Python {sys.version.split()[0]} · "
             f"PySide6 {__import__('PySide6').__version__}<br>"
             f"OpenColorIO {OCIO_mod.GetVersion()} · "
             f"OpenImageIO {oiio_ver}"
             f"{r3d_line}"
+            f"{braw_line}"
         )
 
         body = QTextBrowser()
@@ -135,16 +152,23 @@ class AboutDialog(QDialog):
             "and/or sell copies of the Software, subject to the above copyright "
             "notice and this permission notice being included in all copies.</p>"
             "<p style='font-size:10px;'>Application source is MIT-licensed. "
-            "Optional RED Redistributable libraries (when present) remain under "
-            "the proprietary R3D SDK License Agreement — use the button below.</p>"
+            "Optional RED Redistributable libraries and Blackmagic RAW runtime "
+            "libraries (when present) remain under their proprietary SDK licenses "
+            "— use the buttons below.</p>"
         )
         body.setReadOnly(True)
         layout.addWidget(body, 1)
 
+        notice_row = QHBoxLayout()
         red_btn = QPushButton("RED redistributable notice…")
         red_btn.setToolTip("End-user terms for optional RED R3D / N-RAW libraries")
         red_btn.clicked.connect(self._show_red_notice)
-        layout.addWidget(red_btn)
+        notice_row.addWidget(red_btn)
+        braw_btn = QPushButton("Blackmagic RAW notice…")
+        braw_btn.setToolTip("End-user terms for optional Blackmagic RAW libraries")
+        braw_btn.clicked.connect(self._show_braw_notice)
+        notice_row.addWidget(braw_btn)
+        layout.addLayout(notice_row)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(self.accept)
@@ -160,6 +184,22 @@ class AboutDialog(QDialog):
         text = QPlainTextEdit()
         text.setReadOnly(True)
         text.setPlainText(RED_REDISTRIBUTABLE_NOTICE.strip())
+        lay.addWidget(text, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        bb.accepted.connect(dlg.accept)
+        lay.addWidget(bb)
+        dlg.exec()
+
+    def _show_braw_notice(self) -> None:
+        from ..core.braw import BMD_REDISTRIBUTABLE_NOTICE
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Blackmagic RAW redistributable notice")
+        dlg.setMinimumSize(480, 360)
+        lay = QVBoxLayout(dlg)
+        text = QPlainTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText(BMD_REDISTRIBUTABLE_NOTICE.strip())
         lay.addWidget(text, 1)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         bb.accepted.connect(dlg.accept)
@@ -1283,6 +1323,7 @@ class MainWindow(QMainWindow):
         ".ts",
         ".r3d",
         ".nev",
+        ".braw",
     }
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:

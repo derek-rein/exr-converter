@@ -487,15 +487,16 @@ def run_video_to_exr(
     deinterlace: str = "auto",
     output_name: str = "",
 ) -> None:
-    """Decode video / R3D → OCIO → EXR sequence (ingest).
+    """Decode video / R3D / BRAW → OCIO → EXR sequence (ingest).
 
     Files are always written as ``{output_name}.{frame:0N}.ext`` (dot pad only).
     *output_name* defaults to the video stem when empty. Slate / burn-in /
     watermark are **never** applied on this path.
 
-    RED R3D / Nikon N-RAW (``.r3d`` / ``.nev``) use the optional R3D SDK bridge
-    when available (see ``docs/r3d.md``); other formats use PyAV. Both share the
-    same OCIO + EXR write loop via :func:`open_ingest_source`.
+    RED R3D / Nikon N-RAW (``.r3d`` / ``.nev``) and Blackmagic RAW (``.braw``)
+    use optional SDK bridges when available (see ``docs/r3d.md``,
+    ``docs/braw.md``); other formats use PyAV. All share the same OCIO + EXR
+    write loop via :func:`open_ingest_source`.
     """
     from .frame_source import open_ingest_source
 

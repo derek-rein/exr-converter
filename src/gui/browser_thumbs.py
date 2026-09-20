@@ -74,6 +74,21 @@ def load_video_thumbnail_rgb(
     except Exception:
         pass
 
+    # BRAW: eighth-res SDK decode (Linear ACES AP0 — cheap OETF for thumbs).
+    try:
+        from ..core.braw import DECODE_THUMBNAIL as BRAW_THUMB
+        from ..core.braw import BRAWClip, is_braw_path
+        from ..core.braw import is_available as braw_available
+
+        if is_braw_path(path) and braw_available():
+            with BRAWClip(path) as clip:
+                rgb = clip.decode_frame(0, mode=BRAW_THUMB)
+            disp = np.clip(np.asarray(rgb, dtype=np.float32), 0.0, 1.0)
+            disp = np.power(disp, 1.0 / 2.2)
+            return _downscale_uint8_rgb(disp, max_edge)
+    except Exception:
+        pass
+
     try:
         import av
 
