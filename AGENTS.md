@@ -89,9 +89,9 @@ site/                   # Hugo config + theme; mounts docs/ → GitHub Pages
 |------|------------|
 | Convert pipeline | `src/core/convert.py`, `src/core/video.py`, `src/core/exr_io.py` |
 | Optional R3D / N-RAW | `src/core/r3d/`, `native/r3d/` (macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_r3d_bridge.py`, `scripts/fetch_r3d_sdk.py`, `scripts/install_r3d_into_bundle.py`, [docs/r3d.md](./docs/r3d.md) |
-| Optional BRAW | `src/core/braw/`, `native/braw/` (CPU Linear ACES AP0), `scripts/build_braw_bridge.py`, `scripts/install_braw_into_bundle.py`, [docs/braw.md](./docs/braw.md) |
+| Optional BRAW | `src/core/braw/`, `native/braw/` (CPU Linear ACES AP0), `scripts/build_braw_bridge.py`, `scripts/fetch_braw_sdk.py`, `scripts/install_braw_into_bundle.py`, [docs/braw.md](./docs/braw.md) |
 | Optional 12-bit ProRes (oxideav) | `native/exr_prores/` (PyO3), `src/core/oxideav_prores.py`, `make oxideav-prores`, [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) |
-| Private full SDK (local) | `~/code/r3d-sdk-private/R3DSDKv9_2_1` — never commit; CI feed = private repo `derek-rein/r3d-sdk-private` release `sdk-9.2.1` |
+| Private full SDK (local) | R3D: `~/code/r3d-sdk-private/R3DSDKv9_2_1` — CI feed `derek-rein/r3d-sdk-private` release `sdk-9.2.1`. BRAW: `~/.braw-sdk/` or `~/code/braw-sdk-private/BlackmagicRAWSDK-6.0` — CI feed `derek-rein/braw-sdk-private` release `sdk-6.0`. Never commit either SDK. |
 | Codec ladder / bit depth labels | `src/core/constants.py` |
 | CLI | `src/cli.py` |
 | Main window / post-convert actions | `src/gui/window.py` |
@@ -115,6 +115,7 @@ make test          # full pytest (needs QT_QPA_PLATFORM=offscreen — Makefile s
 make test-unit     # skip @pytest.mark.integration
 make resources     # regenerate src/rc_resources.py after resources.qrc / icons change
 make oxideav-prores # build optional PyO3 12-bit ProRes extension (needs Rust)
+make braw-sdk-fetch # download private BRAW SDK (needs BRAW_SDK_READ_TOKEN / gh)
 make braw-bridge   # optional Blackmagic RAW bridge (needs BRAW_SDK_ROOT)
 make docs-serve    # Hugo local preview of docs/ (http://127.0.0.1:1313/)
 make docs-build    # Hugo static build → site/public/
@@ -456,6 +457,10 @@ Public site: `make docs-serve` / `make docs-build`; workflow **Docs** deploys to
 - Do not commit the proprietary RED R3D SDK (headers, static libs, docs, samples)
   or claim the SDK is open-source; only Redistributable dylibs/so/dll may ship,
   in a private app directory, with required EULA terms — see [docs/r3d.md](./docs/r3d.md).
+- Do not commit the proprietary Blackmagic RAW SDK (headers, runtime libs,
+  samples, `profile.braw`, docs). Public Releases may ship only runtime
+  libraries + `libbraw_bridge` under a private `braw/` folder — see
+  [docs/braw.md](./docs/braw.md).
 - Do not reintroduce Qt WebEngine for slate.
 - Do not push version tags without a changelog section and green Release gate intent.
 - Do not hand-edit `src/rc_resources.py` or force-push published release tags without a deliberate recovery process.

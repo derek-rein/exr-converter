@@ -289,9 +289,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends g++ uuid-dev
 
-      # Puts cl.exe / link.exe on PATH for the R3D static lib link step.
+      # Optional Blackmagic RAW SDK (private feed). Builds libbraw_bridge.
+      # Secret BRAW_SDK_READ_TOKEN must read derek-rein/braw-sdk-private releases.
+      # Without the secret, Release still ships; BRAW convert reports SDK missing.
+      - name: Fetch private BRAW SDK
+        id: braw_sdk
+        shell: bash
+        env:
+          BRAW_SDK_READ_TOKEN: ${{ secrets.BRAW_SDK_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BRAW_SDK_READ_TOKEN:-}" ]; then
+            echo "BRAW_SDK_READ_TOKEN not set — skipping BRAW bridge"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          SDK_ROOT="$(uv run python scripts/fetch_braw_sdk.py --out "${RUNNER_TEMP}/braw-sdk")"
+          echo "BRAW_SDK_ROOT=${SDK_ROOT}" >> "$GITHUB_ENV"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "Fetched BRAW SDK → ${SDK_ROOT}"
+
+      - name: BRAW bridge build deps (Linux)
+        if: runner.os == 'Linux' && steps.braw_sdk.outputs.enabled == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++
+
+      # Puts cl.exe / link.exe on PATH for R3D / BRAW native link steps.
       - name: Enable MSVC environment (Windows)
-        if: runner.os == 'Windows' && steps.r3d_sdk.outputs.enabled == 'true'
+        if: runner.os == 'Windows' && (steps.r3d_sdk.outputs.enabled == 'true' || steps.braw_sdk.outputs.enabled == 'true')
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
 
       - name: Build R3D bridge
@@ -301,6 +327,14 @@ jobs:
           set -euo pipefail
           uv run python scripts/build_r3d_bridge.py -v
           ls -la build/r3d/
+
+      - name: Build BRAW bridge
+        if: steps.braw_sdk.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python scripts/build_braw_bridge.py -v
+          ls -la build/braw/
 
       - name: Compile Qt resources
         run: uv run pyside6-rcc resources.qrc -o src/rc_resources.py
@@ -424,6 +458,33 @@ jobs:
           echo "OK: R3D redistributables in $R3D_DIR"
           ls -la "$R3D_DIR" | head -20
 
+      # Ship only runtime dylibs/so/dll + our bridge (private app dir).
+      # Never package SDK headers or documentation into the user-facing artifact.
+      - name: Install BRAW runtime into bundle
+        if: steps.braw_sdk.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            uv run python scripts/install_braw_into_bundle.py "dist/EXR Converter.app"
+          else
+            uv run python scripts/install_braw_into_bundle.py dist/main.dist
+          fi
+          # Sanity: no headers/static libs leaked into the private braw dir.
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            BRAW_DIR="dist/EXR Converter.app/Contents/MacOS/braw"
+          else
+            BRAW_DIR="dist/main.dist/braw"
+          fi
+          test -d "$BRAW_DIR"
+          if find "$BRAW_DIR" \( -iname '*.a' -o -iname '*.lib' -o -iname 'BlackmagicRawAPI.h' -o -iname '*.h' \) | grep -q .; then
+            echo "ERROR: forbidden SDK artifacts under $BRAW_DIR" >&2
+            find "$BRAW_DIR" | head -50
+            exit 1
+          fi
+          echo "OK: BRAW runtime in $BRAW_DIR"
+          ls -la "$BRAW_DIR" | head -20
+
       - name: Slim macOS bundle
         if: runner.os == 'macOS'
         shell: bash
@@ -443,10 +504,11 @@ jobs:
               sh -c 'lipo -info "$1" 2>/dev/null | grep -q "universal\|two arch" && lipo -thin '"$ARCH"' "$1" -output "$1.thin" && mv "$1.thin" "$1" || true' _ {} \;
           fi
 
-          # Strip debug symbols (never strip private RED redistributables under r3d/
-          # or the oxideav PyO3 extension — strip can break extension load).
+          # Strip debug symbols (never strip private RED / Blackmagic
+          # redistributables under r3d/ or braw/, or the oxideav PyO3
+          # extension — strip can break extension load).
           find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) \
-            ! -path '*/r3d/*' ! -path '*exr_prores*' -exec strip -x {} +
+            ! -path '*/r3d/*' ! -path '*/braw/*' ! -path '*exr_prores*' -exec strip -x {} +
 
           echo "Bundle size after slimming:"
           du -sh "$APP"
@@ -479,9 +541,9 @@ jobs:
         shell: bash
         run: |
           DIST="dist/main.dist"
-          # Never strip private RED redistributables under r3d/ (license + ABI safety).
+          # Never strip private RED / Blackmagic redistributables (license + ABI).
           find "$DIST" -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) \
-            ! -path '*/r3d/*' -exec strip --strip-unneeded {} +
+            ! -path '*/r3d/*' ! -path '*/braw/*' -exec strip --strip-unneeded {} +
           echo "Bundle size after slimming:"
           du -sh "$DIST"
 

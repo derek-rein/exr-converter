@@ -32,6 +32,39 @@ from packaging_util import ignore_macos_junk, is_macos_junk_name, safe_print  # 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build" / "braw"
 
+# Never copy SDK headers / docs / static libs into the user-facing bundle.
+_FORBIDDEN_FILE_SUFFIXES = {".h", ".hpp", ".hh", ".hxx", ".idl", ".a", ".lib"}
+_FORBIDDEN_FILE_NAMES = {
+    "blackmagicrawapi.h",
+    "blackmagicrawapidispatch.cpp",
+    "blackmagicrawapidispatch.mm",
+    "blackmagicrawapidispatch.h",
+}
+_FORBIDDEN_DIR_NAMES = {"include", "documents", "headers", "samples"}
+
+
+def _is_forbidden_file(path: Path) -> bool:
+    if path.suffix.lower() in _FORBIDDEN_FILE_SUFFIXES:
+        return True
+    return path.name.lower() in _FORBIDDEN_FILE_NAMES
+
+
+def _is_forbidden_dir_name(name: str) -> bool:
+    return name.lower() in _FORBIDDEN_DIR_NAMES
+
+
+def _assert_runtime_only(dest: Path) -> None:
+    """Refuse headers / static libs / SDK docs under the private braw/ dir."""
+    leaked: list[Path] = []
+    for p in dest.rglob("*"):
+        if p.is_file() and _is_forbidden_file(p):
+            leaked.append(p)
+        elif p.is_dir() and _is_forbidden_dir_name(p.name):
+            leaked.append(p)
+    if leaked:
+        preview = "\n".join(str(p) for p in leaked[:20])
+        raise SystemExit(f"ERROR: forbidden SDK artifacts under {dest}:\n{preview}")
+
 
 def _bridge_name() -> str:
     system = platform.system()
@@ -82,10 +115,23 @@ def install(target: Path, build_dir: Path = BUILD) -> Path | None:
         if is_macos_junk_name(item.name):
             continue
         if item.is_file():
+            if _is_forbidden_file(item):
+                continue
             shutil.copy2(item, dest / item.name)
         elif item.is_dir():
+            if _is_forbidden_dir_name(item.name):
+                continue
             shutil.copytree(item, dest / item.name, ignore=ignore_macos_junk)
 
+    # Framework trees sometimes carry a Headers/ symlink — strip it.
+    for headers in list(dest.rglob("Headers")):
+        if headers.is_dir() or headers.is_symlink():
+            if headers.is_symlink() or headers.is_file():
+                headers.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(headers)
+
+    _assert_runtime_only(dest)
     safe_print(f"Installed BRAW runtime -> {dest}")
     return dest
 

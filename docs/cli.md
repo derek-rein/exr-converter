@@ -115,7 +115,8 @@ official proprietary SDK — see [r3d.md](./r3d.md). Without it, `.r3d` / `.nev`
 inputs error with a clear missing-SDK message.
 
 **Blackmagic RAW:** optional. Requires building the BRAW bridge against the
-official proprietary SDK — see [braw.md](./braw.md). Without it, `.braw`
+official proprietary SDK — see [braw.md](./braw.md). Public Releases ship
+the bridge when secret `BRAW_SDK_READ_TOKEN` is set. Without it, `.braw`
 inputs error with a clear missing-SDK message. Decode is Linear ACES AP0
 (CPU).
 

@@ -20,6 +20,11 @@ rolling the `[Unreleased]` section into a versioned heading.
   Linear ACES AP0 (`ACES2065-1` on the bundled Studio config). Without the
   bridge, `.braw` is listed but conversion fails with a clear SDK-missing
   message. CPU decode only. See [docs/braw.md](docs/braw.md).
+- **BRAW CI feed:** public Release builds can fetch the full SDK from a private
+  GitHub Release (`scripts/fetch_braw_sdk.py` + secret `BRAW_SDK_READ_TOKEN`),
+  build the bridge, and ship only runtime libraries + `libbraw_bridge` under a
+  private app `braw/` folder. Without the secret, Release still ships and
+  `.braw` convert reports SDK missing.
 
 ---
 
