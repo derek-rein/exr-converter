@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.constants import IMAGE_SEQUENCE_EXTS, is_image_sequence_ext
+from ..core.local_fs import can_probe_media, path_is_dir, path_is_file
 from ..core.sequence import (
     looks_like_sequence_pattern,
     probe_exr_metadata,
@@ -408,7 +409,7 @@ class SequenceBrowserDialog(QDialog):
         start_folder = ""
         if start_dir:
             d = Path(start_dir)
-            if d.is_file():
+            if path_is_file(d):
                 # First-frame path from convert tab — open its parent folder.
                 if not self._auto_select_name:
                     stem = sequence_pattern_stem(d.name)
@@ -426,11 +427,11 @@ class SequenceBrowserDialog(QDialog):
                 if not self._auto_select_name:
                     self._auto_select_name = sequence_pattern_stem(d.name) or ""
                 d = d.parent
-            if d.is_dir():
+            if path_is_dir(d):
                 start_folder = str(d)
         if start_folder:
             self._navigate_to(start_folder, restore_tree=self._same_path_session)
-        elif self._same_path_session and saved_dir and Path(saved_dir).is_dir():
+        elif self._same_path_session and saved_dir and path_is_dir(saved_dir):
             self._navigate_to(saved_dir, restore_tree=True)
 
         if self._pending_preview and self._seq_data:
@@ -825,9 +826,13 @@ class SequenceBrowserDialog(QDialog):
 
     def _first_frame_for_sequence(self, name: str, directory: str, *, cached: str = "") -> str:
         """Resolve the first frame path for sequence *name* in *directory*."""
-        if cached and Path(cached).is_file():
+        if cached and path_is_file(cached):
             return cached
-        for sq in fileseq.findSequencesOnDisk(directory):
+        try:
+            seqs = fileseq.findSequencesOnDisk(directory)
+        except OSError:
+            return ""
+        for sq in seqs:
             if (
                 sq.basename().rstrip("._") == name
                 and is_image_sequence_ext(sq.extension())
@@ -1199,6 +1204,13 @@ class SequenceBrowserDialog(QDialog):
         )
         if not first_path:
             self._meta_text.setPlainText("Could not locate first frame.")
+            return
+        if not can_probe_media(first_path):
+            self._meta_text.setPlainText(
+                "This file is not fully local (cloud placeholder / online-only).\n"
+                "Download it in Dropbox, iCloud, or OneDrive before Inspect or Preview.\n"
+                f"Path: {first_path}"
+            )
             return
 
         meta = probe_exr_metadata(first_path)

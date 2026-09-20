@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from .local_fs import (
+    ONLINE_ONLY_LABEL,
+    can_probe_media,
+    entry_is_file,
+    is_cloud_placeholder,
+    is_incomplete_download_name,
+    iter_dir_entries,
+)
+
 # libavformat probe limits used when av.open()'s defaults (≈5 MB / 5 s) miss
 # stream parameters — typical for vendor-tagged MXFs (e.g. Sony Venice
 # X-OCN/XAVC) whose codec metadata sits past the default probe window.
@@ -431,6 +440,8 @@ def is_ignored_media_filename(name: str) -> bool:
     base = Path(name).name
     if base.startswith("._"):
         return True
+    if is_incomplete_download_name(base):
+        return True
     return base in _IGNORED_MEDIA_BASENAMES
 
 
@@ -440,25 +451,36 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
     Each dict: name, resolution, codec, fps, duration, path (full).
 
     Skips OS metadata sidecars (macOS AppleDouble ``._*``, ``.DS_Store``, etc.).
+    Cloud placeholders (Dropbox / iCloud / OneDrive online-only) are listed
+    with empty probe fields and codec ``Online-only`` — they are never opened.
     """
     from pathlib import Path
 
     import av
 
     results: list[dict[str, str]] = []
-    try:
-        entries = sorted(Path(directory).iterdir(), key=lambda p: p.name.lower())
-    except OSError:
-        return results
+    entries = sorted(iter_dir_entries(directory), key=lambda e: e.name.lower())
 
     for entry in entries:
-        if not entry.is_file():
+        if not entry_is_file(entry, follow_symlinks=True):
             continue
         if is_ignored_media_filename(entry.name):
             continue
-        if entry.suffix.lower() not in _VIDEO_SUFFIXES:
+        suffix = Path(entry.name).suffix.lower()
+        if suffix not in _VIDEO_SUFFIXES:
             continue
-        row: dict[str, str] = {"name": entry.name, "path": str(entry)}
+        row: dict[str, str] = {"name": entry.name, "path": entry.path}
+        if not can_probe_media(entry.path, entry=entry):
+            # List the name; do not av.open / R3D-open (that hydrates Dropbox).
+            row["resolution"] = ""
+            row["codec"] = (
+                ONLINE_ONLY_LABEL if is_cloud_placeholder(entry.path, entry=entry) else ""
+            )
+            row["fps"] = ""
+            row["duration"] = ""
+            row["frames"] = ""
+            results.append(row)
+            continue
         # R3D / N-RAW — PyAV cannot probe these; use the optional SDK bridge.
         from .r3d import is_available as r3d_available
         from .r3d import is_r3d_path, probe_r3d

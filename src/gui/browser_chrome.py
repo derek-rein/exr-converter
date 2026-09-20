@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.local_fs import can_probe_media, is_cloud_placeholder, path_is_dir
 from .browser_path import folder_path_for_copy
 from .browser_state import (
     VIEW_GRID,
@@ -108,7 +109,7 @@ class _FavoritesDropList(QListWidget):
         md = event.mimeData()
         if not md.hasUrls():
             return []
-        return [p for url in md.urls() if (p := url.toLocalFile()) and Path(p).is_dir()]
+        return [p for url in md.urls() if (p := url.toLocalFile()) and path_is_dir(p)]
 
     def dragEnterEvent(self, event) -> None:
         if self._dropped_dirs(event):
@@ -191,7 +192,7 @@ class _PlacesSidebar(QWidget):
 
         for icon, name, location in _OS_PLACES:
             path = QStandardPaths.writableLocation(location)
-            if not path or not Path(path).is_dir():
+            if not path or not path_is_dir(path):
                 continue
             item = QListWidgetItem(f"{icon}  {name}")
             item.setData(Qt.ItemDataRole.UserRole, path)
@@ -209,7 +210,7 @@ class _PlacesSidebar(QWidget):
         self._fav_start = self._list.count()
 
         for fav_path in load_favorite_paths():
-            if Path(fav_path).is_dir():
+            if path_is_dir(fav_path):
                 self._add_fav_item(fav_path)
 
         layout.addWidget(self._list, 1)
@@ -271,14 +272,14 @@ class _PlacesSidebar(QWidget):
 
     def _on_clicked(self, item: QListWidgetItem) -> None:
         path = item.data(Qt.ItemDataRole.UserRole)
-        if path and Path(path).is_dir():
+        if path and path_is_dir(path):
             self.navigate_requested.emit(path)
 
     def _add_current(self) -> None:
         self.add_favorite(self._current_dir)
 
     def add_favorite(self, path: str) -> None:
-        if not path or not Path(path).is_dir():
+        if not path or not path_is_dir(path):
             return
         for i in range(self._fav_start, self._list.count()):
             if self._list.item(i).data(Qt.ItemDataRole.UserRole) == path:
@@ -343,7 +344,7 @@ def _setup_dir_tree(tree: QTreeView, fs_model: MultiRootDirModel, places: _Place
         if not path:
             return
         menu = QMenu(tree)
-        if Path(path).is_dir():
+        if path_is_dir(path):
             menu.addAction("Add to Favorites", lambda: places.add_favorite(path))
         menu.addAction("Copy Full Path", lambda: _copy_to_clipboard(path))
         menu.exec(tree.viewport().mapToGlobal(pos))
@@ -463,6 +464,11 @@ _SEARCH_SKIP_DIRS = frozenset(
         "__MACOSX",
         "Frameworks",
         "PlugIns",
+        # Cloud-client bookkeeping (Dropbox Smart Sync / File Provider)
+        ".dropbox",
+        ".dropbox.cache",
+        ".dropbox.device",
+        ".dropbox.attr",
     }
 )
 
@@ -516,6 +522,9 @@ _SEARCH_SKIP_SUFFIXES = frozenset(
         ".tmp",
         ".bak",
         ".orig",
+        ".partial",
+        ".crdownload",
+        ".download",
     }
 )
 
@@ -649,6 +658,7 @@ class _DirSearchWorker(QObject):
                         and name not in _SEARCH_SKIP_DIRS
                         and not name.startswith(".")
                         and entry.path not in _SEARCH_SKIP_ABSPATHS
+                        and not is_cloud_placeholder(entry.path, entry=entry)
                     ):
                         stack.append((entry.path, depth + 1))
 
@@ -901,6 +911,9 @@ class _ThumbJob(QRunnable):
 
         qimg: QImage | None = None
         try:
+            if not can_probe_media(self._path):
+                self._signals.ready.emit(self._gen, self._row, None)
+                return
             ext = Path(self._path).suffix.lower()
             if ext in _VIDEO_EXTS:
                 rgb = load_video_thumbnail_rgb(self._path, max_edge=_SEQ_THUMB_EDGE)
