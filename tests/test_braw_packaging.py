@@ -76,7 +76,7 @@ def test_header_ok_accepts_windows_idl(tmp_path: Path) -> None:
     inc = tmp_path / "Include"
     inc.mkdir()
     assert not _header_ok(inc)
-    (inc / "BlackmagicRawAPI.idl").write_text("import \"unknwn.idl\";\n")
+    (inc / "BlackmagicRawAPI.idl").write_text('import "unknwn.idl";\n')
     (inc / "BlackmagicRawAPIDispatch.h").write_text("#pragma once\n")
     assert _header_ok(inc)
     (inc / "BlackmagicRawAPI.h").write_text("// generated\n")
