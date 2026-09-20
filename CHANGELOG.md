@@ -24,11 +24,14 @@ rolling the `[Unreleased]` section into a versioned heading.
   ``IID_IBlackmagicRaw*`` COM GUIDs resolve (header + dispatch obj only
   declared them). Re-dispatch Release the same way after this lands.
 - **macOS BRAW codesign:** ship ``BlackmagicRawAPI.framework`` under
-  ``Contents/Frameworks/braw/`` (not ``Contents/MacOS/braw/``) and sign that
-  nested framework before the outer ``.app``. Ad-hoc re-sign no longer fails
-  with *bundle format is ambiguous*. GPU decoder libs stay with the
-  framework. Re-dispatch Release for ``v0.10.0`` from ``main`` with
-  ``source_ref=main``.
+  ``Contents/Frameworks/braw/`` (not ``Contents/MacOS/braw/``). Ad-hoc
+  re-sign now signs Mach-Os inside that framework, then the ``.framework``
+  and the outer ``.app``, **without** ``codesign --deep``. ``--deep`` on
+  the SDK 6.0 framework itself still reports *bundle format is ambiguous*
+  (flattened ``Versions/Current``, top-level ``Resources/``, or
+  ``Contents/``) even after the PR #54 placement fix. GPU decoder libs
+  stay with the framework. Re-dispatch Release for ``v0.10.0`` from
+  ``main`` with ``source_ref=main``.
 
 ---
 

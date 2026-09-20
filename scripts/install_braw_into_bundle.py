@@ -10,8 +10,10 @@ Layout written (private app directory)::
 
 On macOS ``.app`` bundles, *bundle* is ``Contents/Frameworks`` so the
 Blackmagic ``.framework`` is **not** nested under ``Contents/MacOS``.
-``codesign --deep`` on the outer app treats a framework in ``MacOS/`` as
-an ambiguous bundle (app vs framework) and fails the Release re-sign.
+A framework in ``MacOS/`` makes the outer app look ambiguous to
+``codesign``. The SDK 6.0 framework itself is also not a clean versioned
+bundle (flattened ``Current``, top-level ``Resources/``, ``Contents/``),
+so Release re-signs Mach-Os and the ``.framework`` **without** ``--deep``.
 
 Linux / Windows / unpacked ``main.dist`` still use ``<dist>/braw/`` next
 to the executable.
@@ -34,7 +36,16 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from packaging_util import ignore_macos_junk, is_macos_junk_name, safe_print  # noqa: E402
+from macos_codesign import (  # noqa: E402
+    describe_framework_tree,
+    framework_ambiguity_reasons,
+    normalize_frameworks_under,
+)
+from packaging_util import (  # noqa: E402
+    copytree_preserve_symlinks,
+    is_macos_junk_name,
+    safe_print,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build" / "braw"
@@ -145,7 +156,7 @@ def install(target: Path, build_dir: Path = BUILD) -> Path | None:
         elif item.is_dir():
             if _is_forbidden_dir_name(item.name):
                 continue
-            shutil.copytree(item, dest / item.name, ignore=ignore_macos_junk)
+            copytree_preserve_symlinks(item, dest / item.name)
 
     # Framework trees sometimes carry a Headers/ symlink — strip it.
     for headers in list(dest.rglob("Headers")):
@@ -154,6 +165,15 @@ def install(target: Path, build_dir: Path = BUILD) -> Path | None:
                 headers.unlink(missing_ok=True)
             else:
                 shutil.rmtree(headers)
+
+    for act in normalize_frameworks_under(dest):
+        safe_print(f"normalize {act}")
+    for fw in sorted(p for p in dest.rglob("*.framework") if p.is_dir()):
+        safe_print(f"BRAW framework layout: {fw}")
+        for line in describe_framework_tree(fw):
+            safe_print(f"  {line}")
+        for reason in framework_ambiguity_reasons(fw):
+            safe_print(f"  ambiguous: {reason}")
 
     _assert_runtime_only(dest)
     _assert_no_framework_under_macos(target.resolve())

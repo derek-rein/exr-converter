@@ -28,7 +28,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from packaging_util import ignore_macos_junk, is_macos_junk_name, safe_print  # noqa: E402
+from packaging_util import (  # noqa: E402
+    copytree_preserve_symlinks,
+    is_macos_junk_name,
+    safe_print,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "native" / "braw" / "braw_bridge.cpp"
@@ -323,7 +327,7 @@ def build(include: Path, libraries: Path, out_dir: Path, verbose: bool) -> Path:
         if item.is_file():
             shutil.copy2(item, dest_redist / item.name)
         elif item.is_dir():
-            shutil.copytree(item, dest_redist / item.name, ignore=ignore_macos_junk)
+            copytree_preserve_symlinks(item, dest_redist / item.name)
 
     for p in dest_redist.rglob("*"):
         if p.is_file() and is_macos_junk_name(p.name):

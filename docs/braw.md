@@ -164,10 +164,16 @@ Windows:<dist>/braw/
 ```
 
 The macOS `.framework` is installed under **`Contents/Frameworks/`**, not
-`Contents/MacOS/`. A nested framework beside the executable makes
-`codesign --deep` report *bundle format is ambiguous (could be app or
-framework)* and fail the Release re-sign. GPU decoder binaries stay inside
-the framework / `braw/` folder.
+`Contents/MacOS/`. A nested framework beside the executable makes the
+outer `.app` look like both an app and a framework. The SDK 6.0
+`BlackmagicRawAPI.framework` tree is also not a clean versioned framework
+(flattened `Versions/Current`, a real top-level `Resources/`, `Contents/`,
+or nested `.bundle` / helper `.app`), so `codesign --deep` on the
+framework itself fails with *bundle format is ambiguous* even under
+`Frameworks/braw/`. Release copies the framework **preserving
+symlinks**, restores `Versions/Current` links, then ad-hoc signs Mach-Os
+inside-out **without** `--deep`. GPU decoder binaries stay inside the
+framework / `braw/` folder.
 
 Only runtime dynamic libraries from the SDK `Libraries/` folder plus our
 bridge — including GPU decoder libs (`libDecoderCUDA` / `libDecoderOpenCL` /
@@ -191,7 +197,9 @@ The **Release** workflow (Nuitka multi-OS):
    `BlackmagicRawAPI.framework` is not nested under `Contents/MacOS`).
 4. Refuse the build if headers / `.a` / `.lib` appear under that folder, or
    if a `.framework` remains under `Contents/MacOS`.
-5. Re-sign the nested Blackmagic framework first, then the outer `.app`.
+5. Re-sign with `scripts/macos_codesign.py`: Mach-Os deepest-first, then
+   each `.framework` **without** `--deep`, then the outer `.app`
+   (also without `--deep`). Refuse a `.framework` under `Contents/MacOS`.
 
 If the secret is missing, Release still publishes the app **without** BRAW
 support (`.braw` convert reports SDK missing — same as R3D).

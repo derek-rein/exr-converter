@@ -525,38 +525,25 @@ jobs:
         shell: bash
         run: |
           APP="dist/EXR Converter.app"
-          # lipo/strip above rewrote the Mach-O files, which invalidated the
-          # ad-hoc signatures Nuitka applied at build time. On Apple Silicon
-          # every executable page must carry a valid signature or the kernel
-          # kills the process at dlopen ("CODESIGNING / Invalid Page"). Re-sign
-          # everything inside-out so the embedded module hashes match again.
-          find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) \
-            -exec codesign --force --sign - --timestamp=none {} +
-          QT_LIB="$APP/Contents/MacOS/PySide6/Qt/lib"
-          if [ -d "$QT_LIB" ]; then
-            find "$QT_LIB" -type f ! -name '*.plist' ! -name '*.pri' \
-              -exec codesign --force --sign - --timestamp=none {} + || true
-          fi
-          # Nested .framework bundles (BlackmagicRawAPI) must be signed as
-          # frameworks, deepest first, before the outer .app. A framework
-          # left under Contents/MacOS makes `codesign --deep` report
-          # "bundle format is ambiguous (could be app or framework)".
+          # lipo/strip above rewrote Mach-O files and invalidated Nuitka's
+          # ad-hoc signatures. On Apple Silicon every executable page needs a
+          # valid signature or the kernel kills dlopen ("CODESIGNING /
+          # Invalid Page").
+          #
+          # Do NOT use codesign --deep here. BlackmagicRawAPI.framework
+          # (SDK 6.0) is not a clean versioned framework: flattened
+          # Versions/Current, top-level Resources/, Contents/, Libraries/,
+          # PlugIns/, or a nested .bundle/.app make --deep report
+          # "bundle format is ambiguous (could be app or framework)" even
+          # when the tree lives under Contents/Frameworks/braw/ (PR #54).
+          # scripts/macos_codesign.py signs Mach-Os deepest-first, then
+          # each .framework without --deep, then the outer .app.
           if find "$APP/Contents/MacOS" -name '*.framework' | grep -q .; then
             echo "ERROR: .framework under Contents/MacOS" >&2
             find "$APP/Contents/MacOS" -name '*.framework'
             exit 1
           fi
-          if [ -d "$APP/Contents/Frameworks" ]; then
-            while IFS= read -r fw; do
-              [ -n "$fw" ] || continue
-              codesign --force --deep --sign - --timestamp=none "$fw"
-            done < <(find "$APP/Contents/Frameworks" -name '*.framework' | awk '{ print length, $0 }' | sort -nr | cut -d' ' -f2-)
-          fi
-          # Main executable, then the whole bundle last (outermost seal).
-          codesign --force --sign - --timestamp=none "$APP/Contents/MacOS/exr_converter"
-          codesign --force --deep --sign - --timestamp=none "$APP"
-          # Fail the build if the signature still doesn't verify.
-          codesign --verify --deep --strict --verbose=2 "$APP"
+          uv run python scripts/macos_codesign.py "$APP"
 
       - name: Slim Linux bundle
         if: runner.os == 'Linux'
