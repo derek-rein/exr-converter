@@ -21,10 +21,10 @@ rolling the `[Unreleased]` section into a versioned heading.
   bridge, `.braw` is listed but conversion fails with a clear SDK-missing
   message. CPU decode only. See [docs/braw.md](docs/braw.md).
 - **BRAW CI feed:** public Release builds can fetch the full SDK from a private
-  GitHub Release (`scripts/fetch_braw_sdk.py` + secret `BRAW_SDK_READ_TOKEN`),
-  build the bridge, and ship only runtime libraries + `libbraw_bridge` under a
-  private app `braw/` folder. Without the secret, Release still ships and
-  `.braw` convert reports SDK missing.
+  GitHub Release (`scripts/fetch_braw_sdk.py` + secret `R3D_SDK_READ_TOKEN`,
+  the same PAT as the R3D feed), build the bridge, and ship only runtime
+  libraries + `libbraw_bridge` under a private app `braw/` folder. Without
+  the secret, Release still ships and `.braw` convert reports SDK missing.
 
 ### Fixed
 

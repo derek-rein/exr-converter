@@ -11,12 +11,31 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from build_braw_bridge import _header_ok  # noqa: E402
-from fetch_braw_sdk import _existing_sdk, _find_sdk_root, _is_sdk_root  # noqa: E402
+from fetch_braw_sdk import (  # noqa: E402
+    _existing_sdk,
+    _find_sdk_root,
+    _is_sdk_root,
+    _token,
+)
 from install_braw_into_bundle import (  # noqa: E402
     _assert_runtime_only,
     _is_forbidden_file,
     install,
 )
+
+
+def test_token_uses_r3d_secret_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BRAW_SDK_READ_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("R3D_SDK_READ_TOKEN", "shared-pat")
+    assert _token() == "shared-pat"
+
+
+def test_token_braw_override_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAW_SDK_READ_TOKEN", "braw-only")
+    monkeypatch.setenv("R3D_SDK_READ_TOKEN", "shared-pat")
+    assert _token() == "braw-only"
 
 
 def test_is_sdk_root_linux_layout(tmp_path: Path) -> None:

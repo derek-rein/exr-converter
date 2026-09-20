@@ -79,7 +79,7 @@ r3d-bridge:
 
 # Optional Blackmagic RAW SDK bridge (proprietary SDK; not required for normal builds).
 # Discovers BRAW_SDK_ROOT, ~/.braw-sdk, or /usr/lib64/blackmagic/BlackmagicRAWSDK.
-# CI: make braw-sdk-fetch then braw-bridge (needs BRAW_SDK_READ_TOKEN / gh auth).
+# CI: make braw-sdk-fetch then braw-bridge (needs R3D_SDK_READ_TOKEN / gh auth).
 braw-sdk-fetch:
 	$(PYTHON) scripts/fetch_braw_sdk.py
 

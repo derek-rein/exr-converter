@@ -13,7 +13,7 @@ Under the hood: **PyAV** (FFmpeg) for video, **OpenImageIO** for EXR and still s
 
 **Optional RED R3D / N-RAW:** when built with the official RED R3D SDK bridge, **Video → EXR** can decode `.r3d` and `.nev` (IPP2 primary → Log3G10 REDWideGamutRGB for OCIO), including browser thumbnails, sequence-player preview, and camera/timecode metadata on written EXRs. Release binaries may ship only RED’s allowed Redistributable libraries in a private app folder — see [docs/r3d.md](docs/r3d.md) and **Help → About** for the redistributable notice.
 
-**Optional Blackmagic RAW:** when built with the official Blackmagic RAW SDK bridge, **Video → EXR** can decode `.braw` (Linear + ACES AP0 / `ACES2065-1` for OCIO). Without the SDK the extension is recognized but conversion fails with a clear missing-SDK message. Public Release binaries ship the runtime libraries in a private app folder when secret `BRAW_SDK_READ_TOKEN` is configured — see [docs/braw.md](docs/braw.md).
+**Optional Blackmagic RAW:** when built with the official Blackmagic RAW SDK bridge, **Video → EXR** can decode `.braw` (Linear + ACES AP0 / `ACES2065-1` for OCIO). Without the SDK the extension is recognized but conversion fails with a clear missing-SDK message. Public Release binaries ship the runtime libraries in a private app folder when secret `R3D_SDK_READ_TOKEN` can also read `braw-sdk-private` — see [docs/braw.md](docs/braw.md).
 
 Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-platform): Python 3.13, Qt/PySide 6.8, OpenColorIO 2.5, OpenEXR 3.4, NumPy 2.3.
 
@@ -86,7 +86,7 @@ built with Hugo from [`site/`](site/) and published to GitHub Pages:
 | [GUI](docs/gui.md) | Tabs, overlays, preferences, post-convert, codec picker |
 | [ProRes and VideoToolbox](docs/prores.md) | Software vs Apple VideoToolbox vs oxideav; honest bit depths |
 | [R3D / N-RAW](docs/r3d.md) | Optional RED SDK (license, build, CI, preview) |
-| [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship when `BRAW_SDK_READ_TOKEN` is set) |
+| [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship via the same `R3D_SDK_READ_TOKEN` PAT) |
 | [12-bit ProRes (oxideav)](docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 12-bit ProRes via PyO3 |
 | [Nuke](docs/nuke.md) | Menu: open selected Read + session OCIO |
 
