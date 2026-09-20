@@ -86,6 +86,16 @@ volumes are hidden — they share the media extension but are resource-fork
 metadata, not video. RED **`.RMD`** metadata files are never listed (not a
 video extension).
 
+**Cloud placeholders (Dropbox / iCloud / OneDrive):** folders managed by a
+cloud client often contain “online-only” stubs (macOS File Provider dataless
+files, Windows recall-on-open attributes, ``*.partial`` downloads). The
+browsers **list those names** but do **not** open them for sequence headers,
+video probes, or grid thumbnails — that would hang the UI while the client
+downloads. Online-only videos show **Online-only** in the Codec column.
+Inspect / Preview / convert of a stub still needs the client to hydrate the
+file (open it once in Finder, or pin it locally). Search skips ``.dropbox``
+cache directories and does not recurse into dataless folders.
+
 Right-click a row in **List** or a tile in **Grid** (sequence and video
 browsers) for:
 

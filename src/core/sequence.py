@@ -11,6 +11,7 @@ from .constants import (
     is_image_sequence_ext,
     is_scene_referred_image_ext,
 )
+from .local_fs import can_probe_media, path_is_dir, path_is_file
 
 # **Writes** use ``name.####.ext`` (dot frame pad only). **Reads** accept both
 # common pads: ``name.####.ext`` (fileseq basename ends with ``.``) and
@@ -125,11 +126,17 @@ def _find_image_seqs(directory: str) -> list[fileseq.FileSequence]:
 
     OpenEXR sequences sort first so mixed folders still pick EXR by default.
     """
-    seqs = fileseq.findSequencesOnDisk(directory)
+    try:
+        seqs = fileseq.findSequencesOnDisk(directory)
+    except OSError:
+        return []
     out = [
         s
         for s in seqs
-        if is_image_sequence_ext(s.extension()) and s.frameSet() and is_supported_frame_sequence(s)
+        if is_image_sequence_ext(s.extension())
+        and s.frameSet()
+        and is_supported_frame_sequence(s)
+        and not str(s.basename()).startswith("._")
     ]
     return sorted(
         out,
@@ -183,7 +190,7 @@ def sequence_pattern_stem(filename: str) -> str | None:
     if m:
         return m.group("head")
     m = _DOT_FRAME_PATTERN.match(name)
-    if m and not Path(filename).is_file():
+    if m and not path_is_file(filename):
         # Only treat as a pattern when the path is not a real single frame.
         return m.group("name")
     return None
@@ -346,13 +353,14 @@ def scan_exr_sequences(directory: str) -> list[dict]:
         range_str = s.frameRange() if frame_list else "?"
 
         first_path = s.frame(frame_list[0]) if frame_list else ""
-        w, h = _probe_resolution(first_path) if first_path else (0, 0)
+        can_open = bool(first_path) and can_probe_media(first_path)
+        w, h = _probe_resolution(first_path) if can_open else (0, 0)
         res_str = f"{w}\u00d7{h}" if w and h else ""
 
         pixel_type = ""
         compression = ""
         colorspace = ""
-        if first_path:
+        if can_open:
             try:
                 import OpenImageIO as oiio
 
@@ -404,12 +412,12 @@ def _scan_dir_and_pattern(
     if not raw:
         raise RuntimeError("Empty sequence path")
     p = Path(raw).expanduser()
-    if p.is_file() or p.is_dir():
-        scan_dir = str(p.parent) if p.is_file() else str(p)
+    if path_is_file(p) or path_is_dir(p):
+        scan_dir = str(p.parent) if path_is_file(p) else str(p)
         return p, scan_dir, None
     # Non-existent path: may be a #### / %04d pattern whose parent exists.
     parent = p.parent
-    if parent.is_dir():
+    if path_is_dir(parent):
         stem = sequence_pattern_stem(p.name)
         if stem is not None:
             return p, str(parent), stem
@@ -436,7 +444,7 @@ def find_exr_sequence(input_path: str) -> tuple[list[str], str]:
         exts = ", ".join(sorted(IMAGE_SEQUENCE_EXTS))
         raise RuntimeError(f"No image sequences found in {scan_dir} (supported: {exts})")
 
-    if p.is_file():
+    if path_is_file(p):
         for s in seqs:
             fs = s.frameSet()
             if not fs:
@@ -484,7 +492,7 @@ def find_exr_sequence_info(
         raise RuntimeError(f"No image sequences found in {scan_dir} (supported: {exts})")
 
     seq = None
-    if p.is_file():
+    if path_is_file(p):
         for s in seqs:
             fs = s.frameSet()
             if not fs:
@@ -510,7 +518,7 @@ def find_exr_sequence_info(
     fs = seq.frameSet()
     if not fs:
         # Single-file FileSequence may have an empty frame set depending on path.
-        if p.is_file() and is_image_sequence_ext(p.suffix):
+        if path_is_file(p) and is_image_sequence_ext(p.suffix):
             return [str(p)], p.stem, [0], 0, seq
         raise RuntimeError(f"Image sequence has no frames in {scan_dir}")
     frames = sorted(int(f) for f in fs)
@@ -527,7 +535,7 @@ def sequence_looks_scene_referred(input_path: str) -> bool:
     default toward sRGB, not ``scene_linear``.
     """
     p = Path(input_path)
-    if p.is_file() and is_image_sequence_ext(p.suffix):
+    if path_is_file(p) and is_image_sequence_ext(p.suffix):
         return is_scene_referred_image_ext(p.suffix)
     try:
         paths, _ = find_exr_sequence(input_path)

@@ -13,6 +13,7 @@ import numpy as np
 import OpenImageIO as oiio
 
 from ..core.constants import is_scene_referred_image_ext
+from ..core.local_fs import can_probe_media
 
 # Default max edge for browser icons (speed over fidelity).
 DEFAULT_THUMB_EDGE = 160
@@ -50,7 +51,7 @@ def load_video_thumbnail_rgb(
     max_edge: int = DEFAULT_THUMB_EDGE,
 ) -> np.ndarray | None:
     """Return uint8 RGB thumbnail from the first video frame, or ``None``."""
-    if not path or not Path(path).is_file():
+    if not path or not can_probe_media(path):
         return None
 
     # R3D / N-RAW: sixteenth-res SDK decode (fast ID thumbs; not full premium).
@@ -116,7 +117,7 @@ def load_browser_thumbnail_rgb(
     Scene-referred files (EXR, DPX) get a fast Rec.709-ish OETF so linear plates
     are visible; display stills (PNG/JPEG/WebP) are clipped to 0–1.
     """
-    if not path or not Path(path).is_file():
+    if not path or not can_probe_media(path):
         return None
     try:
         buf = oiio.ImageBuf(path)

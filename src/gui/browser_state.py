@@ -20,6 +20,8 @@ from typing import Protocol, runtime_checkable
 from PySide6.QtCore import QByteArray, QModelIndex, QSettings
 from PySide6.QtWidgets import QTreeView
 
+from ..core.local_fs import path_is_dir
+
 
 @runtime_checkable
 class DirTreeModel(Protocol):
@@ -282,7 +284,7 @@ def restore_tree_expanded(
     """Expand *paths* (parents first) and optionally focus *focus_path*."""
     ordered = sorted({p for p in paths if p}, key=lambda p: (p.count(os.sep), p))
     for p in ordered:
-        if Path(p).is_dir() or model.index(p).isValid():
+        if path_is_dir(p) or model.index(p).isValid():
             expand_path_chain(tree, model, p)
     if focus_path:
         expand_path_chain(tree, model, focus_path)

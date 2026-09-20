@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from .local_fs import (
+    ONLINE_ONLY_LABEL,
+    can_probe_media,
+    entry_is_file,
+    is_cloud_placeholder,
+    is_incomplete_download_name,
+    iter_dir_entries,
+)
+
 # libavformat probe limits used when av.open()'s defaults (≈5 MB / 5 s) miss
 # stream parameters — typical for vendor-tagged MXFs (e.g. Sony Venice
 # X-OCN/XAVC) whose codec metadata sits past the default probe window.
@@ -445,6 +454,8 @@ def is_ignored_media_filename(name: str) -> bool:
     base = Path(name).name
     if base.startswith("._"):
         return True
+    if is_incomplete_download_name(base):
+        return True
     return base in _IGNORED_MEDIA_BASENAMES
 
 
@@ -454,37 +465,48 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
     Each dict: name, resolution, codec, fps, duration, path (full).
 
     Skips OS metadata sidecars (macOS AppleDouble ``._*``, ``.DS_Store``, etc.).
+    Cloud placeholders (Dropbox / iCloud / OneDrive online-only) are listed
+    with empty probe fields and codec ``Online-only`` — they are never opened.
     """
     from pathlib import Path
 
     import av
 
     results: list[dict[str, str]] = []
-    try:
-        entries = sorted(Path(directory).iterdir(), key=lambda p: p.name.lower())
-    except OSError:
-        return results
+    entries = sorted(iter_dir_entries(directory), key=lambda e: e.name.lower())
 
     for entry in entries:
-        if not entry.is_file():
+        if not entry_is_file(entry, follow_symlinks=True):
             continue
         if is_ignored_media_filename(entry.name):
             continue
-        if entry.suffix.lower() not in _VIDEO_SUFFIXES:
+        suffix = Path(entry.name).suffix.lower()
+        if suffix not in _VIDEO_SUFFIXES:
             continue
-        row: dict[str, str] = {"name": entry.name, "path": str(entry)}
+        row: dict[str, str] = {"name": entry.name, "path": entry.path}
+        if not can_probe_media(entry.path, entry=entry):
+            # List the name; do not av.open / R3D / BRAW-open (that hydrates Dropbox).
+            row["resolution"] = ""
+            row["codec"] = (
+                ONLINE_ONLY_LABEL if is_cloud_placeholder(entry.path, entry=entry) else ""
+            )
+            row["fps"] = ""
+            row["duration"] = ""
+            row["frames"] = ""
+            results.append(row)
+            continue
         # R3D / N-RAW / BRAW — PyAV cannot probe these; use optional SDK bridges.
         from .braw import is_available as braw_available
         from .braw import is_braw_path, probe_braw
         from .r3d import is_available as r3d_available
         from .r3d import is_r3d_path, probe_r3d
 
-        if is_r3d_path(entry):
+        if is_r3d_path(entry.path):
             try:
                 if r3d_available():
-                    vw, vh, fps, nframes = probe_r3d(entry)
+                    vw, vh, fps, nframes = probe_r3d(entry.path)
                     row["resolution"] = f"{vw}x{vh}" if vw and vh else ""
-                    row["codec"] = "R3D" if entry.suffix.lower() == ".r3d" else "N-RAW"
+                    row["codec"] = "R3D" if suffix == ".r3d" else "N-RAW"
                     row["fps"] = f"{fps:.3f}".rstrip("0").rstrip(".") if fps else ""
                     if nframes and fps:
                         dur = nframes / fps
@@ -504,10 +526,10 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
             results.append(row)
             continue
 
-        if is_braw_path(entry):
+        if is_braw_path(entry.path):
             try:
                 if braw_available():
-                    vw, vh, fps, nframes = probe_braw(entry)
+                    vw, vh, fps, nframes = probe_braw(entry.path)
                     row["resolution"] = f"{vw}x{vh}" if vw and vh else ""
                     row["codec"] = "BRAW"
                     row["fps"] = f"{fps:.3f}".rstrip("0").rstrip(".") if fps else ""
@@ -530,7 +552,7 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
             continue
 
         try:
-            container = av.open(str(entry))
+            container = av.open(entry.path)
             vs = container.streams.video[0] if container.streams.video else None
             fps = 0.0
             vw = vh = 0
@@ -542,7 +564,7 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
             if vs and (not (vw and vh) or not fps or not codec_name):
                 # Default probe was too shallow — retry with a deeper one.
                 container.close()
-                container = av.open(str(entry), options=_DEEP_PROBE_OPTS)
+                container = av.open(entry.path, options=_DEEP_PROBE_OPTS)
                 vs = container.streams.video[0] if container.streams.video else None
                 if vs:
                     w2, h2, fps2, n2, c2, _ = _stream_basics(vs)

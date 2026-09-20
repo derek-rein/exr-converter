@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.local_fs import can_probe_media, path_is_dir, path_is_file
 from ..core.video import probe_video_metadata, scan_video_files
 from .browser_chrome import (
     _SEQ_THUMB_ICON,
@@ -334,10 +335,10 @@ class VideoBrowserDialog(QDialog):
         start_folder = ""
         if start_dir:
             d = Path(start_dir)
-            if d.is_file():
+            if path_is_file(d):
                 self._auto_select_path = str(d)
                 d = d.parent
-            if d.is_dir():
+            if path_is_dir(d):
                 start_folder = str(d)
 
         saved_dir = str(settings.value(keys.last_dir, "") or "")
@@ -374,7 +375,7 @@ class VideoBrowserDialog(QDialog):
 
         if start_folder:
             self._navigate_to(start_folder, restore_tree=self._same_path_session)
-        elif self._same_path_session and saved_dir and Path(saved_dir).is_dir():
+        elif self._same_path_session and saved_dir and path_is_dir(saved_dir):
             self._navigate_to(saved_dir, restore_tree=True)
 
         if self._pending_preview and self._file_data:
@@ -946,6 +947,13 @@ class VideoBrowserDialog(QDialog):
             self._meta_text.setPlainText("")
             return
         fpath = self._file_data[row]["path"]
+        if not can_probe_media(fpath):
+            self._meta_text.setPlainText(
+                "This file is not fully local (cloud placeholder / online-only).\n"
+                "Download it in Dropbox, iCloud, or OneDrive before Inspect or Preview.\n"
+                f"Path: {fpath}"
+            )
+            return
         meta = probe_video_metadata(fpath)
         lines = [f"File: {Path(fpath).name}", ""]
         for k, v in meta.items():

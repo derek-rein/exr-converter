@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from ..core.constants import is_image_sequence_ext
+from ..core.local_fs import path_is_dir, path_is_file
 from ..core.sequence import looks_like_sequence_pattern, sequence_pattern_stem
 
 
@@ -65,13 +66,10 @@ def folder_path_for_copy(text: str) -> str:
     # Sequence pattern → containing directory
     if "#" in p.name or "%" in p.name:
         return str(p.parent)
-    try:
-        if p.is_dir():
-            return str(p)
-        if p.is_file():
-            return str(p.parent)
-    except OSError:
-        pass
+    if path_is_dir(p):
+        return str(p)
+    if path_is_file(p):
+        return str(p.parent)
     # Non-existent file-like path → parent; bare path → as-is
     if p.suffix or "." in p.name:
         return str(p.parent) if str(p.parent) not in ("", ".") else str(p)
@@ -90,9 +88,9 @@ def resolve_sequence_browser_path(raw: str) -> tuple[str, str] | None:
     p = Path(text).expanduser()
     directory = ""
     select_name = ""
-    if p.is_dir():
+    if path_is_dir(p):
         directory = str(p)
-    elif p.is_file() and is_image_sequence_ext(p.suffix):
+    elif path_is_file(p) and is_image_sequence_ext(p.suffix):
         directory = str(p.parent)
         stem = sequence_pattern_stem(p.name)
         if stem is None:
@@ -108,12 +106,12 @@ def resolve_sequence_browser_path(raw: str) -> tuple[str, str] | None:
         directory = str(p.parent)
         select_name = sequence_pattern_stem(p.name) or ""
     else:
-        if p.parent.is_dir():
+        if path_is_dir(p.parent):
             directory = str(p.parent)
         else:
             return None
 
-    if not directory or not Path(directory).is_dir():
+    if not directory or not path_is_dir(directory):
         return None
     return directory, select_name
 
@@ -135,12 +133,14 @@ def resolve_video_browser_path(
     p = Path(text).expanduser()
     directory = ""
     select_path = ""
-    if p.is_dir():
+    if path_is_dir(p):
         directory = str(p)
-    elif p.is_file() and p.suffix.lower() in video_exts and not is_ignored_media_filename(p.name):
+    elif (
+        path_is_file(p) and p.suffix.lower() in video_exts and not is_ignored_media_filename(p.name)
+    ):
         directory = str(p.parent)
         select_path = str(p)
-    elif p.parent.is_dir():
+    elif path_is_dir(p.parent):
         directory = str(p.parent)
     else:
         return None

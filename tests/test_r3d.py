@@ -158,6 +158,7 @@ def test_is_ignored_media_filename_appledouble() -> None:
     assert is_ignored_media_filename("._clip.mov")
     assert is_ignored_media_filename(".DS_Store")
     assert is_ignored_media_filename("Thumbs.db")
+    assert is_ignored_media_filename("clip.mov.partial")
     assert not is_ignored_media_filename("A004_C010_0920DA_001.R3D")
     assert not is_ignored_media_filename("clip.mov")
 

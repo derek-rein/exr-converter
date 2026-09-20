@@ -27,6 +27,7 @@ from PySide6.QtCore import (
     QObject,
     QStorageInfo,
     Qt,
+    QTimer,
     QUrl,
     Signal,
 )
@@ -250,6 +251,19 @@ class MultiRootDirModel(QAbstractItemModel):
         super().__init__(parent)
         self._fs = QFileSystemModel(self)
         self._fs.setFilter(QDir.Filter.Dirs | QDir.Filter.NoDotAndDotDot)
+        # Dropbox / File Provider folders emit a storm of change notifications
+        # when placeholders are listed or hydrated. Watching those paths makes
+        # the tree constantly reset (layoutChanged). Icons from the cloud client
+        # can also block on network. Listing still works via fetchMore / click.
+        _fs_opts = getattr(QFileSystemModel, "Option", None)
+        if _fs_opts is not None:
+            for _name in ("DontWatchForChanges", "DontUseCustomDirectoryIcons"):
+                _flag = getattr(_fs_opts, _name, None)
+                if _flag is not None:
+                    try:
+                        self._fs.setOption(_flag, True)
+                    except (AttributeError, RuntimeError, TypeError):
+                        pass
         # Watch the whole machine so every volume path can resolve.
         # Windows: empty root → "My Computer" (all drives). Else filesystem root.
         if sys.platform == "win32":
@@ -260,6 +274,11 @@ class MultiRootDirModel(QAbstractItemModel):
         self._volumes: list[VolumeInfo] = []
         self._path_to_id: dict[str, int] = {}
         self._id_to_path: list[str] = []
+        self._dir_loaded_paths: set[str] = set()
+        self._dir_loaded_timer = QTimer(self)
+        self._dir_loaded_timer.setSingleShot(True)
+        self._dir_loaded_timer.setInterval(50)
+        self._dir_loaded_timer.timeout.connect(self._flush_directory_loaded)
 
         self._fs.directoryLoaded.connect(self._on_directory_loaded)
         self.refresh_volumes()
@@ -562,18 +581,25 @@ class MultiRootDirModel(QAbstractItemModel):
             self._fs.fetchMore(fs_idx)
 
     def _on_directory_loaded(self, path: str) -> None:
-        """Propagate QFileSystemModel loads into our indexes."""
-        if not path:
-            return
+        """Coalesce QFileSystemModel loads — Dropbox can fire many in a burst."""
+        if path:
+            self._dir_loaded_paths.add(path)
+        self._dir_loaded_timer.start()
+
+    def _flush_directory_loaded(self) -> None:
+        """Propagate coalesced directory loads into our indexes."""
+        paths = self._dir_loaded_paths
+        self._dir_loaded_paths = set()
         # Prefer a targeted dataChanged when we can resolve the index; fall
         # back to layoutChanged so the tree refetches row counts.
-        idx = self._index_for_path(path)
-        if not idx.isValid():
-            # Volume may still be loading under a path we track as a root.
-            for i, v in enumerate(self._volumes):
-                if _norm_mount_path(v.path) == _norm_mount_path(path):
-                    idx = self.createIndex(i, 0, self._id_for(v.path))
-                    break
         self.layoutChanged.emit()
-        if idx.isValid():
-            self.dataChanged.emit(idx, idx)
+        for path in paths:
+            idx = self._index_for_path(path)
+            if not idx.isValid():
+                # Volume may still be loading under a path we track as a root.
+                for i, v in enumerate(self._volumes):
+                    if _norm_mount_path(v.path) == _norm_mount_path(path):
+                        idx = self.createIndex(i, 0, self._id_for(v.path))
+                        break
+            if idx.isValid():
+                self.dataChanged.emit(idx, idx)
