@@ -18,6 +18,10 @@ def bridge_names() -> tuple[str, ...]:
     return ("libbraw_bridge.so",)
 
 
+# Official macOS SDK ships a framework (not libBlackmagicRawAPI.dylib).
+MACOS_API_FRAMEWORK = "BlackmagicRawAPI.framework"
+
+
 def redistributable_marker() -> str:
     """Primary runtime library filename that must sit next to decoder .so/.dylib/.dll."""
     system = platform.system()
@@ -26,6 +30,17 @@ def redistributable_marker() -> str:
     if system == "Windows":
         return "BlackmagicRawAPI.dll"
     return "libBlackmagicRawAPI.so"
+
+
+def _has_runtime_api(folder: Path) -> bool:
+    """True if *folder* contains the Blackmagic RAW API library or framework."""
+    if not folder.is_dir():
+        return False
+    if (folder / redistributable_marker()).is_file():
+        return True
+    if (folder / MACOS_API_FRAMEWORK).is_dir():
+        return True
+    return any(folder.glob("libBlackmagicRawAPI*")) or any(folder.glob("BlackmagicRawAPI*"))
 
 
 def bridge_candidates() -> list[Path]:
@@ -77,9 +92,7 @@ def bridge_candidates() -> list[Path]:
 
 
 def redistributable_candidates(bridge_path: Path | None) -> list[Path]:
-    """Folders that may contain libBlackmagicRawAPI.* (same dir as bridge after install)."""
-    marker = redistributable_marker()
-
+    """Folders that may contain libBlackmagicRawAPI.* or the macOS framework."""
     roots: list[Path] = []
     env = os.environ.get("EXR_CONVERTER_BRAW_LIBS", "").strip()
     if env:
@@ -126,17 +139,14 @@ def redistributable_candidates(bridge_path: Path | None) -> list[Path]:
         if rp in seen:
             continue
         seen.add(rp)
-        if (rp / marker).is_file() or rp.is_dir():
+        if _has_runtime_api(rp) or rp.is_dir():
             out.append(rp)
     return out
 
 
 def find_redistributable_dir(bridge_path: Path | None) -> Path | None:
     """Return the first folder that contains the Blackmagic RAW API library."""
-    marker = redistributable_marker()
     for cand in redistributable_candidates(bridge_path):
-        if (cand / marker).is_file():
-            return cand
-        if any(cand.glob("libBlackmagicRawAPI*")) or any(cand.glob("BlackmagicRawAPI*")):
+        if _has_runtime_api(cand):
             return cand
     return None

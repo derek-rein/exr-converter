@@ -18,6 +18,11 @@ from src.core.braw import (
     is_braw_path,
     preferred_decoder_kinds,
 )
+from src.core.braw.paths import (
+    MACOS_API_FRAMEWORK,
+    _has_runtime_api,
+    find_redistributable_dir,
+)
 
 
 def test_is_braw_path_extensions() -> None:
@@ -109,6 +114,55 @@ def test_bridge_candidates_include_exe_braw_dir(monkeypatch, tmp_path: Path) -> 
     cands = braw_mod._bridge_candidates()
     assert any(p.name == bridge_name and "braw" in p.parts for p in cands)
     assert bridge.resolve() in {p.resolve() for p in cands if p.exists()}
+
+
+def test_bridge_candidates_include_macos_frameworks_braw(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """macOS .app ships the bridge next to BlackmagicRawAPI.framework."""
+    from src.core import braw as braw_mod
+
+    fake_exe = tmp_path / "Contents" / "MacOS" / "exr_converter"
+    fake_exe.parent.mkdir(parents=True)
+    fake_exe.write_bytes(b"")
+    bridge_name = braw_mod._bridge_names()[0]
+    bridge = tmp_path / "Contents" / "Frameworks" / "braw" / bridge_name
+    bridge.parent.mkdir(parents=True)
+    bridge.write_bytes(b"")
+
+    monkeypatch.setattr(sys, "executable", str(fake_exe))
+    monkeypatch.setattr(sys, "argv", [str(fake_exe)])
+    if hasattr(sys, "frozen"):
+        monkeypatch.delattr(sys, "frozen", raising=False)
+
+    cands = braw_mod._bridge_candidates()
+    assert bridge.resolve() in {p.resolve() for p in cands if p.exists()}
+
+
+def test_has_runtime_api_accepts_macos_framework(tmp_path: Path) -> None:
+    folder = tmp_path / "braw"
+    folder.mkdir()
+    assert not _has_runtime_api(folder)
+    (folder / MACOS_API_FRAMEWORK).mkdir()
+    assert _has_runtime_api(folder)
+
+
+def test_find_redistributable_dir_macos_framework(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake_exe = tmp_path / "Contents" / "MacOS" / "exr_converter"
+    fake_exe.parent.mkdir(parents=True)
+    fake_exe.write_bytes(b"")
+    libs = tmp_path / "Contents" / "Frameworks" / "braw"
+    (libs / MACOS_API_FRAMEWORK).mkdir(parents=True)
+    monkeypatch.delenv("EXR_CONVERTER_BRAW_LIBS", raising=False)
+    monkeypatch.delenv("BRAW_SDK_LIBS", raising=False)
+    monkeypatch.delenv("BRAW_SDK_ROOT", raising=False)
+    monkeypatch.setattr(sys, "executable", str(fake_exe))
+    monkeypatch.setattr(sys, "argv", [str(fake_exe)])
+    found = find_redistributable_dir(libs / "libbraw_bridge.dylib")
+    assert found is not None
+    assert found.resolve() == libs.resolve()
 
 
 def _force_braw_unavailable() -> tuple:
