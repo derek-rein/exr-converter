@@ -471,8 +471,15 @@ jobs:
             uv run python scripts/install_braw_into_bundle.py dist/main.dist
           fi
           # Sanity: no headers/static libs leaked into the private braw dir.
+          # macOS: Frameworks/braw (not MacOS/braw) so codesign --deep is not
+          # ambiguous about a nested BlackmagicRawAPI.framework.
           if [ "$RUNNER_OS" == "macOS" ]; then
-            BRAW_DIR="dist/EXR Converter.app/Contents/MacOS/braw"
+            BRAW_DIR="dist/EXR Converter.app/Contents/Frameworks/braw"
+            if find "dist/EXR Converter.app/Contents/MacOS" -name '*.framework' | grep -q .; then
+              echo "ERROR: .framework under Contents/MacOS (codesign --deep will fail)" >&2
+              find "dist/EXR Converter.app/Contents/MacOS" -name '*.framework'
+              exit 1
+            fi
           else
             BRAW_DIR="dist/main.dist/braw"
           fi
@@ -529,6 +536,21 @@ jobs:
           if [ -d "$QT_LIB" ]; then
             find "$QT_LIB" -type f ! -name '*.plist' ! -name '*.pri' \
               -exec codesign --force --sign - --timestamp=none {} + || true
+          fi
+          # Nested .framework bundles (BlackmagicRawAPI) must be signed as
+          # frameworks, deepest first, before the outer .app. A framework
+          # left under Contents/MacOS makes `codesign --deep` report
+          # "bundle format is ambiguous (could be app or framework)".
+          if find "$APP/Contents/MacOS" -name '*.framework' | grep -q .; then
+            echo "ERROR: .framework under Contents/MacOS" >&2
+            find "$APP/Contents/MacOS" -name '*.framework'
+            exit 1
+          fi
+          if [ -d "$APP/Contents/Frameworks" ]; then
+            while IFS= read -r fw; do
+              [ -n "$fw" ] || continue
+              codesign --force --deep --sign - --timestamp=none "$fw"
+            done < <(find "$APP/Contents/Frameworks" -name '*.framework' | awk '{ print length, $0 }' | sort -nr | cut -d' ' -f2-)
           fi
           # Main executable, then the whole bundle last (outermost seal).
           codesign --force --sign - --timestamp=none "$APP/Contents/MacOS/exr_converter"

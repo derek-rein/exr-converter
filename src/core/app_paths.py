@@ -47,13 +47,18 @@ def runtime_exe_dirs() -> list[Path]:
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         dirs.append(Path(meipass))
-    # macOS .app: private data often under Contents/MacOS or Contents/Resources.
+    # macOS .app: private data under Contents/MacOS, Resources, or Frameworks.
+    # BRAW ships BlackmagicRawAPI.framework in Frameworks/ (not MacOS/) so
+    # codesign --deep does not treat the outer .app as an ambiguous bundle.
     for d in list(dirs):
         if d.name == "MacOS" and d.parent.name == "Contents":
             dirs.append(d.parent / "Resources")
+            dirs.append(d.parent / "Frameworks")
         elif (d / "MacOS").is_dir():
             dirs.append(d / "MacOS")
             dirs.append(d / "Resources")
+            if (d / "Frameworks").is_dir() or d.name == "Contents":
+                dirs.append(d / "Frameworks")
     # Deduplicate while preserving order.
     out: list[Path] = []
     seen: set[str] = set()

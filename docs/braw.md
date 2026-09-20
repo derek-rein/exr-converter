@@ -73,8 +73,8 @@ Public **GitHub Release artifacts** for EXR Converter may include only:
 - `libbraw_bridge.{dylib,so,dll}`
 - Blackmagic `Libraries/` runtime dynamic libraries (and the macOS `.framework` binary)
 
-…under a private app folder (`…/braw/`), never headers, samples, `profile.braw`,
-or SDK documentation.
+…under a private app folder (`Contents/Frameworks/braw/` on macOS, `…/braw/`
+elsewhere), never headers, samples, `profile.braw`, or SDK documentation.
 
 ### Refresh the private CI feed
 
@@ -155,12 +155,19 @@ log. Values can be above 1.0.
 ## Packaging layout (shipped)
 
 ```text
-macOS:  EXR Converter.app/Contents/MacOS/braw/
+macOS:  EXR Converter.app/Contents/Frameworks/braw/
 Linux:  <dist>/braw/
 Windows:<dist>/braw/
           libbraw_bridge.*
+          BlackmagicRawAPI.framework/          (macOS; Metal + runtime)
           libBlackmagicRawAPI.*  libDecoder*.*  libInstructionSetServices*.*
 ```
+
+The macOS `.framework` is installed under **`Contents/Frameworks/`**, not
+`Contents/MacOS/`. A nested framework beside the executable makes
+`codesign --deep` report *bundle format is ambiguous (could be app or
+framework)* and fail the Release re-sign. GPU decoder binaries stay inside
+the framework / `braw/` folder.
 
 Only runtime dynamic libraries from the SDK `Libraries/` folder plus our
 bridge — including GPU decoder libs (`libDecoderCUDA` / `libDecoderOpenCL` /
@@ -179,9 +186,12 @@ The **Release** workflow (Nuitka multi-OS):
    generate `BlackmagicRawAPI.h` **and** `BlackmagicRawAPI_i.c` (COM IID
    definitions) into `build/braw/win_include/` (not into the SDK tree), then
    compiles the IID file with the bridge and dispatch sources.
-3. After Nuitka, copy **bridge + runtime Libraries only** into `…/braw/` next
-   to the executable.
-4. Refuse the build if headers / `.a` / `.lib` appear under that folder.
+3. After Nuitka, copy **bridge + runtime Libraries only** into the private
+   `braw/` folder (`Contents/Frameworks/braw/` on macOS `.app` so
+   `BlackmagicRawAPI.framework` is not nested under `Contents/MacOS`).
+4. Refuse the build if headers / `.a` / `.lib` appear under that folder, or
+   if a `.framework` remains under `Contents/MacOS`.
+5. Re-sign the nested Blackmagic framework first, then the outer `.app`.
 
 If the secret is missing, Release still publishes the app **without** BRAW
 support (`.braw` convert reports SDK missing — same as R3D).

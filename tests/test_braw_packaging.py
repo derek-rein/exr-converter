@@ -22,9 +22,12 @@ from fetch_braw_sdk import (  # noqa: E402
     _token,
 )
 from install_braw_into_bundle import (  # noqa: E402
+    _assert_no_framework_under_macos,
     _assert_runtime_only,
+    _bridge_name,
     _is_forbidden_file,
     install,
+    resolve_install_root,
 )
 
 
@@ -162,23 +165,67 @@ def test_install_skips_without_bridge(tmp_path: Path) -> None:
     assert install(bundle, build_dir=tmp_path / "missing-build") is None
 
 
-def test_install_copies_runtime_and_refuses_headers(tmp_path: Path) -> None:
+def test_resolve_install_root_macos_app_uses_frameworks(tmp_path: Path) -> None:
+    app = tmp_path / "EXR Converter.app"
+    (app / "Contents" / "MacOS").mkdir(parents=True)
+    assert resolve_install_root(app) == (app / "Contents" / "Frameworks").resolve()
+
+
+def test_resolve_install_root_plain_dist(tmp_path: Path) -> None:
+    dist = tmp_path / "main.dist"
+    dist.mkdir()
+    assert resolve_install_root(dist) == dist.resolve()
+
+
+def _stage_runtime_build(tmp_path: Path, *, with_framework: bool = False) -> Path:
     build = tmp_path / "build"
     redist = build / "redistributable"
     redist.mkdir(parents=True)
-    from install_braw_into_bundle import _bridge_name
-
     (build / _bridge_name()).write_bytes(b"bridge")
     (redist / "libBlackmagicRawAPI.so").write_bytes(b"api")
     (redist / "BlackmagicRawAPI.h").write_text("// must not ship\n")
     (redist / "Include").mkdir()
     (redist / "Include" / "BlackmagicRawAPI.h").write_text("// no\n")
+    if with_framework:
+        fw = redist / "BlackmagicRawAPI.framework" / "Versions" / "A"
+        fw.mkdir(parents=True)
+        (fw / "BlackmagicRawAPI").write_bytes(b"macho")
+        (fw / "Headers").mkdir()
+        (fw / "Headers" / "BlackmagicRawAPI.h").write_text("// stripped\n")
+    return build
 
+
+def test_install_copies_runtime_and_refuses_headers(tmp_path: Path) -> None:
+    build = _stage_runtime_build(tmp_path)
     bundle = tmp_path / "main.dist"
     bundle.mkdir()
     dest = install(bundle, build_dir=build)
     assert dest is not None
+    assert dest == (bundle / "braw").resolve()
     assert (dest / _bridge_name()).is_file()
     assert (dest / "libBlackmagicRawAPI.so").is_file()
     assert not (dest / "BlackmagicRawAPI.h").exists()
     assert not (dest / "Include").exists()
+
+
+def test_install_macos_app_puts_framework_under_contents_frameworks(tmp_path: Path) -> None:
+    """A .framework under Contents/MacOS makes codesign --deep ambiguous."""
+    build = _stage_runtime_build(tmp_path, with_framework=True)
+    app = tmp_path / "EXR Converter.app"
+    (app / "Contents" / "MacOS").mkdir(parents=True)
+    dest = install(app, build_dir=build)
+    assert dest is not None
+    assert dest == (app / "Contents" / "Frameworks" / "braw").resolve()
+    assert (dest / _bridge_name()).is_file()
+    assert (dest / "BlackmagicRawAPI.framework" / "Versions" / "A" / "BlackmagicRawAPI").is_file()
+    assert not (dest / "BlackmagicRawAPI.framework" / "Versions" / "A" / "Headers").exists()
+    assert not list((app / "Contents" / "MacOS").rglob("*.framework"))
+    _assert_no_framework_under_macos(app)
+
+
+def test_assert_no_framework_under_macos_refuses_nested_framework(tmp_path: Path) -> None:
+    app = tmp_path / "EXR Converter.app"
+    fw = app / "Contents" / "MacOS" / "braw" / "BlackmagicRawAPI.framework"
+    fw.mkdir(parents=True)
+    with pytest.raises(SystemExit, match="Contents/MacOS"):
+        _assert_no_framework_under_macos(app)

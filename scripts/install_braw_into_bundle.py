@@ -5,9 +5,16 @@ Layout written (private app directory)::
 
   <bundle>/braw/libbraw_bridge.{dylib,so,dll}
   <bundle>/braw/libBlackmagicRawAPI.* …
+  <bundle>/braw/BlackmagicRawAPI.framework/   (macOS SDK)
   <bundle>/braw/… (other SDK Libraries runtime files)
 
-On macOS app bundles, *bundle* is ``Contents/MacOS`` (next to the executable).
+On macOS ``.app`` bundles, *bundle* is ``Contents/Frameworks`` so the
+Blackmagic ``.framework`` is **not** nested under ``Contents/MacOS``.
+``codesign --deep`` on the outer app treats a framework in ``MacOS/`` as
+an ambiguous bundle (app vs framework) and fails the Release re-sign.
+
+Linux / Windows / unpacked ``main.dist`` still use ``<dist>/braw/`` next
+to the executable.
 
 Usage::
 
@@ -75,18 +82,35 @@ def _bridge_name() -> str:
     return "libbraw_bridge.so"
 
 
-def _macos_exec_dir(app: Path) -> Path:
-    mac_os = app / "Contents" / "MacOS"
-    if mac_os.is_dir():
-        return mac_os
-    return app
+def _is_macos_app_bundle(target: Path) -> bool:
+    return target.suffix == ".app" or target.name.endswith(".app")
 
 
 def resolve_install_root(target: Path) -> Path:
+    """Directory that will contain the private ``braw/`` folder.
+
+    macOS ``.app`` → ``Contents/Frameworks`` (codesign-safe for nested
+    ``BlackmagicRawAPI.framework``). Everything else → the target itself.
+    """
     target = target.resolve()
-    if target.suffix == ".app" or target.name.endswith(".app"):
-        return _macos_exec_dir(target)
+    if _is_macos_app_bundle(target):
+        return target / "Contents" / "Frameworks"
     return target
+
+
+def _assert_no_framework_under_macos(target: Path) -> None:
+    """Refuse a ``.framework`` under ``Contents/MacOS`` (breaks codesign --deep)."""
+    if not _is_macos_app_bundle(target):
+        return
+    macos = target / "Contents" / "MacOS"
+    if not macos.is_dir():
+        return
+    leaked = [p for p in macos.rglob("*.framework") if p.is_dir() or p.is_symlink()]
+    if leaked:
+        preview = "\n".join(str(p) for p in leaked[:20])
+        raise SystemExit(
+            f"ERROR: .framework under Contents/MacOS (codesign --deep will fail):\n{preview}"
+        )
 
 
 def install(target: Path, build_dir: Path = BUILD) -> Path | None:
@@ -132,6 +156,7 @@ def install(target: Path, build_dir: Path = BUILD) -> Path | None:
                 shutil.rmtree(headers)
 
     _assert_runtime_only(dest)
+    _assert_no_framework_under_macos(target.resolve())
     safe_print(f"Installed BRAW runtime -> {dest}")
     return dest
 
