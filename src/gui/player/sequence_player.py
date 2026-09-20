@@ -387,6 +387,9 @@ class SequencePlayer(QWidget):
             return False
 
         try:
+            from ...core.braw import DECODE_PREVIEW as BRAW_DECODE_PREVIEW
+            from ...core.braw import is_braw_path
+            from ...core.braw import scale_for_decode_mode as braw_scale_for_mode
             from ...core.r3d import DECODE_PREVIEW, is_r3d_path, scale_for_decode_mode
             from ...core.video import probe_video, resolve_video_src_colorspace
 
@@ -408,6 +411,12 @@ class SequencePlayer(QWidget):
         if w > 0 and h > 0 and (resolution is None or resolution[0] <= 0 or resolution[1] <= 0):
             if is_r3d_path(path):
                 ladder = scale_for_decode_mode(DECODE_PREVIEW)
+                self.set_resolution(
+                    max(1, int(round(w * ladder))),
+                    max(1, int(round(h * ladder))),
+                )
+            elif is_braw_path(path):
+                ladder = braw_scale_for_mode(BRAW_DECODE_PREVIEW)
                 self.set_resolution(
                     max(1, int(round(w * ladder))),
                     max(1, int(round(h * ladder))),

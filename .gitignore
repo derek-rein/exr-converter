@@ -36,3 +36,11 @@ native/exr_prores/target/
 
 # Local R3D sample copies (do not commit camera originals)
 .tmp-r3d-sample/
+
+# Blackmagic RAW SDK (proprietary — never commit headers, runtime libs, samples)
+.braw-sdk/
+BlackmagicRAWSDK*/
+BRAWSDK*/
+slim/
+*.braw
+.tmp-braw-sample/

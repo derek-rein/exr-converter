@@ -89,6 +89,7 @@ site/                   # Hugo config + theme; mounts docs/ → GitHub Pages
 |------|------------|
 | Convert pipeline | `src/core/convert.py`, `src/core/video.py`, `src/core/exr_io.py` |
 | Optional R3D / N-RAW | `src/core/r3d/`, `native/r3d/` (macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_r3d_bridge.py`, `scripts/fetch_r3d_sdk.py`, `scripts/install_r3d_into_bundle.py`, [docs/r3d.md](./docs/r3d.md) |
+| Optional BRAW | `src/core/braw/`, `native/braw/` (CPU Linear ACES AP0), `scripts/build_braw_bridge.py`, `scripts/install_braw_into_bundle.py`, [docs/braw.md](./docs/braw.md) |
 | Optional 12-bit ProRes (oxideav) | `native/exr_prores/` (PyO3), `src/core/oxideav_prores.py`, `make oxideav-prores`, [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) |
 | Private full SDK (local) | `~/code/r3d-sdk-private/R3DSDKv9_2_1` — never commit; CI feed = private repo `derek-rein/r3d-sdk-private` release `sdk-9.2.1` |
 | Codec ladder / bit depth labels | `src/core/constants.py` |
@@ -114,6 +115,7 @@ make test          # full pytest (needs QT_QPA_PLATFORM=offscreen — Makefile s
 make test-unit     # skip @pytest.mark.integration
 make resources     # regenerate src/rc_resources.py after resources.qrc / icons change
 make oxideav-prores # build optional PyO3 12-bit ProRes extension (needs Rust)
+make braw-bridge   # optional Blackmagic RAW bridge (needs BRAW_SDK_ROOT)
 make docs-serve    # Hugo local preview of docs/ (http://127.0.0.1:1313/)
 make docs-build    # Hugo static build → site/public/
 make bundle        # local Nuitka standalone (does not publish a GitHub Release)
@@ -440,6 +442,7 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/nuke.md](./docs/nuke.md) | Nuke menu integration |
 | [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 12-bit ProRes (oxideav; shipping in releases) |
 | [docs/r3d.md](./docs/r3d.md) | Optional RED R3D / N-RAW (proprietary SDK; license + build) |
+| [docs/braw.md](./docs/braw.md) | Optional Blackmagic RAW (proprietary SDK; Linear ACES AP0) |
 | [docs/releasing.md](./docs/releasing.md) | Short pointer here + docs-site note |
 | [integrations/nuke/](./integrations/nuke/) | Nuke `menu.py` + helpers |
 

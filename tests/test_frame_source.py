@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from src.core.braw import BRAWUnavailableError
 from src.core.frame_source import open_ingest_source
 from src.core.r3d import R3DUnavailableError
 
@@ -27,6 +28,33 @@ def test_open_ingest_source_r3d_missing_raises(tmp_path: Path) -> None:
         fake = tmp_path / "clip.R3D"
         fake.write_bytes(b"not real")
         with pytest.raises(R3DUnavailableError):
+            open_ingest_source(fake, scale=1.0)
+    finally:
+        (
+            native_mod._init_attempted,
+            native_mod._init_ok,
+            native_mod._init_error,
+            native_mod._lib,
+        ) = prev
+
+
+def test_open_ingest_source_braw_missing_raises(tmp_path: Path) -> None:
+    from src.core.braw import native as native_mod
+
+    prev = (
+        native_mod._init_attempted,
+        native_mod._init_ok,
+        native_mod._init_error,
+        native_mod._lib,
+    )
+    native_mod._init_attempted = True
+    native_mod._init_ok = False
+    native_mod._init_error = "test: bridge missing"
+    native_mod._lib = None
+    try:
+        fake = tmp_path / "clip.braw"
+        fake.write_bytes(b"not real")
+        with pytest.raises(BRAWUnavailableError):
             open_ingest_source(fake, scale=1.0)
     finally:
         (

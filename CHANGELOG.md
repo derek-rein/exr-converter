@@ -13,12 +13,20 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- **Blackmagic RAW (`.braw`):** optional SDK bridge (same class of feature as
+  R3D). With the official Blackmagic RAW SDK, Video → EXR decodes `.braw` to
+  Linear ACES AP0 (`ACES2065-1` on the bundled Studio config). Without the
+  bridge, `.braw` is listed but conversion fails with a clear SDK-missing
+  message. CPU decode only. See [docs/braw.md](docs/braw.md).
+
 ### Fixed
 
 - **File browsers:** Dropbox / iCloud / OneDrive online-only placeholders no
   longer hang or error-spam the sequence and video browsers. Listing uses
-  names and metadata only; OIIO / PyAV / R3D probes and grid thumbnails run
-  only on fully local files. Online-only videos still appear (Codec:
+  names and metadata only; OIIO / PyAV / R3D / BRAW probes and grid thumbnails
+  run only on fully local files. Online-only videos still appear (Codec:
   **Online-only**). The folder tree no longer watches cloud directories for
   every placeholder change.
 

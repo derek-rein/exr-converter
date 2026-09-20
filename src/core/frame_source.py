@@ -1,8 +1,8 @@
-"""Unified frame sources for video / R3D ingest and player preview.
+"""Unified frame sources for video / R3D / BRAW ingest and player preview.
 
-Convert and the sequence player both need float32 RGB frames from either
-PyAV (common codecs) or the optional R3D SDK bridge. This module owns that
-dispatch so callers do not branch on extension at every site.
+Convert and the sequence player both need float32 RGB frames from PyAV
+(common codecs) or the optional R3D / BRAW SDK bridges. This module owns
+that dispatch so callers do not branch on extension at every site.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ class MediaInfo:
     height: int
     fps: float
     frame_count: int
-    kind: str  # "video" | "r3d"
+    kind: str  # "video" | "r3d" | "braw"
     colorspace_hint: str = ""
 
 
@@ -90,10 +90,13 @@ class IngestSource(Protocol):
 
 def open_preview_decoder(path: str, *, fps: float = 0.0) -> PreviewDecoder:
     """Factory for the sequence-player / prefetch decoder."""
+    from .braw import is_braw_path
     from .r3d import is_r3d_path
 
     if is_r3d_path(path):
         return R3DPreviewDecoder(path, fps=fps)
+    if is_braw_path(path):
+        return BRAWPreviewDecoder(path, fps=fps)
     return VideoPreviewDecoder(path, fps=fps)
 
 
@@ -104,17 +107,26 @@ def open_ingest_source(
     deinterlace: str = "auto",
     log_fn: Callable[[str], None] | None = None,
 ) -> IngestSource:
-    """Factory for video→EXR decode (R3D SDK or PyAV)."""
-    from .r3d import R3DUnavailableError, is_available, is_r3d_path, unavailable_reason
+    """Factory for video→EXR decode (R3D / BRAW SDK or PyAV)."""
+    from .braw import BRAWUnavailableError, is_braw_path
+    from .braw import is_available as braw_available
+    from .braw import unavailable_reason as braw_unavailable_reason
+    from .r3d import R3DUnavailableError, is_r3d_path
+    from .r3d import is_available as r3d_available
+    from .r3d import unavailable_reason as r3d_unavailable_reason
     from .video import is_ignored_media_filename
 
     path_s = str(path)
     if is_ignored_media_filename(path_s):
         raise RuntimeError(f"Not a media file (OS metadata sidecar): {Path(path_s).name}")
     if is_r3d_path(path_s):
-        if not is_available():
-            raise R3DUnavailableError(unavailable_reason())
+        if not r3d_available():
+            raise R3DUnavailableError(r3d_unavailable_reason())
         return R3DIngestSource(path_s, scale=scale)
+    if is_braw_path(path_s):
+        if not braw_available():
+            raise BRAWUnavailableError(braw_unavailable_reason())
+        return BRAWIngestSource(path_s, scale=scale)
     return VideoIngestSource(path_s, scale=scale, deinterlace=deinterlace, log_fn=log_fn)
 
 
@@ -631,6 +643,154 @@ class R3DIngestSource:
             indices = list(range(1, total + 1))
         if not indices:
             raise RuntimeError("No frames selected for R3D decode.")
+
+        ow, oh = self._out_w, self._out_h
+        for idx_1based in indices:
+            if cancel_check and cancel_check():
+                raise ConversionCancelled()
+            idx_0 = idx_1based - 1
+            rgb = self._clip.decode_frame(idx_0, mode=self._mode)
+            if self._need_extra_resize and (rgb.shape[1], rgb.shape[0]) != (ow, oh):
+                rgb = resize_rgb_f32(rgb, ow, oh)
+            yield (
+                idx_1based,
+                np.ascontiguousarray(rgb, dtype=np.float32),
+                self._frame_attrs(idx_0),
+            )
+
+
+class BRAWPreviewDecoder:
+    """BRAW decoder for player scrub (half-res by default)."""
+
+    def __init__(self, path: str, *, fps: float = 0.0, mode: int | None = None) -> None:
+        from .braw import DECODE_PREVIEW, BRAWClip, scale_for_decode_mode
+
+        self.path = path
+        self._clip = BRAWClip(path)
+        self.fps = float(fps) if fps and fps > 0 else float(self._clip.info.fps or 24.0)
+        self._mode = int(mode) if mode is not None else DECODE_PREVIEW
+        self._last_idx: int | None = None
+        self._last_rgb: np.ndarray | None = None
+        ladder = scale_for_decode_mode(self._mode)
+        full_w, full_h = self._clip.info.width, self._clip.info.height
+        self._decode_w = max(1, int(round(full_w * ladder)))
+        self._decode_h = max(1, int(round(full_h * ladder)))
+
+    @property
+    def decode_size(self) -> tuple[int, int]:
+        if self._last_rgb is not None:
+            h, w = self._last_rgb.shape[:2]
+            return int(w), int(h)
+        return self._decode_w, self._decode_h
+
+    def close(self) -> None:
+        try:
+            self._clip.close()
+        except Exception:
+            pass
+
+    def get_frame(self, idx_1based: int) -> np.ndarray | None:
+        idx = max(1, int(idx_1based))
+        if self._last_idx == idx and self._last_rgb is not None:
+            return self._last_rgb
+        try:
+            rgb = self._clip.decode_frame(idx - 1, mode=self._mode)
+        except Exception:
+            log.debug("BRAW get_frame failed frame=%s", idx, exc_info=True)
+            return None
+        self._last_idx = idx
+        self._last_rgb = rgb
+        self._decode_w = int(rgb.shape[1])
+        self._decode_h = int(rgb.shape[0])
+        return rgb
+
+
+class BRAWIngestSource:
+    """BRAW SDK decode for video→EXR (Linear ACES AP0 / ACES2065-1)."""
+
+    def __init__(self, path: str, *, scale: float = 1.0) -> None:
+        from .braw import BRAWClip, decode_mode_for_scale, scale_for_decode_mode
+
+        self._path = path
+        self._scale = float(scale)
+        self._mode = decode_mode_for_scale(self._scale)
+        ladder = scale_for_decode_mode(self._mode)
+        self._extra_scale = self._scale / ladder if ladder > 0 else self._scale
+        self._need_extra_resize = abs(self._extra_scale - 1.0) > 0.02
+        self._clip = BRAWClip(path)
+        info = self._clip.info
+        self._info = MediaInfo(
+            path=path,
+            width=int(info.width),
+            height=int(info.height),
+            fps=float(info.fps) if info.fps else 24.0,
+            frame_count=max(1, int(info.frame_count)),
+            kind="braw",
+            colorspace_hint=info.colorspace_hint or "",
+        )
+        self._out_w, self._out_h = scaled_dims(self._info.width, self._info.height, self._scale)
+        self._base_attrs: dict[str, str] = {
+            f"exrconverter:braw:{k}": v for k, v in self._clip.clip_metadata_dict().items() if v
+        }
+        self._sdk_version = info.sdk_version
+
+    @property
+    def info(self) -> MediaInfo:
+        return self._info
+
+    @property
+    def output_size(self) -> tuple[int, int]:
+        return self._out_w, self._out_h
+
+    @property
+    def decode_mode(self) -> int:
+        return self._mode
+
+    def close(self) -> None:
+        try:
+            self._clip.close()
+        except Exception:
+            pass
+
+    def __enter__(self) -> BRAWIngestSource:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def log_header(self, log_fn: Callable[[str], None] | None) -> None:
+        if not log_fn:
+            return
+        from .braw import decoder_kind, sdk_version
+
+        log_fn(f"BRAW SDK: {sdk_version() or self._sdk_version}")
+        kind = decoder_kind() or "cpu"
+        log_fn(f"BRAW decode: {kind.upper()} mode={self._mode} pipeline=Linear ACES AP0")
+        cam = self._base_attrs.get("exrconverter:braw:camera_type")
+        if cam:
+            log_fn(f"BRAW camera: {cam}")
+
+    def _frame_attrs(self, idx_0: int) -> dict[str, str]:
+        attrs = dict(self._base_attrs)
+        tc = self._clip.timecode(idx_0)
+        if tc:
+            attrs["exrconverter:braw:timecode"] = tc
+        attrs["exrconverter:braw:source_frame"] = str(idx_0)
+        return attrs
+
+    def iter_frames(
+        self,
+        frame_set: set[int] | None = None,
+        *,
+        cancel_check: ProgressCancel | None = None,
+    ) -> Iterator[tuple[int, np.ndarray, dict[str, str]]]:
+        total = self._info.frame_count
+        if frame_set:
+            indices = sorted(i for i in frame_set if 1 <= i <= total)
+        else:
+            indices = list(range(1, total + 1))
+        if not indices:
+            raise RuntimeError("No frames selected for BRAW decode.")
 
         ow, oh = self._out_w, self._out_h
         for idx_1based in indices:
