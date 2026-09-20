@@ -28,6 +28,7 @@ from .constants import (
     DECODE_QUARTER,
     DECODE_THUMBNAIL,
     decode_mode_for_scale,
+    preferred_decoder_kinds,
     scale_for_decode_mode,
 )
 from .native import decoder_kind, is_available, sdk_version, unavailable_reason
@@ -74,6 +75,7 @@ __all__ = [
     "braw_src_colorspace_candidates",
     "decode_mode_for_scale",
     "decoder_kind",
+    "preferred_decoder_kinds",
     "is_available",
     "is_braw_path",
     "probe_braw",

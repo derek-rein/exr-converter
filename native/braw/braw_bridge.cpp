@@ -3,7 +3,8 @@
  * C ABI wrapper around the Blackmagic RAW COM API.
  *
  * Decode follows the official OpenEXRTranscode sample default:
- * Linear gamma + ACES AP0 gamut, post-3D LUT disabled, RGBF32, CPU pipeline.
+ * Linear gamma + ACES AP0 gamut, post-3D LUT disabled, RGBF32.
+ * Pipeline: Metal (macOS) or CUDA then OpenCL (Win/Linux), CPU fallback.
  *
  * Do not invent COM calls — job flow matches ExtractFrame / OpenEXRTranscode:
  *   OpenClip → CreateJobReadFrame → Submit → ReadComplete
@@ -18,6 +19,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -33,6 +35,8 @@ namespace {
 thread_local std::string g_last_error;
 std::mutex g_init_mu;
 IBlackmagicRawFactory *g_factory = nullptr;
+IBlackmagicRawPipelineDevice *g_device = nullptr;
+const char *g_decoder_kind = "cpu";
 std::string g_sdk_version;
 bool g_initialized = false;
 #if defined(_WIN32)
@@ -424,7 +428,93 @@ void Callback::ProcessComplete(
     req->rc = 0;
 }
 
-HRESULT configure_cpu_pipeline(IBlackmagicRaw *codec) {
+bool force_cpu() {
+    const char *e = std::getenv("EXR_CONVERTER_BRAW_CPU");
+    if (e == nullptr || e[0] == '\0') {
+        return false;
+    }
+    return !(e[0] == '0' && e[1] == '\0');
+}
+
+const char *kind_name(BlackmagicRawPipeline pipeline) {
+    switch (pipeline) {
+        case blackmagicRawPipelineMetal:
+            return "metal";
+        case blackmagicRawPipelineCUDA:
+            return "cuda";
+        case blackmagicRawPipelineOpenCL:
+            return "opencl";
+        default:
+            return "cpu";
+    }
+}
+
+void release_pipeline_device() {
+    if (g_device != nullptr) {
+        g_device->Release();
+        g_device = nullptr;
+    }
+    g_decoder_kind = "cpu";
+}
+
+IBlackmagicRawPipelineDevice *try_create_device(
+    IBlackmagicRawFactory *factory, BlackmagicRawPipeline pipeline)
+{
+    IBlackmagicRawPipelineDeviceIterator *it = nullptr;
+    if (FAILED(factory->CreatePipelineDeviceIterator(
+            pipeline, blackmagicRawInteropNone, &it))
+        || it == nullptr) {
+        return nullptr;
+    }
+    IBlackmagicRawPipelineDevice *dev = nullptr;
+    const HRESULT hr = it->CreateDevice(&dev);
+    it->Release();
+    if (FAILED(hr) || dev == nullptr) {
+        return nullptr;
+    }
+    (void)dev->SetBestInstructionSet();
+    return dev;
+}
+
+void select_pipeline_device() {
+    release_pipeline_device();
+    if (force_cpu() || g_factory == nullptr) {
+        return;
+    }
+#if defined(__APPLE__)
+    const BlackmagicRawPipeline order[] = {
+        blackmagicRawPipelineMetal,
+        blackmagicRawPipelineOpenCL,
+    };
+#else
+    const BlackmagicRawPipeline order[] = {
+        blackmagicRawPipelineCUDA,
+        blackmagicRawPipelineOpenCL,
+    };
+#endif
+    for (BlackmagicRawPipeline pipeline : order) {
+        IBlackmagicRawPipelineDevice *dev = try_create_device(g_factory, pipeline);
+        if (dev != nullptr) {
+            g_device = dev;
+            g_decoder_kind = kind_name(pipeline);
+            return;
+        }
+    }
+}
+
+HRESULT apply_cpu_pipeline(IBlackmagicRawConfiguration *cfg) {
+    bool cpu_ok = false;
+    if (SUCCEEDED(cfg->IsPipelineSupported(blackmagicRawPipelineCPU, &cpu_ok)) && cpu_ok) {
+        const HRESULT hr = cfg->SetPipeline(blackmagicRawPipelineCPU, nullptr, nullptr);
+        if (FAILED(hr)) {
+            set_error("SetPipeline(CPU) failed");
+            return hr;
+        }
+    }
+    return S_OK;
+}
+
+HRESULT configure_pipeline(IBlackmagicRaw *codec) {
     IBlackmagicRawConfiguration *cfg = nullptr;
     HRESULT hr = codec->QueryInterface(IID_IBlackmagicRawConfiguration, reinterpret_cast<void **>(&cfg));
     if (FAILED(hr) || cfg == nullptr) {
@@ -432,11 +522,20 @@ HRESULT configure_cpu_pipeline(IBlackmagicRaw *codec) {
         return FAILED(hr) ? hr : E_FAIL;
     }
 
-    bool cpu_ok = false;
-    if (SUCCEEDED(cfg->IsPipelineSupported(blackmagicRawPipelineCPU, &cpu_ok)) && cpu_ok) {
-        hr = cfg->SetPipeline(blackmagicRawPipelineCPU, nullptr, nullptr);
+    if (g_device != nullptr) {
+        hr = cfg->SetFromDevice(g_device);
         if (FAILED(hr)) {
-            set_error("SetPipeline(CPU) failed");
+            /* Soft fallback: keep converting on CPU if GPU setup fails. */
+            release_pipeline_device();
+            hr = apply_cpu_pipeline(cfg);
+            if (FAILED(hr)) {
+                cfg->Release();
+                return hr;
+            }
+        }
+    } else {
+        hr = apply_cpu_pipeline(cfg);
+        if (FAILED(hr)) {
             cfg->Release();
             return hr;
         }
@@ -493,9 +592,11 @@ int braw_bridge_initialize(const char *libs_path) {
         return -1;
     }
 
+    select_pipeline_device();
+
     IBlackmagicRaw *probe = nullptr;
     if (SUCCEEDED(g_factory->CreateCodec(&probe)) && probe != nullptr) {
-        configure_cpu_pipeline(probe);
+        configure_pipeline(probe);
         probe->Release();
     }
 
@@ -509,6 +610,7 @@ void braw_bridge_finalize(void) {
         g_factory->Release();
         g_factory = nullptr;
     }
+    release_pipeline_device();
     g_initialized = false;
 #if defined(_WIN32)
     if (g_com_inited) {
@@ -540,7 +642,7 @@ void *braw_bridge_open(const char *utf8_path) {
         delete out;
         return nullptr;
     }
-    if (FAILED(configure_cpu_pipeline(out->codec))) {
+    if (FAILED(configure_pipeline(out->codec))) {
         out->codec->Release();
         delete out;
         return nullptr;
@@ -746,7 +848,7 @@ int braw_bridge_decode_frame(
 
 const char *braw_bridge_last_error(void) { return g_last_error.c_str(); }
 
-const char *braw_bridge_decoder_kind(void) { return "cpu"; }
+const char *braw_bridge_decoder_kind(void) { return g_decoder_kind != nullptr ? g_decoder_kind : "cpu"; }
 
 int braw_bridge_metadata_string(void *handle, const char *key, char *buf, size_t buf_len) {
     Clip *clip = as_clip(handle);

@@ -113,8 +113,13 @@ class AboutDialog(QDialog):
             if braw_available():
                 ver = braw_sdk_version() or "loaded"
                 kind = braw_kind()
-                extra = f" · {kind}" if kind else ""
-                braw_line = f"<br>Blackmagic RAW SDK: {ver}{extra}"
+                gpu = {
+                    "metal": " · Metal GPU",
+                    "cuda": " · CUDA GPU",
+                    "opencl": " · OpenCL GPU",
+                    "cpu": " · CPU",
+                }.get(kind, "")
+                braw_line = f"<br>Blackmagic RAW SDK: {ver}{gpu}"
             else:
                 braw_line = "<br>Blackmagic RAW: not available (optional)"
         except Exception:

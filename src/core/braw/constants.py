@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 # Extension handled by the Blackmagic RAW SDK (not PyAV).
 BRAW_SUFFIXES: frozenset[str] = frozenset({".braw"})
 
@@ -92,3 +94,10 @@ def decode_mode_for_scale(scale: float) -> int:
 def scale_for_decode_mode(mode: int) -> float:
     """Linear resolution scale for *mode* (1.0 = full)."""
     return DECODE_MODE_SCALE.get(int(mode), 1.0)
+
+
+def preferred_decoder_kinds() -> tuple[str, ...]:
+    """Pipeline try-order (matches ``native/braw/braw_bridge.cpp``)."""
+    if sys.platform == "darwin":
+        return ("metal", "opencl", "cpu")
+    return ("cuda", "opencl", "cpu")

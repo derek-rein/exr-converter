@@ -22,7 +22,7 @@ Related: [CLI](./cli.md) · [GUI](./gui.md) · [R3D / N-RAW](./r3d.md) ·
 | Decode | Official **OpenEXRTranscode** default: **Linear** gamma + **ACES AP0** gamut, post-3D LUT **disabled**, `RGBF32` |
 | OCIO | Auto-detect source space prefers **ACES2065-1** (`lin_ap0`) on the bundled ACES Studio config |
 | Output | Same video→EXR pipeline (EXR compression, scale ladder, frame range, workers) |
-| GPU | **CPU only** in this first integration. CUDA / OpenCL / Metal can be added later. |
+| GPU | **macOS Metal** (then OpenCL if Metal is unavailable). **Windows / Linux:** CUDA, then OpenCL. CPU fallback if GPU setup fails or decoder libs are missing. Force CPU with `EXR_CONVERTER_BRAW_CPU=1`. |
 | Preview | Sequence player + video browser (half-res decode for scrub) |
 | Thumbnails | Grid thumbs via eighth-res decode |
 | Metadata | Clip + per-frame timecode written to EXR as ``exrconverter:braw:*`` attrs |
@@ -60,10 +60,37 @@ This repo only contains *our* bridge source (`native/braw/`) and Python glue
 
 ---
 
+## Where the full SDK lives (maintainers)
+
+| Location | Purpose |
+|----------|---------|
+| `~/.braw-sdk/` or `~/code/braw-sdk-private/BlackmagicRAWSDK-6.0/` | Local full SDK unpack (headers + runtime Libraries) |
+| Private GitHub repo [`derek-rein/braw-sdk-private`](https://github.com/derek-rein/braw-sdk-private) | README + package script only (**no SDK blobs in git**) |
+| Private Release tag `sdk-6.0` asset `BlackmagicRAWSDK-6.0-full.tar.gz` | **CI build-time feed** for public `exr-converter` Releases |
+
+Public **GitHub Release artifacts** for EXR Converter may include only:
+
+- `libbraw_bridge.{dylib,so,dll}`
+- Blackmagic `Libraries/` runtime dynamic libraries (and the macOS `.framework` binary)
+
+…under a private app folder (`…/braw/`), never headers, samples, `profile.braw`,
+or SDK documentation.
+
+### Refresh the private CI feed
+
+```bash
+# After unpacking a new official SDK as BlackmagicRAWSDK-6.0/
+cd ~/code/braw-sdk-private
+./scripts/package_release.sh
+# retags/uploads BlackmagicRAWSDK-6.0-full.tar.gz to release sdk-6.0
+```
+
+---
+
 ## Developer setup (local)
 
 ```bash
-# Unpack the official Linux SDK (example slim layout):
+# Unpack the official SDK (example slim layout):
 #   ~/.braw-sdk/slim/Linux/Include/BlackmagicRawAPI.h
 #   ~/.braw-sdk/slim/Linux/Libraries/libBlackmagicRawAPI.so
 
@@ -71,6 +98,10 @@ export BRAW_SDK_ROOT="$HOME/.braw-sdk/slim"
 cd /path/to/exr-converter
 make braw-bridge
 # → build/braw/libbraw_bridge.so + build/braw/redistributable/
+
+# Or pull the same tarball CI uses (needs gh auth or BRAW_SDK_READ_TOKEN):
+make braw-sdk-fetch   # → .braw-sdk/BlackmagicRAWSDK-6.0 (gitignored)
+make braw-bridge
 ```
 
 Discovery (first match wins):
@@ -90,6 +121,8 @@ Override at runtime:
 | `BRAW_SDK_ROOT` | Unpacked SDK root for **building** the bridge |
 | `EXR_CONVERTER_BRAW_BRIDGE` | Path to `libbraw_bridge.*` (or its directory) |
 | `EXR_CONVERTER_BRAW_LIBS` / `BRAW_SDK_LIBS` | Folder containing `libBlackmagicRawAPI.*` |
+| `BRAW_SDK_READ_TOKEN` | Dedicated PAT that can download the private BRAW Release asset |
+| `EXR_CONVERTER_BRAW_CPU` | Set to `1` to skip GPU decode (CPU only) |
 
 Convert:
 
@@ -130,12 +163,35 @@ Windows:<dist>/braw/
 ```
 
 Only runtime dynamic libraries from the SDK `Libraries/` folder plus our
-bridge. Never headers, samples, `profile.braw`, or SDK documentation.
+bridge — including GPU decoder libs (`libDecoderCUDA` / `libDecoderOpenCL` /
+`DecoderMetal`). Never headers, samples, `profile.braw`, or SDK documentation.
 
-Release CI does **not** currently fetch a private BRAW SDK (unlike R3D). Local
-`make bundle` builds and installs the runtime when `BRAW_SDK_ROOT` is set.
-macOS / Windows packaging is the same layout once those SDK trees are present;
-only Linux has been smoke-tested in this integration.
+---
+
+## CI / GitHub Release builds
+
+The **Release** workflow (Nuitka multi-OS):
+
+1. If secret **`BRAW_SDK_READ_TOKEN`** is set → download `sdk-6.0` /
+   `BlackmagicRAWSDK-6.0-full.tar.gz` from the private repo.
+2. Build `libbraw_bridge` (macOS / Linux / Windows + MSVC). On Windows the
+   official SDK ships `BlackmagicRawAPI.idl`; the build runs `midl` to
+   generate `BlackmagicRawAPI.h` into `build/braw/win_include/` (not into
+   the SDK tree).
+3. After Nuitka, copy **bridge + runtime Libraries only** into `…/braw/` next
+   to the executable.
+4. Refuse the build if headers / `.a` / `.lib` appear under that folder.
+
+If the secret is missing, Release still publishes the app **without** BRAW
+support (`.braw` convert reports SDK missing — same as R3D).
+
+```bash
+# Dedicated fine-grained PAT with read on derek-rein/braw-sdk-private Releases
+gh secret set BRAW_SDK_READ_TOKEN --repo derek-rein/exr-converter
+```
+
+Local `make bundle` builds and installs the runtime when `BRAW_SDK_ROOT` is
+set or after `make braw-sdk-fetch`.
 
 ---
 
@@ -145,9 +201,10 @@ only Linux has been smoke-tested in this integration.
 |---------|-----|
 | `BRAW bridge library not found` | `make braw-bridge` / set `EXR_CONVERTER_BRAW_BRIDGE` |
 | `Blackmagic RAW runtime libraries not found` | Set `EXR_CONVERTER_BRAW_LIBS` to the SDK `Libraries` folder |
+| CI skips BRAW | Secret `BRAW_SDK_READ_TOKEN` not set or cannot read private release |
 | `CreateBlackmagicRawFactoryInstanceFromPath failed` | Wrong folder (must contain `libBlackmagicRawAPI.so` / `.dylib` / `.dll`) |
 | Wrong colors | Use ACES2065-1 source — decode is Linear AP0, not BMD Film |
 | `._….braw` in browser | macOS AppleDouble metadata — hidden from the video browser |
-| GPU not used | Expected — this build forces the CPU pipeline |
+| Convert log says `CPU` on a GPU machine | GPU init failed (Metal / CUDA / OpenCL). Rebuild `make braw-bridge`. CUDA needs an NVIDIA driver + `libDecoderCUDA`; OpenCL needs a GPU ICD + `libDecoderOpenCL`; macOS needs `DecoderMetal` in the framework. Force CPU with `EXR_CONVERTER_BRAW_CPU=1` to compare. |
 
 Official sample clip (from the SDK package, not this repo): `profile.braw`.
