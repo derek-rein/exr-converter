@@ -64,6 +64,15 @@ _SIGN = ("codesign", "--force", "--sign", "-", "--timestamp=none")
 _VERIFY = ("codesign", "--verify", "--strict", "--verbose=2")
 
 
+def _try_symlink(link: Path, target: str | Path) -> bool:
+    """Create *link* → *target*. Returns False when the OS refuses (Windows)."""
+    try:
+        link.symlink_to(target)
+        return True
+    except OSError:
+        return False
+
+
 def _is_runtime_keep(name: str) -> bool:
     lower = name.lower()
     if any(part in lower for part in _RUNTIME_KEEP_PARTS):
@@ -205,8 +214,7 @@ def normalize_versioned_framework(fw: Path) -> list[str]:
     if current.exists() and current.is_symlink():
         if current.readlink() != Path(version.name):
             current.unlink()
-    if not current.exists():
-        current.symlink_to(version.name)
+    if not current.exists() and _try_symlink(current, version.name):
         actions.append(f"linked Versions/Current -> {version.name}")
 
     stem = fw.name.removesuffix(".framework")
@@ -221,8 +229,8 @@ def normalize_versioned_framework(fw: Path) -> list[str]:
         if top.is_symlink():
             if top.readlink() != rel:
                 top.unlink()
-                top.symlink_to(rel)
-                actions.append(f"relinked {name} -> {rel}")
+                if _try_symlink(top, rel):
+                    actions.append(f"relinked {name} -> {rel}")
             continue
         if top.exists():
             if top.is_dir():
@@ -234,8 +242,8 @@ def normalize_versioned_framework(fw: Path) -> list[str]:
                 if not target.exists():
                     shutil.copy2(top, target)
                 top.unlink()
-        top.symlink_to(rel)
-        actions.append(f"linked {name} -> {rel}")
+        if _try_symlink(top, rel):
+            actions.append(f"linked {name} -> {rel}")
 
     contents = fw / "Contents"
     if contents.is_dir() and not contents.is_symlink():

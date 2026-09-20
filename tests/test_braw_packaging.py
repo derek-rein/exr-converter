@@ -37,6 +37,8 @@ from macos_codesign import (  # noqa: E402
 )
 from packaging_util import copytree_preserve_symlinks  # noqa: E402
 
+_SYMLINK_OK = sys.platform != "win32"
+
 
 def test_token_uses_braw_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GH_TOKEN", raising=False)
@@ -264,6 +266,7 @@ def _ambiguous_braw_framework(root: Path) -> Path:
     return fw
 
 
+@pytest.mark.skipif(not _SYMLINK_OK, reason="framework symlink copy is a macOS packaging concern")
 def test_copytree_preserve_symlinks(tmp_path: Path) -> None:
     src = tmp_path / "src" / "BlackmagicRawAPI.framework" / "Versions"
     src.mkdir(parents=True)
@@ -286,6 +289,7 @@ def test_framework_ambiguity_reasons_sdk6_flattened(tmp_path: Path) -> None:
     assert "Resources/" in reasons
 
 
+@pytest.mark.skipif(not _SYMLINK_OK, reason="framework symlink restore needs POSIX")
 def test_normalize_versioned_framework_keeps_gpu_libs(tmp_path: Path) -> None:
     fw = _ambiguous_braw_framework(tmp_path)
     actions = normalize_versioned_framework(fw)
@@ -303,6 +307,7 @@ def test_normalize_versioned_framework_keeps_gpu_libs(tmp_path: Path) -> None:
     assert not framework_ambiguity_reasons(fw)
 
 
+@pytest.mark.skipif(not _SYMLINK_OK, reason="resign plan is exercised on a POSIX framework tree")
 def test_plan_adhoc_resign_never_uses_deep(tmp_path: Path) -> None:
     app = tmp_path / "EXR Converter.app"
     macos = app / "Contents" / "MacOS"
@@ -329,6 +334,7 @@ def test_plan_adhoc_resign_refuses_framework_under_macos(tmp_path: Path) -> None
         plan_adhoc_resign(app)
 
 
+@pytest.mark.skipif(not _SYMLINK_OK, reason="macOS .app framework install uses POSIX symlinks")
 def test_install_normalizes_flattened_macos_framework(tmp_path: Path) -> None:
     build = tmp_path / "build"
     redist = build / "redistributable"
