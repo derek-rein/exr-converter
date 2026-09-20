@@ -10,7 +10,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from build_braw_bridge import _header_ok  # noqa: E402
+from build_braw_bridge import (  # noqa: E402
+    _find_iid_c,
+    _header_ok,
+    _prepare_windows_include,
+)
 from fetch_braw_sdk import (  # noqa: E402
     _existing_sdk,
     _find_sdk_root,
@@ -70,6 +74,38 @@ def test_is_sdk_root_include_at_top(tmp_path: Path) -> None:
     header.write_text("// stub\n")
     assert _is_sdk_root(tmp_path)
     assert _find_sdk_root(tmp_path) == tmp_path
+
+
+def test_find_iid_c_prefers_official_midl_name(tmp_path: Path) -> None:
+    assert _find_iid_c(tmp_path) is None
+    other = tmp_path / "extra_i.c"
+    other.write_text("/* other */\n")
+    assert _find_iid_c(tmp_path) == other
+    official = tmp_path / "BlackmagicRawAPI_i.c"
+    official.write_text("/* iids */\n")
+    assert _find_iid_c(tmp_path) == official
+
+
+def test_prepare_windows_include_reuses_existing_iid(tmp_path: Path) -> None:
+    include = tmp_path / "inc"
+    include.mkdir()
+    (include / "BlackmagicRawAPI.h").write_text("// header\n")
+    (include / "BlackmagicRawAPI.idl").write_text("// idl\n")
+    (include / "BlackmagicRawAPIDispatch.h").write_text("// dispatch\n")
+    (include / "BlackmagicRawAPIDispatch.cpp").write_text("// dispatch cpp\n")
+    (include / "BlackmagicRawAPI_i.c").write_text("/* iids */\n")
+    gen = _prepare_windows_include(include, tmp_path / "out")
+    assert (gen / "BlackmagicRawAPI.h").is_file()
+    assert (gen / "BlackmagicRawAPI_i.c").read_text() == "/* iids */\n"
+    assert _find_iid_c(gen) == gen / "BlackmagicRawAPI_i.c"
+
+
+def test_windows_build_script_compiles_midl_iid_source() -> None:
+    """Win link needs BlackmagicRawAPI_i.c — MIDL header only declares the IIDs."""
+    src = (ROOT / "scripts" / "build_braw_bridge.py").read_text()
+    assert '"/iid"' in src
+    assert "BlackmagicRawAPI_i.c" in src
+    assert "Missing BlackmagicRawAPI_i.c" in src
 
 
 def test_bridge_source_has_macos_windows_sdk_shims() -> None:
