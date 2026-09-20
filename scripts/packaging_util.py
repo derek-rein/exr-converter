@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -34,3 +35,22 @@ def purge_macos_junk(root: Path) -> None:
     for p in root.rglob("*"):
         if p.is_file() and is_macos_junk_name(p.name):
             p.unlink(missing_ok=True)
+
+
+def copytree_preserve_symlinks(src: Path, dst: Path) -> Path:
+    """Copy a directory tree without flattening macOS framework symlinks.
+
+    ``shutil.copytree`` defaults to ``symlinks=False``, which turns
+    ``Versions/Current`` and top-level ``Resources`` links into real
+    directories. That makes ``codesign --deep`` report *bundle format is
+    ambiguous (could be app or framework)* on ``BlackmagicRawAPI.framework``.
+    """
+    return Path(
+        shutil.copytree(
+            src,
+            dst,
+            symlinks=True,
+            ignore=ignore_macos_junk,
+            ignore_dangling_symlinks=True,
+        )
+    )
