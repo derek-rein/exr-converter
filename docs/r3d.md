@@ -24,6 +24,7 @@ Related: [CLI](./cli.md) · [GUI](./gui.md) · [AGENTS.md](../AGENTS.md)
 | GPU | **macOS Metal** (`GpuDecoder` + REDMetal) for classic R3D GPU decompress. **Windows / Linux:** SDK `R3DDecoder` — CUDA if an NVIDIA device is present, otherwise OpenCL. CPU fallback when no GPU init, or for clips Metal cannot GPU-decompress (N-RAW / R3D NE / RED ONE on macOS). Force CPU with `EXR_CONVERTER_R3D_CPU=1`. |
 | Preview | Sequence player + video browser (half-res decode for scrub) |
 | Thumbnails | Grid thumbs via sixteenth-res decode (fast ID, not full premium) |
+| Inspect | Video-browser Inspect reads clip metadata through the SDK, not PyAV |
 | Metadata | Clip + per-frame timecode written to EXR as ``exrconverter:r3d:*`` attrs |
 
 Scale maps to the SDK resolution ladder (full / half / quarter / …) for faster
