@@ -25,6 +25,7 @@ Related: [CLI](./cli.md) · [GUI](./gui.md) · [R3D / N-RAW](./r3d.md) ·
 | GPU | **macOS Metal** (then OpenCL if Metal is unavailable). **Windows / Linux:** CUDA, then OpenCL. CPU fallback if GPU setup fails or decoder libs are missing. Force CPU with `EXR_CONVERTER_BRAW_CPU=1`. |
 | Preview | Sequence player + video browser (half-res decode for scrub) |
 | Thumbnails | Grid thumbs via eighth-res decode |
+| Inspect | Video-browser Inspect reads clip metadata through the SDK, not PyAV |
 | Metadata | Clip + per-frame timecode written to EXR as ``exrconverter:braw:*`` attrs |
 
 Scale maps to the SDK resolution ladder (full / half / quarter / eighth). Odd

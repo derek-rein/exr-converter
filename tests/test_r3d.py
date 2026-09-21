@@ -163,6 +163,14 @@ def test_is_ignored_media_filename_appledouble() -> None:
     assert not is_ignored_media_filename("clip.mov")
 
 
+class _MustNotOpenPyAV(BaseException):
+    """Not a subclass of Exception — probe_video_metadata catches Exception."""
+
+
+def _boom_if_pyav_opens(*_args, **_kwargs):
+    raise _MustNotOpenPyAV("PyAV must not open R3D / N-RAW (native SIGSEGV)")
+
+
 def test_scan_video_files_skips_appledouble(tmp_path: Path) -> None:
     """Browser listing must hide macOS AppleDouble ``._*.R3D`` sidecars."""
     from src.core.video import scan_video_files
@@ -176,6 +184,51 @@ def test_scan_video_files_skips_appledouble(tmp_path: Path) -> None:
     names = [r["name"] for r in rows]
     assert "A004_C010_0920DA_001.R3D" in names
     assert "._A004_C010_0920DA_001.R3D" not in names
+
+
+def test_detect_interlaced_does_not_open_r3d_with_pyav(monkeypatch) -> None:
+    """Inspect used to decode the first frame via PyAV and SIGSEGV in stream.so."""
+    import av
+
+    from src.core.video import detect_interlaced
+
+    monkeypatch.setattr(av, "open", _boom_if_pyav_opens)
+    assert detect_interlaced("/tmp/A004_C010.R3D") is False
+    assert detect_interlaced("/tmp/clip.nev") is False
+
+
+def test_probe_video_metadata_does_not_open_r3d_with_pyav(tmp_path: Path, monkeypatch) -> None:
+    """Video-browser Inspect must use the R3D SDK path, never av.open."""
+    import av
+
+    from src.core.video import probe_video_metadata
+
+    clip = tmp_path / "A004_C010.R3D"
+    clip.write_bytes(b"not-real-r3d")
+    monkeypatch.setattr(av, "open", _boom_if_pyav_opens)
+    prev = _force_r3d_unavailable()
+    try:
+        meta = probe_video_metadata(str(clip))
+    finally:
+        _restore_r3d_state(prev)
+    blob = " ".join(meta.values()).lower()
+    assert "r3d" in blob
+    assert "sdk" in blob
+
+
+def test_load_video_thumbnail_does_not_open_r3d_with_pyav(tmp_path: Path, monkeypatch) -> None:
+    import av
+
+    from src.gui.browser_thumbs import load_video_thumbnail_rgb
+
+    clip = tmp_path / "A004_C010.R3D"
+    clip.write_bytes(b"not-real-r3d")
+    monkeypatch.setattr(av, "open", _boom_if_pyav_opens)
+    prev = _force_r3d_unavailable()
+    try:
+        assert load_video_thumbnail_rgb(str(clip)) is None
+    finally:
+        _restore_r3d_state(prev)
 
 
 def test_probe_video_rejects_appledouble() -> None:

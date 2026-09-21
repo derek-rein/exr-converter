@@ -54,41 +54,47 @@ def load_video_thumbnail_rgb(
     if not path or not can_probe_media(path):
         return None
 
-    # R3D / N-RAW: sixteenth-res SDK decode (fast ID thumbs; not full premium).
-    try:
-        from ..core.r3d import (
-            DECODE_THUMBNAIL,
-            R3DClip,
-            is_r3d_path,
-        )
-        from ..core.r3d import (
-            is_available as r3d_available,
-        )
+    # R3D / N-RAW / BRAW: SDK thumbs only. Falling through to PyAV decode
+    # SIGSEGVs in libav (same crash as Inspect metadata on .r3d).
+    from ..core.braw import is_braw_path
+    from ..core.r3d import is_r3d_path
 
-        if is_r3d_path(path) and r3d_available():
+    if is_r3d_path(path):
+        try:
+            from ..core.r3d import DECODE_THUMBNAIL, R3DClip
+            from ..core.r3d import is_available as r3d_available
+
+            if not r3d_available():
+                return None
             with R3DClip(path) as clip:
                 rgb = clip.decode_frame(0, mode=DECODE_THUMBNAIL)
             # Log3G10 is not linear display; cheap OETF so thumbs aren't crushed.
             disp = np.clip(np.asarray(rgb, dtype=np.float32), 0.0, 1.0)
             disp = np.power(disp, 1.0 / 2.2)
             return _downscale_uint8_rgb(disp, max_edge)
-    except Exception:
-        pass
+        except Exception:
+            return None
 
-    # BRAW: eighth-res SDK decode (Linear ACES AP0 — cheap OETF for thumbs).
-    try:
-        from ..core.braw import DECODE_THUMBNAIL as BRAW_THUMB
-        from ..core.braw import BRAWClip, is_braw_path
-        from ..core.braw import is_available as braw_available
+    if is_braw_path(path):
+        try:
+            from ..core.braw import DECODE_THUMBNAIL as BRAW_THUMB
+            from ..core.braw import BRAWClip
+            from ..core.braw import is_available as braw_available
 
-        if is_braw_path(path) and braw_available():
+            if not braw_available():
+                return None
             with BRAWClip(path) as clip:
                 rgb = clip.decode_frame(0, mode=BRAW_THUMB)
             disp = np.clip(np.asarray(rgb, dtype=np.float32), 0.0, 1.0)
             disp = np.power(disp, 1.0 / 2.2)
             return _downscale_uint8_rgb(disp, max_edge)
-    except Exception:
-        pass
+        except Exception:
+            return None
+
+    from ..core.video import is_libav_unsafe_media
+
+    if is_libav_unsafe_media(path):
+        return None
 
     try:
         import av

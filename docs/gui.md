@@ -80,11 +80,15 @@ prefers a basename matching the folder name when several sequences share the
 folder). The slate editor reuses the player with live burn-in/watermark overlays.
 
 **Video browser filters:** only real media extensions are listed (``.r3d``,
-``.nev``, ``.braw``, ``.mov``, ``.mp4``, …). macOS **AppleDouble** Finder sidecars
+``.nev``, ``.braw``, ``.ari``, ``.arx``, ``.mov``, ``.mp4``, …). macOS **AppleDouble** Finder sidecars
 (``._clip.R3D``) that appear next to clips on network shares or non-HFS
 volumes are hidden — they share the media extension but are resource-fork
 metadata, not video. RED **`.RMD`** metadata files are never listed (not a
-video extension).
+video extension). Selecting **`.r3d` / `.nev` / `.braw`** uses the optional
+SDK bridges for listing, **Inspect**, Preview, and grid thumbs — never
+PyAV/FFmpeg (those containers are not libav-safe). Without the SDK, the clip
+still appears; Inspect shows SDK missing. **`.ari` / `.arx`** are listed as
+unsupported camera RAW and are never opened with PyAV.
 
 **Cloud placeholders (Dropbox / iCloud / OneDrive):** folders managed by a
 cloud client often contain “online-only” stubs (macOS File Provider dataless

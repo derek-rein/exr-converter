@@ -13,16 +13,28 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.10.1] — 2026-09-21
+
 ### Fixed
 
+- **Video browser crash on `.r3d` / `.braw`:** selecting a RED or Blackmagic RAW
+  clip (Inspect, or a grid thumbnail when the SDK is missing) no longer hands
+  the file to PyAV. FFmpeg cannot demux those containers and SIGSEGV’d in
+  `stream.so`. Inspect and thumbs use the SDK bridges; without a bridge the
+  clip still lists and Inspect reports SDK missing.
+- **ARRIRAW (`.ari` / `.arx`) in the video browser:** those extensions are
+  listed/searchable but are not FFmpeg-safe. Inspect, thumbs, preview, and
+  convert no longer hand them to PyAV (native crash). Inspect reports
+  unsupported; convert raises a clear error.
 - **BRAW bridge compiles on macOS and Windows:** the C ABI wrapper now uses
   SDK-accurate types per platform (Mac `CFUUIDBytes` / `CFStringRef`, Windows
   `VARIANT` / `BSTR` / `BOOL`, and the Win dispatch factory entry point).
-  Linux is unchanged. After merge, re-dispatch Release for `v0.10.0` from
-  `main` with `source_ref=main` so Mac/Win binaries can ship `.braw` support.
+  Linux is unchanged.
 - **Windows BRAW bridge link:** compile MIDL ``BlackmagicRawAPI_i.c`` so
   ``IID_IBlackmagicRaw*`` COM GUIDs resolve (header + dispatch obj only
-  declared them). Re-dispatch Release the same way after this lands.
+  declared them).
 - **macOS BRAW codesign:** ship ``BlackmagicRawAPI.framework`` under
   ``Contents/Frameworks/braw/`` (not ``Contents/MacOS/braw/``). Ad-hoc
   re-sign now signs Mach-Os inside that framework, then the ``.framework``
@@ -30,8 +42,7 @@ rolling the `[Unreleased]` section into a versioned heading.
   the SDK 6.0 framework itself still reports *bundle format is ambiguous*
   (flattened ``Versions/Current``, top-level ``Resources/``, or
   ``Contents/``) even after the PR #54 placement fix. GPU decoder libs
-  stay with the framework. Re-dispatch Release for ``v0.10.0`` from
-  ``main`` with ``source_ref=main``.
+  stay with the framework.
 
 ---
 
@@ -803,7 +814,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/derek-rein/exr-converter/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/derek-rein/exr-converter/compare/v0.9.13...v0.10.0
 [0.9.13]: https://github.com/derek-rein/exr-converter/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/derek-rein/exr-converter/compare/v0.9.11...v0.9.12
