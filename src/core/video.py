@@ -122,6 +122,9 @@ def probe_video(path: str) -> tuple[int, int, float, int]:
             raise RuntimeError(unavailable_reason())
         return probe_braw(path)
 
+    if is_libav_unsafe_media(path):
+        raise RuntimeError(_arriraw_unsupported_message(path))
+
     import av
 
     duration = time_base = None
@@ -281,11 +284,36 @@ def decode_video_frames(container, stream, deinterlace: str = "auto", log=None):
             raise
 
 
+_LIBAV_UNSAFE_SUFFIXES = frozenset({".r3d", ".nev", ".braw", ".ari", ".arx"})
+
+
+def is_libav_unsafe_media(path: str) -> bool:
+    """True if libav/PyAV must never demux *path* (native SIGSEGV risk)."""
+    from pathlib import Path
+
+    if is_ignored_media_filename(path):
+        return True
+    return Path(path).suffix.lower() in _LIBAV_UNSAFE_SUFFIXES
+
+
+def _arriraw_unsupported_message(path: str) -> str:
+    from pathlib import Path
+
+    return f"ARRIRAW ({Path(path).suffix.lower()}) is not supported"
+
+
 def detect_interlaced(path: str) -> bool | None:
     """Return whether the first decodable video frame is flagged interlaced.
 
     ``True``/``False`` when determinable, ``None`` when it can't be probed.
+    Camera RAW is progressive; decoding it with PyAV can SIGSEGV in libav.
+    OS metadata sidecars are not media and cannot be probed.
     """
+    if is_ignored_media_filename(path):
+        return None
+    if is_libav_unsafe_media(path):
+        return False
+
     import av
 
     try:
@@ -314,6 +342,8 @@ def guess_video_colorspace_candidates(path: str) -> list[str]:
         return r3d_src_colorspace_candidates(path)
     if is_braw_path(path):
         return braw_src_colorspace_candidates(path)
+    if is_libav_unsafe_media(path):
+        return []
 
     import av
 
@@ -432,6 +462,8 @@ _VIDEO_SUFFIXES = {
     ".r3d",
     ".nev",
     ".braw",
+    ".ari",
+    ".arx",
 }
 
 # OS / desktop metadata that often sits next to media and can share an extension
@@ -551,6 +583,15 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
             results.append(row)
             continue
 
+        if suffix in _LIBAV_UNSAFE_SUFFIXES:
+            row["resolution"] = ""
+            row["codec"] = "ARX (unsupported)" if suffix == ".arx" else "ARRIRAW (unsupported)"
+            row["fps"] = ""
+            row["duration"] = ""
+            row["frames"] = ""
+            results.append(row)
+            continue
+
         try:
             container = av.open(entry.path)
             vs = container.streams.video[0] if container.streams.video else None
@@ -606,8 +647,122 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
     return results
 
 
+def _duration_from_frames(nframes: int, fps: float) -> dict[str, str]:
+    if not nframes or not fps:
+        return {}
+    secs = nframes / float(fps)
+    mins, s = divmod(int(secs), 60)
+    hrs, mins = divmod(mins, 60)
+    if hrs:
+        dur = f"{hrs}:{mins:02d}:{s:02d}"
+    else:
+        dur = f"{mins}:{s:02d}"
+    return {"Duration": dur, "Duration (s)": f"{secs:.2f}"}
+
+
+def _probe_r3d_metadata(path: str) -> dict[str, str]:
+    from pathlib import Path
+
+    from .r3d import R3DClip, unavailable_reason
+    from .r3d import is_available as r3d_available
+
+    suffix = Path(path).suffix.lower()
+    codec = "R3D" if suffix == ".r3d" else "N-RAW"
+    result: dict[str, str] = {
+        "Format": "REDCODE RAW" if suffix == ".r3d" else "Nikon N-RAW",
+        "Video codec": codec,
+        "Video scan": "Progressive",
+    }
+    if not r3d_available():
+        result["Video codec"] = f"{codec} (SDK missing)"
+        result["error"] = unavailable_reason()
+        return result
+    try:
+        with R3DClip(path) as clip:
+            info = clip.info
+            if info.width and info.height:
+                result["Video resolution"] = f"{info.width}\u00d7{info.height}"
+            if info.fps:
+                fps = info.fps
+                result["Video fps"] = str(int(fps)) if fps == int(fps) else f"{fps:.3f}"
+            if info.frame_count:
+                result["Video frames"] = str(info.frame_count)
+            result.update(_duration_from_frames(info.frame_count, info.fps))
+            if info.colorspace_hint:
+                result["Video colorspace"] = info.colorspace_hint
+            if info.sdk_version:
+                result["SDK"] = info.sdk_version
+            for key, val in clip.clip_metadata_dict().items():
+                result[f"meta:{key}"] = val
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def _probe_braw_metadata(path: str) -> dict[str, str]:
+    from .braw import BRAWClip, unavailable_reason
+    from .braw import is_available as braw_available
+
+    result: dict[str, str] = {
+        "Format": "Blackmagic RAW",
+        "Video codec": "BRAW",
+        "Video scan": "Progressive",
+    }
+    if not braw_available():
+        result["Video codec"] = "BRAW (SDK missing)"
+        result["error"] = unavailable_reason()
+        return result
+    try:
+        with BRAWClip(path) as clip:
+            info = clip.info
+            if info.width and info.height:
+                result["Video resolution"] = f"{info.width}\u00d7{info.height}"
+            if info.fps:
+                fps = info.fps
+                result["Video fps"] = str(int(fps)) if fps == int(fps) else f"{fps:.3f}"
+            if info.frame_count:
+                result["Video frames"] = str(info.frame_count)
+            result.update(_duration_from_frames(info.frame_count, info.fps))
+            if info.colorspace_hint:
+                result["Video colorspace"] = info.colorspace_hint
+            if info.camera_type:
+                result["Camera"] = info.camera_type
+            if info.sdk_version:
+                result["SDK"] = info.sdk_version
+            for key, val in clip.clip_metadata_dict().items():
+                result[f"meta:{key}"] = val
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
 def probe_video_metadata(path: str) -> dict[str, str]:
-    """Return a dict of human-readable video metadata via PyAV."""
+    """Return a dict of human-readable video metadata.
+
+    Camera RAW (``.r3d`` / ``.nev`` / ``.braw``) uses the optional SDK bridges.
+    Unsupported camera RAW (``.ari`` / ``.arx``) and OS sidecars never go to
+    PyAV; decoding those containers SIGSEGVs in libav.
+    """
+    from pathlib import Path
+
+    from .braw import is_braw_path
+    from .r3d import is_r3d_path
+
+    if is_ignored_media_filename(path):
+        return {"error": f"Not a media file (OS metadata sidecar): {Path(path).name}"}
+    if is_r3d_path(path):
+        return _probe_r3d_metadata(path)
+    if is_braw_path(path):
+        return _probe_braw_metadata(path)
+    if is_libav_unsafe_media(path):
+        suffix = Path(path).suffix.lower()
+        codec = "ARX" if suffix == ".arx" else "ARI"
+        return {
+            "Format": "ARRIRAW",
+            "Video codec": codec,
+            "error": _arriraw_unsupported_message(path),
+        }
+
     import av
 
     result: dict[str, str] = {}

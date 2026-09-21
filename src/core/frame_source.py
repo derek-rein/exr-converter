@@ -92,11 +92,20 @@ def open_preview_decoder(path: str, *, fps: float = 0.0) -> PreviewDecoder:
     """Factory for the sequence-player / prefetch decoder."""
     from .braw import is_braw_path
     from .r3d import is_r3d_path
+    from .video import (
+        _arriraw_unsupported_message,
+        is_ignored_media_filename,
+        is_libav_unsafe_media,
+    )
 
     if is_r3d_path(path):
         return R3DPreviewDecoder(path, fps=fps)
     if is_braw_path(path):
         return BRAWPreviewDecoder(path, fps=fps)
+    if is_libav_unsafe_media(path):
+        if is_ignored_media_filename(path):
+            raise RuntimeError(f"Not a media file (OS metadata sidecar): {Path(path).name}")
+        raise RuntimeError(_arriraw_unsupported_message(path))
     return VideoPreviewDecoder(path, fps=fps)
 
 
@@ -114,7 +123,11 @@ def open_ingest_source(
     from .r3d import R3DUnavailableError, is_r3d_path
     from .r3d import is_available as r3d_available
     from .r3d import unavailable_reason as r3d_unavailable_reason
-    from .video import is_ignored_media_filename
+    from .video import (
+        _arriraw_unsupported_message,
+        is_ignored_media_filename,
+        is_libav_unsafe_media,
+    )
 
     path_s = str(path)
     if is_ignored_media_filename(path_s):
@@ -127,6 +140,8 @@ def open_ingest_source(
         if not braw_available():
             raise BRAWUnavailableError(braw_unavailable_reason())
         return BRAWIngestSource(path_s, scale=scale)
+    if is_libav_unsafe_media(path_s):
+        raise RuntimeError(_arriraw_unsupported_message(path_s))
     return VideoIngestSource(path_s, scale=scale, deinterlace=deinterlace, log_fn=log_fn)
 
 

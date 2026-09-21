@@ -232,9 +232,20 @@ def test_run_video_to_exr_braw_missing_sdk(tmp_path: Path) -> None:
         _restore_braw_state(prev)
 
 
-def test_scan_video_files_lists_braw_without_sdk(tmp_path: Path) -> None:
+class _MustNotOpenPyAV(BaseException):
+    """Not a subclass of Exception — probe_video_metadata catches Exception."""
+
+
+def _boom_if_pyav_opens(*_args, **_kwargs):
+    raise _MustNotOpenPyAV("PyAV must not open BRAW (native SIGSEGV)")
+
+
+def test_scan_video_files_lists_braw_without_sdk(tmp_path: Path, monkeypatch) -> None:
+    import av
+
     from src.core.video import scan_video_files
 
+    monkeypatch.setattr(av, "open", _boom_if_pyav_opens)
     prev = _force_braw_unavailable()
     try:
         clip = tmp_path / "A001_C001.braw"
@@ -244,6 +255,89 @@ def test_scan_video_files_lists_braw_without_sdk(tmp_path: Path) -> None:
         assert "A001_C001.braw" in names
         row = next(r for r in rows if r["name"] == "A001_C001.braw")
         assert "BRAW" in row.get("codec", "")
+    finally:
+        _restore_braw_state(prev)
+
+
+def test_probe_video_does_not_open_braw_with_pyav(monkeypatch) -> None:
+    import av
+
+    from src.core.video import probe_video
+
+    monkeypatch.setattr(av, "open", _boom_if_pyav_opens)
+    prev = _force_braw_unavailable()
+    try:
+        with pytest.raises(RuntimeError):
+            probe_video("/tmp/A001_C001.braw")
+    finally:
+        _restore_braw_state(prev)
+
+
+def test_guess_colorspace_does_not_open_braw_with_pyav(monkeypatch) -> None:
+    import av
+
+    from src.core.video import guess_video_colorspace_candidates
+
+    monkeypatch.setattr(av, "open", _boom_if_pyav_opens)
+    cands = guess_video_colorspace_candidates("/tmp/A001_C001.braw")
+    assert any("aces" in c.lower() or "ap0" in c.lower() for c in cands)
+
+
+def test_open_preview_decoder_does_not_open_braw_with_pyav(tmp_path: Path, monkeypatch) -> None:
+    import av
+
+    from src.core.braw import BRAWUnavailableError
+    from src.core.frame_source import open_preview_decoder
+
+    clip = tmp_path / "A001_C001.braw"
+    clip.write_bytes(b"not-real-braw")
+    monkeypatch.setattr(av, "open", _boom_if_pyav_opens)
+    prev = _force_braw_unavailable()
+    try:
+        with pytest.raises(BRAWUnavailableError):
+            open_preview_decoder(str(clip))
+    finally:
+        _restore_braw_state(prev)
+
+
+def test_detect_interlaced_does_not_open_braw_with_pyav(monkeypatch) -> None:
+    import av
+
+    from src.core.video import detect_interlaced
+
+    monkeypatch.setattr(av, "open", _boom_if_pyav_opens)
+    assert detect_interlaced("/tmp/A001_C001.braw") is False
+
+
+def test_probe_video_metadata_does_not_open_braw_with_pyav(tmp_path: Path, monkeypatch) -> None:
+    import av
+
+    from src.core.video import probe_video_metadata
+
+    clip = tmp_path / "A001_C001.braw"
+    clip.write_bytes(b"not-real-braw")
+    monkeypatch.setattr(av, "open", _boom_if_pyav_opens)
+    prev = _force_braw_unavailable()
+    try:
+        meta = probe_video_metadata(str(clip))
+    finally:
+        _restore_braw_state(prev)
+    blob = " ".join(meta.values()).lower()
+    assert "braw" in blob
+    assert "sdk" in blob
+
+
+def test_load_video_thumbnail_does_not_open_braw_with_pyav(tmp_path: Path, monkeypatch) -> None:
+    import av
+
+    from src.gui.browser_thumbs import load_video_thumbnail_rgb
+
+    clip = tmp_path / "A001_C001.braw"
+    clip.write_bytes(b"not-real-braw")
+    monkeypatch.setattr(av, "open", _boom_if_pyav_opens)
+    prev = _force_braw_unavailable()
+    try:
+        assert load_video_thumbnail_rgb(str(clip)) is None
     finally:
         _restore_braw_state(prev)
 
