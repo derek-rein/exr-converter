@@ -72,7 +72,9 @@ exr-converter-mcp = "src.mcp_server:main"
 
 `src/core/convert.py` does not import PySide6. The MCP entry must import `src.core` and the CLI helpers only. Importing `main.py` is harmless today (Qt loads inside `main()`), but the server should not call `main()`.
 
-Nuitka strip lists, AppImage, and DMG stay unchanged. A frozen binary is a poor MCP host: stdout is the protocol, and the bundle is built to open a GUI.
+The shipping Nuitka command compiles `main.py` only (`--output-filename=exr_converter`). A `[project.scripts]` entry such as `exr-converter-mcp` is not copied into the AppImage, DMG, or Windows installer. After `make bundle` or a Release build, that command does not exist.
+
+What does work in the frozen binary today is the CLI: `exr_converter video2exr` / `exr2video` run in `main()` before Qt starts. An MCP mode has to be that same kind of early branch, not a second uv script.
 
 ### One long tool call, with a timeout escape hatch
 
@@ -251,7 +253,9 @@ When the server ships, update [CLI](./cli.md) with the launch snippet, [CHANGELO
 3. Path policy + both convert tools, progress, cancel, single-flight lock.
 4. Docs and changelog in the same change as the working server.
 
-Excluded: any network transport (Streamable HTTP, SSE, a port), authentication, a remote or hosted service, slate / burn-in / watermark, driving the Qt window, remote render farms, and bundling the server inside Nuitka.
+Excluded: any network transport (Streamable HTTP, SSE, a port), authentication, a remote or hosted service, slate / burn-in / watermark, driving the Qt window, and remote render farms.
+
+The checkout server is the first build. Wiring it into the Nuitka binary is a follow-up with the constraints in [Nuitka](#10-nuitka).
 
 ---
 
@@ -267,3 +271,26 @@ Excluded: any network transport (Streamable HTTP, SSE, a port), authentication, 
 | MCP SDK v2 API drift | Pin `mcp>=2,<3`; spike `Context` cancel before wiring `cancel_check` |
 | Qt or GPU preview pulled into the agent process | Do not import `src.gui` |
 | Accidental overwrite | Default `overwrite: false` plus optional roots |
+| Frozen app has no `exr-converter-mcp` | Nuitka compiles `main.py` only; see [Nuitka](#10-nuitka) |
+| Windows GUI subsystem has no stdio | `--windows-console-mode=disable` on the shipping exe |
+| `-OO` strips tool docstrings | Pass MCP `description=` strings in code |
+
+---
+
+## 10. Nuitka
+
+**No.** The server in this design does not run after a Nuitka compile. Release and `make bundle` compile `main.py` into `exr_converter` and never install the `mcp` package or the `exr-converter-mcp` script. The AppImage, DMG, and Windows installer can convert from the command line. They cannot speak MCP.
+
+The frozen CLI is the proof the convert path itself survives compilation. `main()` returns from `run_cli` before it constructs `QApplication`, and EXR→video already uses the same spawn process pool (`ProcessPoolExecutor` in `convert.py`) inside that binary. Video→EXR parallel work uses threads. An MCP tool that calls those functions is not a new compile problem. The gap is the server process and its stdio.
+
+To make the packaged app an MCP server later, all of the following have to be true:
+
+| Constraint | Why |
+|------------|-----|
+| Subcommand on `main.py`, for example `exr_converter mcp` | Nuitka has one entry script. The branch must run before Qt, the same way `video2exr` does. |
+| Launch the real executable | macOS: `EXR Converter.app/Contents/MacOS/exr_converter`, not `open -a`. Linux: the binary inside the AppImage mount if the AppImage runtime writes a banner on stdout (that banner would break the protocol). |
+| Explicit `@mcp.tool(description=...)` | The Release compile passes `--python-flag=-OO`, which drops docstrings. A decorator that reads `__doc__` would publish empty tool descriptions. |
+| `--include-package=mcp` (and whatever the SDK imports dynamically, including Pydantic) | Current Nuitka flags do not follow that package. Add a frozen smoke test that speaks `initialize` on stdin and reads a response on stdout. |
+| Windows stdio | The installer build passes `--windows-console-mode=disable` (GUI / `pythonw` style: no console). MCP needs the pipes the host passes in. `disable` is the wrong mode for that. Do not flip the GUI exe to `force` (a console window on every double-click). Prefer a small console-mode companion next to the GUI exe, or prove on a real Windows host that `attach` keeps redirected stdin/stdout when Cursor spawns the process and still stays quiet on a desktop launch. |
+
+Until that follow-up, agents on a machine that only has the installed app use the frozen CLI (`exr_converter video2exr` / `exr2video`). Agents with a checkout use the local stdio server.
