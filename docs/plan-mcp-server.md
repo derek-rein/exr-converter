@@ -8,7 +8,7 @@ description: Design for a local MCP server so agents can probe media and run vid
 **Date:** 2026-09-26
 **Related code:** `src/cli.py` (`run_cli`, `resolve_v2e_spaces`, `resolve_e2v_spaces`), `src/core/convert.py` (`run_video_to_exr`, `run_exr_to_video`), `src/core/constants.py`, `src/core/video.py`, `src/core/sequence.py`, `src/core/ocio_utils.py`
 
-This note is the design for a **local [MCP](https://modelcontextprotocol.io) server** so Cursor and other agents can use EXR Converter the same way the CLI does: probe media, resolve OCIO, and convert **video ↔ OpenEXR**. It is a design record, in the same spirit as [12-bit ProRes (oxideav)](./plan-12bit-prores-oxideav.md).
+This note is the design for a **local [MCP](https://modelcontextprotocol.io) server** so Cursor and other agents on the same machine can use EXR Converter the same way the CLI does: probe media, resolve OCIO, and convert **video ↔ OpenEXR**. The host launches a subprocess. Nothing listens on the network. It is a design record, in the same spirit as [12-bit ProRes (oxideav)](./plan-12bit-prores-oxideav.md).
 
 ---
 
@@ -18,7 +18,7 @@ Ship a **stdio** MCP server as an **optional extra**, in-process, on top of the 
 
 | Choice | Decision |
 |--------|----------|
-| Transport | **stdio** (the host launches the server as a subprocess). Streamable HTTP is a later deployment concern and is out of scope. |
+| Transport | **Local stdio only.** The agent host starts `exr-converter-mcp` as a child process and speaks MCP on stdin/stdout. The process binds no port. |
 | SDK | Official **MCP Python SDK v2** (`mcp` on PyPI, `MCPServer`). Pin `mcp>=2,<3`. |
 | Call path | Call `run_video_to_exr` / `run_exr_to_video` and the CLI color resolvers. The server speaks MCP on stdout, so it must not shell out to `main.py` and must not `print` protocol-bound stdout. |
 | Install | Optional extra, script entry `exr-converter-mcp`. Default `uv sync` and **Nuitka** bundles stay free of the SDK. |
@@ -56,7 +56,9 @@ Those callbacks are the MCP progress and cancel hooks. A subprocess wrapper woul
 
 `resolve_*_spaces` currently take an `argparse.Namespace`. The server can pass a `SimpleNamespace` with `input`, `src`, and `dst`. A later cleanup can turn that into a small dataclass shared by CLI and MCP. Do not fork a second color policy.
 
-### stdio, optional extra, not in the frozen app
+### Local stdio, optional extra, not in the frozen app
+
+The server is a desktop helper on the same machine as the media. Cursor (or another agent host) launches it the same way it launches any other local MCP server: a command in the MCP config, pipes for stdin and stdout, the user’s own files. There is no HTTP transport, no SSE transport, no listening socket, and no hosted endpoint to add later. Plate paths, OCIO configs, and EXR frames stay on local disk.
 
 Desktop users install a Nuitka binary. Agents on a checkout run `uv`. The SDK pulls a server stack (Pydantic and friends) that the GUI never imports. Keep it optional:
 
@@ -213,7 +215,7 @@ Cursor (and Claude Desktop, and any other stdio host) only needs a command. Exam
 
 `uv run` uses the project Python 3.13 environment. `$OCIO` and bridge library paths belong in the server entry’s `env` when the host does not inherit the user shell.
 
-There is no network listener, no token, and no cloud service in v1.
+That config is the whole deployment. The server never opens a socket, never takes a URL, and never authenticates a remote client.
 
 ---
 
@@ -249,7 +251,7 @@ When the server ships, update [CLI](./cli.md) with the launch snippet, [CHANGELO
 3. Path policy + both convert tools, progress, cancel, single-flight lock.
 4. Docs and changelog in the same change as the working server.
 
-Out of scope until someone asks: Streamable HTTP, authentication, slate / burn-in / watermark, driving the Qt window, remote render farms, bundling the server inside Nuitka.
+Excluded: any network transport (Streamable HTTP, SSE, a port), authentication, a remote or hosted service, slate / burn-in / watermark, driving the Qt window, remote render farms, and bundling the server inside Nuitka.
 
 ---
 

@@ -23,4 +23,4 @@ as the code (and [CHANGELOG.md](../CHANGELOG.md)). See
 | [Blackmagic RAW](./braw.md) | Optional BRAW SDK (proprietary; Linear ACES AP0; Release CI feed) |
 | [Releasing](./releasing.md) | Pointer to maintainer release process |
 | [12-bit ProRes (oxideav)](./plan-12bit-prores-oxideav.md) | Experimental RDD-36 12-bit ProRes (release builds) |
-| [MCP server (design)](./plan-mcp-server.md) | Proposal: local MCP server so agents can probe and convert |
+| [MCP server (design)](./plan-mcp-server.md) | Proposal: local stdio MCP server (no network) so agents can probe and convert |
