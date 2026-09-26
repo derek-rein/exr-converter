@@ -229,6 +229,12 @@ Cursor starts that process and speaks MCP on its stdin and stdout. After initial
 
 An agent in some other folder (a shot, another repo) does not load this project file. That agent connects only if `~/.cursor/mcp.json` points `command` at a checkout where `uv` can run `exr-converter-mcp`. Pointing it at `exr_converter` from the Nuitka bundle fails until the frozen binary grows an MCP subcommand ([Nuitka](#10-nuitka)).
 
+### How DaVinci Resolve does it
+
+Resolve Studio 21.1 ships the MCP server inside the app. Agents still do not scan for it. **File → Setup AI Assistants** scans the machine for assistants it knows (the 21.1 manual lists Claude Desktop, Claude Code, Codex in ChatGPT, Google Antigravity, and Grok), then writes that assistant’s own MCP config so the assistant launches Resolve’s local server. The user restarts the assistant. External scripting stays **Local**. Cursor is not in that documented auto-detect list; community installers that do support Cursor write `~/.cursor/mcp.json` themselves.
+
+That is the pattern that makes an installed app findable: the app writes the host config, and the command in that config is a binary that already speaks stdio. A menu in EXR Converter can do the same write to `~/.cursor/mcp.json` (and Claude’s config) only after the packaged binary can be that command ([Nuitka](#10-nuitka)). Until then, Resolve-style setup has nothing runnable to point at.
+
 ---
 
 ## 7. Layout and tests
