@@ -442,6 +442,7 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/prores.md](./docs/prores.md) | Software vs VideoToolbox vs oxideav ProRes |
 | [docs/nuke.md](./docs/nuke.md) | Nuke menu integration |
 | [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 12-bit ProRes (oxideav; shipping in releases) |
+| [docs/plan-mcp-server.md](./docs/plan-mcp-server.md) | Proposal: local stdio MCP server over the convert API (not shipped) |
 | [docs/r3d.md](./docs/r3d.md) | Optional RED R3D / N-RAW (proprietary SDK; license + build) |
 | [docs/braw.md](./docs/braw.md) | Optional Blackmagic RAW (proprietary SDK; Linear ACES AP0) |
 | [docs/releasing.md](./docs/releasing.md) | Short pointer here + docs-site note |
