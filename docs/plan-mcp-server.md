@@ -193,19 +193,29 @@ Log lines go to MCP logging (`ctx.info` / `ctx.warning`) and stderr. Never stdou
 
 ---
 
-## 6. Host configuration
+## 6. Find, connect, use
 
-Cursor (and Claude Desktop, and any other stdio host) only needs a command. Example for a source checkout:
+Agents do not scan the disk or the installed app. Cursor connects to a local server only when `mcp.json` names a command ([Cursor MCP docs](https://cursor.com/docs/mcp)):
+
+| Config | Who finds the server |
+|--------|----------------------|
+| `.cursor/mcp.json` in this repo | Agents whose workspace is this checkout |
+| `~/.cursor/mcp.json` | Agents in every workspace on that machine |
+
+The Nuitka app writes neither file and has no MCP command, so installing the DMG, AppImage, or Windows build does not make an agent find it.
+
+Once the server exists, commit a project config so agents opened on this repo connect with no extra setup. `${workspaceFolder}` is the checkout root:
 
 ```json
 {
   "mcpServers": {
     "exr-converter": {
+      "type": "stdio",
       "command": "uv",
       "args": [
         "run",
         "--directory",
-        "/absolute/path/to/exr-converter",
+        "${workspaceFolder}",
         "--extra",
         "mcp",
         "exr-converter-mcp"
@@ -215,9 +225,9 @@ Cursor (and Claude Desktop, and any other stdio host) only needs a command. Exam
 }
 ```
 
-`uv run` uses the project Python 3.13 environment. `$OCIO` and bridge library paths belong in the server entry’s `env` when the host does not inherit the user shell.
+Cursor starts that process and speaks MCP on its stdin and stdout. After initialize, the tools show up as available tools and the agent calls them. `$OCIO` and bridge library paths go in the entry’s `env` when the host does not pass the user shell.
 
-That config is the whole deployment. The server never opens a socket, never takes a URL, and never authenticates a remote client.
+An agent in some other folder (a shot, another repo) does not load this project file. That agent connects only if `~/.cursor/mcp.json` points `command` at a checkout where `uv` can run `exr-converter-mcp`. Pointing it at `exr_converter` from the Nuitka bundle fails until the frozen binary grows an MCP subcommand ([Nuitka](#10-nuitka)).
 
 ---
 
@@ -251,7 +261,7 @@ When the server ships, update [CLI](./cli.md) with the launch snippet, [CHANGELO
 1. Optional extra, `exr-converter-mcp` entry, server instructions, `list_codecs`, `list_exr_compressions`, `exr-converter://version`. In-memory tests.
 2. `probe_media` and `list_color_spaces` using the existing probe and OCIO helpers.
 3. Path policy + both convert tools, progress, cancel, single-flight lock.
-4. Docs and changelog in the same change as the working server.
+4. Docs, changelog, and a committed `.cursor/mcp.json` in the same change as the working server.
 
 Excluded: any network transport (Streamable HTTP, SSE, a port), authentication, a remote or hosted service, slate / burn-in / watermark, driving the Qt window, and remote render farms.
 
