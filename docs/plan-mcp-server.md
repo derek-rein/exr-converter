@@ -1,0 +1,312 @@
+---
+title: MCP server (design)
+weight: 95
+description: Design for a local MCP server so agents can probe media and run video ↔ EXR converts
+---
+
+**Status:** proposal (no server in the tree yet)
+**Date:** 2026-09-26
+**Related code:** `src/cli.py` (`run_cli`, `resolve_v2e_spaces`, `resolve_e2v_spaces`), `src/core/convert.py` (`run_video_to_exr`, `run_exr_to_video`), `src/core/constants.py`, `src/core/video.py`, `src/core/sequence.py`, `src/core/ocio_utils.py`
+
+This note is the design for a **local [MCP](https://modelcontextprotocol.io) server** so Cursor and other agents on the same machine can use EXR Converter the same way the CLI does: probe media, resolve OCIO, and convert **video ↔ OpenEXR**. The host launches a subprocess. Nothing listens on the network. It is a design record, in the same spirit as [12-bit ProRes (oxideav)](./plan-12bit-prores-oxideav.md).
+
+---
+
+## 1. Recommendation
+
+Ship a **stdio** MCP server as an **optional extra**, in-process, on top of the existing Python convert API.
+
+| Choice | Decision |
+|--------|----------|
+| Transport | **Local stdio only.** The agent host starts `exr-converter-mcp` as a child process and speaks MCP on stdin/stdout. The process binds no port. |
+| SDK | Official **MCP Python SDK v2** (`mcp` on PyPI, `MCPServer`). Pin `mcp>=2,<3`. |
+| Call path | Call `run_video_to_exr` / `run_exr_to_video` and the CLI color resolvers. The server speaks MCP on stdout, so it must not shell out to `main.py` and must not `print` protocol-bound stdout. |
+| Install | Optional extra, script entry `exr-converter-mcp`. Default `uv sync` and **Nuitka** bundles stay free of the SDK. |
+| v1 tools | Probe, list codecs / color spaces, convert both directions. Slate, burn-in, and watermark stay GUI-only. |
+
+Agents already can run `uv run python main.py video2exr …` in a shell. An MCP server is still worth it: typed tools, progress, cooperative cancel, honest codec metadata, and a path policy the model cannot skip by inventing a shell command.
+
+---
+
+## 2. What agents need
+
+The jobs that show up in practice match the CLI, not the GUI:
+
+1. **Inspect** a clip or image sequence (resolution, frame count, fps, color-space candidates, whether R3D / BRAW bridges are present).
+2. **Choose** a codec and OCIO spaces with the same defaults the CLI uses when `--src` / `--dst` are omitted.
+3. **Convert** video → EXR or sequence → video, with progress and a way to stop.
+4. **Learn the ladder** on this machine: VideoToolbox only on macOS, software ProRes always 10-bit, oxideav `prores_ox_*` only when `exr_prores` is built.
+
+Slate, burn-in, watermark, preferences, and the sequence player are **QPainter / Qt**. They stay on the GUI. v1 tool descriptions should say overlays are unavailable so the model does not invent flags for them.
+
+---
+
+## 3. Why this shape
+
+### Call the library, not the CLI process
+
+`run_cli` already does the right orchestration:
+
+- OCIO config: `--ocio`, else `$OCIO`, else bundled ACES Studio (`resolve_ocio_for_cli`, `_resolve_config_source`).
+- Color: `resolve_v2e_spaces` / `resolve_e2v_spaces` (probe + `find_equivalent_space` + roles).
+- Encode/decode: `run_video_to_exr` / `run_exr_to_video`, which already take `progress`, `cancel_check`, and `log` callbacks.
+- Codecs: `available_video_codecs()` filters platform and oxideav availability. Bit depth lives on `VideoCodecSpec`.
+
+Those callbacks are the MCP progress and cancel hooks. A subprocess wrapper would fight stdio (MCP owns stdout), lose structured errors, and duplicate color logic.
+
+`resolve_*_spaces` currently take an `argparse.Namespace`. The server can pass a `SimpleNamespace` with `input`, `src`, and `dst`. A later cleanup can turn that into a small dataclass shared by CLI and MCP. Do not fork a second color policy.
+
+### Local stdio, optional extra, not in the frozen app
+
+The server is a desktop helper on the same machine as the media. Cursor (or another agent host) launches it the same way it launches any other local MCP server: a command in the MCP config, pipes for stdin and stdout, the user’s own files. There is no HTTP transport, no SSE transport, no listening socket, and no hosted endpoint to add later. Plate paths, OCIO configs, and EXR frames stay on local disk.
+
+Desktop users install a Nuitka binary. Agents on a checkout run `uv`. The SDK pulls a server stack (Pydantic and friends) that the GUI never imports. Keep it optional:
+
+```toml
+[project.optional-dependencies]
+mcp = ["mcp>=2,<3"]
+
+[project.scripts]
+exr-converter-mcp = "src.mcp_server:main"
+```
+
+`src/core/convert.py` does not import PySide6. The MCP entry must import `src.core` and the CLI helpers only. Importing `main.py` is harmless today (Qt loads inside `main()`), but the server should not call `main()`.
+
+The shipping Nuitka command compiles `main.py` only (`--output-filename=exr_converter`). A `[project.scripts]` entry such as `exr-converter-mcp` is not copied into the AppImage, DMG, or Windows installer. After `make bundle` or a Release build, that command does not exist.
+
+What does work in the frozen binary today is the CLI: `exr_converter video2exr` / `exr2video` run in `main()` before Qt starts. An MCP mode has to be that same kind of early branch, not a second uv script.
+
+### One long tool call, with a timeout escape hatch
+
+Converts run for seconds to many minutes. v1 tools **block until the job finishes** and stream `progress` / log lines, matching Ctrl-C on the CLI (`cancel_check` → `ConversionCancelled`).
+
+Run the blocking `run_*` function on a worker thread (`anyio.to_thread.run_sync`) so the MCP event loop can emit progress and watch cancellation. `run_*` invokes `progress` on the calling thread; hop back to the async loop before `await ctx.report_progress(...)`. Map client `notifications/cancelled` onto the same `threading.Event` the CLI uses for SIGINT.
+
+Hold a process-wide lock so two tool calls cannot start two process pools. The convert path already uses `multiprocessing` **spawn** (`_MP_CTX` in `convert.py`).
+
+Some hosts kill a tool call on a short timeout. If that shows up in practice, add a second pair — `start_convert` plus `convert_status` — with one in-memory job. Do not build that queue until a host actually times out. The stdio process lives for the agent session, so in-memory job state is enough.
+
+Confirm on the pinned SDK that the tool `Context` exposes the cancel event (`cancel_requested` on the shared context). If the high-level `Context` hides it, poll the session another way during implementation and record the exact attribute in this doc.
+
+---
+
+## 4. Tool surface (v1)
+
+Names are stable API once shipped. Descriptions and return values are what the model sees; keep bit-depth wording aligned with [CLI](./cli.md) and [ProRes](./prores.md).
+
+Annotations: read-only tools set `read_only_hint=True` and `open_world_hint=False`. Convert tools set `read_only_hint=False`, `destructive_hint=False`, `idempotent_hint=False`. `destructive_hint=True` only when `overwrite` is true.
+
+### `probe_media`
+
+Read-only. One absolute path: a video file, `.r3d` / `.nev` / `.braw`, a sequence directory, or an existing frame.
+
+Returns JSON:
+
+| Field | Source |
+|-------|--------|
+| `kind` | `video` or `sequence` |
+| `path` | resolved absolute path |
+| `width`, `height`, `fps`, `frame_count` | `probe_video_metadata` or `find_exr_sequence_info` |
+| `frames` | first/last frame numbers for sequences |
+| `colorspace_candidates` | `guess_video_colorspace_candidates` or still metadata / scene-referred vs display |
+| `suggested_src`, `suggested_dst` | same resolvers as the CLI, on the active config |
+| `bridge` | `r3d`, `braw`, or empty; include the missing-SDK message when the extension is absent |
+| `warnings` | probe failures that are not fatal |
+
+### `list_codecs`
+
+Read-only. Returns `available_video_codecs()` as records: `key`, `display_name`, `bit_depth`, `chroma`, `pix_fmt`, `libav_codec`, `platforms`. Omit codecs `is_available()` / oxideav filtering already drops. The description states that software ProRes (`prores`, `prores_4444`, `prores_xq`) is **10-bit** encode.
+
+### `list_color_spaces`
+
+Read-only. Optional `ocio_config` path (same resolution as CLI when omitted). Returns family → names from `color_space_families`, plus the active config path and OCIO version. Cap the payload: families and names, not the whole `.ocio` file.
+
+### `list_exr_compressions`
+
+Read-only. `EXR_COMPRESSIONS` and the default `dwaa`.
+
+### `convert_video_to_exr`
+
+| Argument | Default | Maps to |
+|----------|---------|---------|
+| `input` | required | video / R3D / BRAW path |
+| `output_dir` | `<parent>/<stem>/` | `default_v2e_output_dir` |
+| `ocio_config` | CLI resolution | `resolve_ocio_for_cli` |
+| `src`, `dst` | auto | `resolve_v2e_spaces` |
+| `compression` | `dwaa` | `EXR_COMPRESSIONS` |
+| `dwa_level`, `zip_level` | library | `exr_opts` |
+| `scale` | `1.0` | |
+| `padding` | `4` | |
+| `start_frame` | `1001` | |
+| `frame_range` | all | `parse_frame_range` |
+| `deinterlace` | `auto` | `auto` / `on` / `off` |
+| `workers` | `0` (auto) | |
+| `overwrite` | `false` | see path policy |
+
+Returns `{output_dir, sequence_pattern, src_space, dst_space, frames_written, warnings}`.
+
+### `convert_exr_to_video`
+
+| Argument | Default | Maps to |
+|----------|---------|---------|
+| `input` | required | directory or existing frame |
+| `output` | sibling path | `default_e2v_output_path` |
+| `codec` | `prores` | key from `list_codecs` |
+| `fps` | `24` | |
+| `ocio_config`, `src`, `dst` | CLI defaults | `resolve_e2v_spaces` |
+| `crf`, `preset` | codec default | `codec_opts` for H.264 / HEVC |
+| `scale`, `frame_range`, `workers`, `overwrite` | same as above | |
+
+Reject unknown or unavailable codec keys with the same error the CLI prints (`codec … is not available on this platform`). Returns `{output, src_space, dst_space, frames, codec, bit_depth, warnings}`.
+
+Display destinations that are OCIO **displays** keep today’s export behavior (viewing-rule default view, not Un-tone-mapped). The tool description should say that in one sentence so agents do not “fix” it by picking a utility transform unless the user asked for colorimetric output.
+
+### Resources and prompts
+
+Resources (the host attaches them; the model does not have to call a tool):
+
+| URI | Body |
+|-----|------|
+| `exr-converter://version` | `APP_VERSION` |
+| `exr-converter://codecs` | same payload as `list_codecs` |
+| `exr-converter://defaults` | default spaces, compression, codec, fps, start frame |
+
+Do not expose the user’s disk as resources. Paths arrive as tool arguments.
+
+Prompts can wait. Two that match real phrasing, when added: `ingest_plate` (video → ACEScg EXR) and `review_export` (sequence → Rec.709 ProRes).
+
+`MCPServer` `instructions` should be short and factual: absolute paths, probe before convert, software ProRes is 10-bit, overlays are GUI-only, R3D/BRAW need optional bridges, omitted color spaces follow the CLI.
+
+---
+
+## 5. Path policy
+
+The server runs as the user. It can write anywhere that user can write. Tools need a policy so a confused argument does not clobber a show directory.
+
+1. Require paths that resolve to absolute paths. Expand `~`. Reject empty and non-local inputs.
+2. When the client advertises **roots**, call `roots/list` and refuse inputs and outputs outside those `file://` roots. When the client sends no roots, allow any path the OS user can use — same trust model as the CLI.
+3. `overwrite: false` (default): refuse if the output directory already contains `stem.*.exr`, or if the output video file exists.
+4. `overwrite: true`: replace those outputs only. Do not delete sibling files that are not part of the sequence pattern being written.
+5. Return the resolved absolute output path in the tool result so the agent does not guess.
+
+Log lines go to MCP logging (`ctx.info` / `ctx.warning`) and stderr. Never stdout.
+
+---
+
+## 6. Find, connect, use
+
+Agents do not scan the disk or the installed app. Cursor connects to a local server only when `mcp.json` names a command ([Cursor MCP docs](https://cursor.com/docs/mcp)):
+
+| Config | Who finds the server |
+|--------|----------------------|
+| `.cursor/mcp.json` in this repo | Agents whose workspace is this checkout |
+| `~/.cursor/mcp.json` | Agents in every workspace on that machine |
+
+The Nuitka app writes neither file and has no MCP command, so installing the DMG, AppImage, or Windows build does not make an agent find it.
+
+Once the server exists, commit a project config so agents opened on this repo connect with no extra setup. `${workspaceFolder}` is the checkout root:
+
+```json
+{
+  "mcpServers": {
+    "exr-converter": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${workspaceFolder}",
+        "--extra",
+        "mcp",
+        "exr-converter-mcp"
+      ]
+    }
+  }
+}
+```
+
+Cursor starts that process and speaks MCP on its stdin and stdout. After initialize, the tools show up as available tools and the agent calls them. `$OCIO` and bridge library paths go in the entry’s `env` when the host does not pass the user shell.
+
+An agent in some other folder (a shot, another repo) does not load this project file. That agent connects only if `~/.cursor/mcp.json` points `command` at a checkout where `uv` can run `exr-converter-mcp`. Pointing it at `exr_converter` from the Nuitka bundle fails until the frozen binary grows an MCP subcommand ([Nuitka](#10-nuitka)).
+
+### How DaVinci Resolve does it
+
+Resolve Studio 21.1 ships the MCP server inside the app. Agents still do not scan for it. **File → Setup AI Assistants** scans the machine for assistants it knows (the 21.1 manual lists Claude Desktop, Claude Code, Codex in ChatGPT, Google Antigravity, and Grok), then writes that assistant’s own MCP config so the assistant launches Resolve’s local server. The user restarts the assistant. External scripting stays **Local**. Cursor is not in that documented auto-detect list; community installers that do support Cursor write `~/.cursor/mcp.json` themselves.
+
+That is the pattern that makes an installed app findable: the app writes the host config, and the command in that config is a binary that already speaks stdio. A menu in EXR Converter can do the same write to `~/.cursor/mcp.json` (and Claude’s config) only after the packaged binary can be that command ([Nuitka](#10-nuitka)). Until then, Resolve-style setup has nothing runnable to point at.
+
+---
+
+## 7. Layout and tests
+
+```text
+src/mcp_server.py    # MCPServer, tools, main(); or src/mcp/ if it grows past one module
+tests/test_mcp_server.py
+```
+
+Keep the module free of Qt imports. Color and output-path helpers stay in `src/cli.py` / `src/core/` and are called, not copied.
+
+Tests use the SDK’s in-memory client against the server object (no subprocess, no stdio flake):
+
+| Test | Kind |
+|------|------|
+| Tool list and codec records match `available_video_codecs()` | unit |
+| Path policy: relative path rejected, outside roots rejected, overwrite guard | unit |
+| `probe_media` on a tiny synthetic sequence | unit or existing fixture |
+| Convert tools call `run_*` with the resolved spaces | unit with the convert functions monkeypatched |
+| One real tiny convert | `@pytest.mark.integration`, same as today’s CLI media tests |
+
+`make test-unit` must pass without the `mcp` extra installed: skip the module when `import mcp` fails, or install the extra in CI. Prefer installing the extra in CI so the skip does not hide a broken server. Default `uv sync` for GUI hacking can stay lean; document `uv sync --extra mcp`.
+
+When the server ships, update [CLI](./cli.md) with the launch snippet, [CHANGELOG.md](../CHANGELOG.md) under `Added`, and this file’s status line. Until then this page is the only user-facing mention.
+
+---
+
+## 8. Implementation order
+
+1. Optional extra, `exr-converter-mcp` entry, server instructions, `list_codecs`, `list_exr_compressions`, `exr-converter://version`. In-memory tests.
+2. `probe_media` and `list_color_spaces` using the existing probe and OCIO helpers.
+3. Path policy + both convert tools, progress, cancel, single-flight lock.
+4. Docs, changelog, and a committed `.cursor/mcp.json` in the same change as the working server.
+
+Excluded: any network transport (Streamable HTTP, SSE, a port), authentication, a remote or hosted service, slate / burn-in / watermark, driving the Qt window, and remote render farms.
+
+The checkout server is the first build. Wiring it into the Nuitka binary is a follow-up with the constraints in [Nuitka](#10-nuitka).
+
+---
+
+## 9. Risks
+
+| Risk | Mitigation |
+|------|------------|
+| Host tool timeout mid-convert | Progress on the blocking call first; add `start_convert` / `convert_status` only if a host cuts the call off |
+| stdout corruption | No `print` in the server; logging on stderr; do not subprocess the CLI |
+| Duplicate color policy | Call `resolve_v2e_spaces` / `resolve_e2v_spaces` |
+| Agents treat ProRes 4444 as 12-bit | Codec records and tool text use `VideoCodecSpec.bit_depth` |
+| Two heavy converts at once | One-job lock |
+| MCP SDK v2 API drift | Pin `mcp>=2,<3`; spike `Context` cancel before wiring `cancel_check` |
+| Qt or GPU preview pulled into the agent process | Do not import `src.gui` |
+| Accidental overwrite | Default `overwrite: false` plus optional roots |
+| Frozen app has no `exr-converter-mcp` | Nuitka compiles `main.py` only; see [Nuitka](#10-nuitka) |
+| Windows GUI subsystem has no stdio | `--windows-console-mode=disable` on the shipping exe |
+| `-OO` strips tool docstrings | Pass MCP `description=` strings in code |
+
+---
+
+## 10. Nuitka
+
+**No.** The server in this design does not run after a Nuitka compile. Release and `make bundle` compile `main.py` into `exr_converter` and never install the `mcp` package or the `exr-converter-mcp` script. The AppImage, DMG, and Windows installer can convert from the command line. They cannot speak MCP.
+
+The frozen CLI is the proof the convert path itself survives compilation. `main()` returns from `run_cli` before it constructs `QApplication`, and EXR→video already uses the same spawn process pool (`ProcessPoolExecutor` in `convert.py`) inside that binary. Video→EXR parallel work uses threads. An MCP tool that calls those functions is not a new compile problem. The gap is the server process and its stdio.
+
+To make the packaged app an MCP server later, all of the following have to be true:
+
+| Constraint | Why |
+|------------|-----|
+| Subcommand on `main.py`, for example `exr_converter mcp` | Nuitka has one entry script. The branch must run before Qt, the same way `video2exr` does. |
+| Launch the real executable | macOS: `EXR Converter.app/Contents/MacOS/exr_converter`, not `open -a`. Linux: the binary inside the AppImage mount if the AppImage runtime writes a banner on stdout (that banner would break the protocol). |
+| Explicit `@mcp.tool(description=...)` | The Release compile passes `--python-flag=-OO`, which drops docstrings. A decorator that reads `__doc__` would publish empty tool descriptions. |
+| `--include-package=mcp` (and whatever the SDK imports dynamically, including Pydantic) | Current Nuitka flags do not follow that package. Add a frozen smoke test that speaks `initialize` on stdin and reads a response on stdout. |
+| Windows stdio | The installer build passes `--windows-console-mode=disable` (GUI / `pythonw` style: no console). MCP needs the pipes the host passes in. `disable` is the wrong mode for that. Do not flip the GUI exe to `force` (a console window on every double-click). Prefer a small console-mode companion next to the GUI exe, or prove on a real Windows host that `attach` keeps redirected stdin/stdout when Cursor spawns the process and still stays quiet on a desktop launch. |
+
+Until that follow-up, agents on a machine that only has the installed app use the frozen CLI (`exr_converter video2exr` / `exr2video`). Agents with a checkout use the local stdio server.
