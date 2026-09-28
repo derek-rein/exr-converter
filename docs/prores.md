@@ -13,7 +13,7 @@ This page is the user-facing guide; CLI keys are listed in
 |---------|-------|----------------------|-------------|
 | **Software** (`prores_ks`) | All platforms | **Always 10-bit**, including 4444 / XQ | Default, portable dailies (`prores` = 422 HQ) |
 | **VideoToolbox** (`prores_vt_*`) | **macOS only** | 422 family **10-bit**; 4444 / XQ **~12-bit class** | Fast hardware encode; 12-bit-class 4444 on a Mac |
-| **oxideav** (`prores_ox_*`) | All platforms when built | **True 12-bit** RDD-36 (experimental) | Cross-platform 12-bit; not Apple-certified |
+| **oxideav** (`prores_ox_*`) | All platforms when built | **4444 / XQ: true 12-bit.** 422 family: 12-bit internal, **10-bit** to other apps | Cross-platform 12-bit 4:4:4; experimental |
 
 Default codec is always software **`prores`** (422 HQ, 10-bit) — including on
 macOS. VideoToolbox is opt-in.
@@ -90,28 +90,39 @@ treat software 4444/XQ as true 12-bit.
 | `prores_xq` | 4444 XQ (10-bit encode) |
 
 On macOS, prefer **`prores_vt_4444` / `prores_vt_xq`** when 12-bit-class
-precision matters. On other OSes, use experimental **oxideav** for true 12-bit
-or stay on 10-bit software ProRes.
+precision matters. On other OSes, experimental **oxideav 4444 / XQ** is the
+cross-platform 12-bit path other applications read as 12-bit. Software ProRes
+stays 10-bit.
 
 ---
 
-## Experimental oxideav (cross-platform 12-bit)
+## Experimental oxideav (cross-platform RDD 36)
 
 Pure-Rust **SMPTE RDD 36** encode via the optional `exr_prores` PyO3
 extension (`make oxideav-prores`). Release binaries include it. Hidden from
-the codec list when the extension is not built.
+the codec list when the extension is not built. **Not Apple-certified** — do not
+call it “Apple ProRes.”
 
-**True 12-bit** on Windows, Linux, and macOS. **Not Apple-certified** — do not
-call it “Apple ProRes.” Full ladder (not only 4444/XQ):
+**4444 and XQ are true 12-bit** to FFmpeg, Resolve, and QuickTime (`ap4h` /
+`ap4x`, `yuv444p12le`).
 
-| Key | Profile | Chroma |
-|-----|---------|--------|
-| `prores_ox_proxy` | 422 Proxy | 12-bit 4:2:2 |
-| `prores_ox_lt` | 422 LT | 12-bit 4:2:2 |
-| `prores_ox_422` | 422 | 12-bit 4:2:2 |
-| `prores_ox_hq` | 422 HQ | 12-bit 4:2:2 |
-| `prores_ox_4444` | 4444 | 12-bit 4:4:4 |
-| `prores_ox_xq` | 4444 XQ | 12-bit 4:4:4 |
+**422 Proxy, LT, 422, and HQ are 12-bit inside the encoder and 10-bit to
+everyone else.** RDD 36 has no bit-depth field for 422 profiles; depth is
+implied by the fourcc (`apco` / `apcs` / `apcn` / `apch` = 10-bit). Apple
+defines 12-bit only at 4:4:4. The writer still quantizes on a 12-bit lattice,
+and a 10-bit decode returns the top 10 bits (correct pictures, two bits
+unreachable). `ffprobe` reports `yuv422p10le` and `bits_per_raw_sample=10`.
+That is expected. Use **`prores_ox_4444` or `prores_ox_xq`** when another
+application must see 12-bit.
+
+| Key | Profile | What other apps see |
+|-----|---------|---------------------|
+| `prores_ox_proxy` | 422 Proxy (`apco`) | 10-bit 4:2:2 (12-bit internal) |
+| `prores_ox_lt` | 422 LT (`apcs`) | 10-bit 4:2:2 (12-bit internal) |
+| `prores_ox_422` | 422 (`apcn`) | 10-bit 4:2:2 (12-bit internal) |
+| `prores_ox_hq` | 422 HQ (`apch`) | 10-bit 4:2:2 (12-bit internal) |
+| `prores_ox_4444` | 4444 (`ap4h`) | 12-bit 4:4:4 |
+| `prores_ox_xq` | 4444 XQ (`ap4x`) | 12-bit 4:4:4 |
 
 Implementation status and tests:
 [plan-12bit-prores-oxideav.md](./plan-12bit-prores-oxideav.md).
@@ -130,4 +141,4 @@ the app strips that before RGB convert so preview is not blank.
 | Fast macOS dailies, 10-bit HQ | `prores_vt_hq` |
 | Fast macOS 4444 with ~12-bit precision | `prores_vt_4444` |
 | Cross-platform true 12-bit 4:4:4 | `prores_ox_4444` (experimental) |
-| Cross-platform true 12-bit 422 HQ | `prores_ox_hq` (experimental) |
+| 422 HQ with finer internal quantize (other apps still see 10-bit) | `prores_ox_hq` (experimental) |

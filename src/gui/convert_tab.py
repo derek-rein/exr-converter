@@ -263,19 +263,28 @@ _CODEC_HELP: dict[str, str] = {
         "precision; preferred over software XQ when bit depth matters."
     ),
     "prores_ox_proxy": (
-        "Experimental 12-bit ProRes 422 Proxy (SMPTE RDD 36 / apco via oxideav). "
-        "Not Apple-certified. Requires exr_prores (make oxideav-prores)."
+        "Experimental ProRes 422 Proxy (SMPTE RDD 36 / apco via oxideav). "
+        "12-bit internal precision; FFmpeg, Resolve, and QuickTime decode apco "
+        "as 10-bit 4:2:2. For 12-bit those apps actually read, use "
+        "prores_ox_4444 or prores_ox_xq. Not Apple-certified. Requires exr_prores "
+        "(make oxideav-prores)."
     ),
     "prores_ox_lt": (
-        "Experimental 12-bit ProRes 422 LT (RDD 36 / apcs via oxideav). "
+        "Experimental ProRes 422 LT (RDD 36 / apcs via oxideav). 12-bit internal "
+        "precision; third-party tools decode apcs as 10-bit 4:2:2. Use "
+        "prores_ox_4444 or prores_ox_xq when another app must see 12-bit. "
         "Not Apple-certified. Requires exr_prores."
     ),
     "prores_ox_422": (
-        "Experimental 12-bit ProRes 422 (RDD 36 / apcn via oxideav). "
+        "Experimental ProRes 422 (RDD 36 / apcn via oxideav). 12-bit internal "
+        "precision; third-party tools decode apcn as 10-bit 4:2:2. Use "
+        "prores_ox_4444 or prores_ox_xq when another app must see 12-bit. "
         "Not Apple-certified. Requires exr_prores."
     ),
     "prores_ox_hq": (
-        "Experimental 12-bit ProRes 422 HQ (RDD 36 / apch via oxideav). "
+        "Experimental ProRes 422 HQ (RDD 36 / apch via oxideav). 12-bit internal "
+        "precision; third-party tools decode apch as 10-bit 4:2:2. Use "
+        "prores_ox_4444 or prores_ox_xq when another app must see 12-bit. "
         "Not Apple-certified. Requires exr_prores."
     ),
     "prores_ox_4444": (

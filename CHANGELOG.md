@@ -13,6 +13,15 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Changed
+
+- **oxideav ProRes 422** (`prores_ox_proxy`, `prores_ox_lt`, `prores_ox_422`,
+  `prores_ox_hq`): codec names and help now say **12-bit internal, 10-bit on
+  decode**. The encoder still writes 12-bit coefficients, and FFmpeg, Resolve,
+  and QuickTime read the 422 fourcc (`apco` / `apcs` / `apcn` / `apch`) as
+  10-bit. For 12-bit that other applications see, use `prores_ox_4444` or
+  `prores_ox_xq`.
+
 ---
 
 ## [0.10.1] — 2026-09-21

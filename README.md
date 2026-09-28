@@ -5,7 +5,7 @@ Desktop app and CLI for **EXR ↔ video** workflows — built for **VFX dailies*
 **Why people use it**
 
 - **Dailies-ready EXR → video** — prepend a **slate** frame, per-frame **burn-ins** (show / shot / version / frame tokens), and a **watermark** (tiled text, opacity/size/angle); preview overlays live in the slate editor before you encode
-- **ProRes out of the box** — full software ladder (Proxy → XQ, default **422 HQ**), **Apple VideoToolbox** on macOS (fast HW encode; 4444/XQ ~12-bit class), plus experimental cross-platform **true 12-bit** RDD-36 presets (`prores_ox_*`) in release builds
+- **ProRes out of the box** — full software ladder (Proxy → XQ, default **422 HQ**), **Apple VideoToolbox** on macOS (fast HW encode; 4444/XQ ~12-bit class), plus experimental cross-platform RDD-36 presets (`prores_ox_*`) in release builds (4444/XQ are true 12-bit; 422 is 12-bit internally and 10-bit to other apps)
 - **Built for speed** — multi-core **OCIO worker pools** (auto worker count, `--workers` on CLI), ordered frame delivery, optional half-res **`--scale`**, and GPU OCIO in the built-in player / slate preview hot path
 - **OCIO your way** — ships **ACES Studio Config v4** (camera IDTs, ACES outputs); also `$OCIO`, custom `.ocio` files, other built-ins, and **local Nuke install configs** (path reference only) from the GUI picker
 
@@ -50,7 +50,7 @@ Then open it normally (double-click, or right-click → **Open**). If macOS stil
 | **Language & tooling** | Python 3.13, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [Nuitka](https://nuitka.net/) for standalone bundles |
 | **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.8), Nuke-inspired dark theme |
 | **Imaging & color** | [OpenImageIO](https://openimageio.org/) (`OpenImageIO` 3.1+), [OpenColorIO 2.5](https://opencolorio.org/) display/render transforms with a wide-gamut scene-linear **compositing space** for all overlay (slate / burn-in / watermark) compositing — prefers **ACES2065-1 (AP0)** via the `aces_interchange` role so sRGB-authored overlays are linearised and alpha-over'd without ever clipping or shifting the user's footage; falls back to the `scene_linear` role (e.g. ACEScg) on non-ACES configs.<br>Bundles the official **ACES Studio Config v4** (from [ASWF OpenColorIO-Config-ACES](https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES), BSD-3-Clause) which includes dozens of camera IDTs including **Apple Log** (iPhone 15/16 Pro cinematic / ProRes Log), ARRI LogC3/4, RED Log3G10, Sony S-Log/Venice, Canon, DJI, and many more. |
-| **Video & sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences & ranges; optional **RED R3D SDK** bridge for `.r3d` / `.nev`; optional **Blackmagic RAW SDK** bridge for `.braw`; optional **oxideav-prores** PyO3 extension (`exr_prores`) for experimental cross-platform **12-bit** ProRes-compatible encode in release builds |
+| **Video & sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences & ranges; optional **RED R3D SDK** bridge for `.r3d` / `.nev`; optional **Blackmagic RAW SDK** bridge for `.braw`; optional **oxideav-prores** PyO3 extension (`exr_prores`) for experimental cross-platform RDD-36 ProRes in release builds (4444/XQ are 12-bit; 422 is 12-bit internal and 10-bit to other apps) |
 | **Slate / burn-in / watermark** | Native **QPainter** preview and offscreen capture (no embedded browser); burn-in and watermark are linearised into the working space and alpha-composited per-frame, then OCIO-transformed to display before encode |
 
 CI runs on **GitHub Actions**; releases publish binaries for Linux, macOS (Apple Silicon + Intel), and Windows.
@@ -87,7 +87,7 @@ built with Hugo from [`site/`](site/) and published to GitHub Pages:
 | [ProRes and VideoToolbox](docs/prores.md) | Software vs Apple VideoToolbox vs oxideav; honest bit depths |
 | [R3D / N-RAW](docs/r3d.md) | Optional RED SDK (license, build, CI, preview) |
 | [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship when `BRAW_SDK_READ_TOKEN` is set) |
-| [12-bit ProRes (oxideav)](docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 12-bit ProRes via PyO3 |
+| [12-bit ProRes (oxideav)](docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 ProRes; 4444/XQ are 12-bit, 422 decodes as 10-bit |
 | [Nuke](docs/nuke.md) | Menu: open selected Read + session OCIO |
 
 ```bash
@@ -146,7 +146,7 @@ Default **`prores`** = software **ProRes 422 HQ** (cross-platform, **10-bit** en
 |--------|------|--------|
 | **ProRes (software)** | `prores_proxy` … `prores_xq` | FFmpeg `prores_ks`; all profiles encode **10-bit** |
 | **ProRes (VideoToolbox)** | `prores_vt_proxy` … `prores_vt_xq` | **macOS only** — Apple HW encoder; faster; 4444/XQ ~12-bit class |
-| **ProRes (oxideav)** | `prores_ox_proxy` … `prores_ox_xq` | Experimental **true 12-bit** RDD-36 in release builds (full 422 + 4444 ladder) |
+| **ProRes (oxideav)** | `prores_ox_proxy` … `prores_ox_xq` | Experimental RDD-36 in release builds. **4444/XQ are true 12-bit.** 422 profiles are 12-bit internal and **10-bit** to FFmpeg, Resolve, and QuickTime |
 | **Also** | DNxHR, CineForm, H.264/HEVC, FFV1 | Delivery and lossless options — see [docs/cli.md](docs/cli.md#codecs-honest-bit-depths) |
 
 **Quick picks:** macOS dailies → **`prores_vt_hq`** or **`prores_vt_4444`**; cross-platform ProRes → **`prores`**; cross-platform 12-bit 4:4:4 → **`prores_ox_4444`** (experimental). Software 4444/XQ are **not** true 12-bit despite probe labels.

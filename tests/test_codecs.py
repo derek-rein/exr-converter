@@ -107,7 +107,11 @@ class TestVideoCodecSpecs:
             assert not any(s.key.startswith("prores_vt_") for s in available_video_codecs())
 
     def test_oxideav_prores_twelve_bit_gated(self):
-        """oxideav presets claim true 12-bit and hide when extension missing."""
+        """oxideav presets stay 12-bit internally and hide when the extension is missing.
+
+        422-family labels must say third-party decoders return 10-bit. 4444 / XQ
+        stay labeled as 12-bit end to end.
+        """
         assert OXIDEAV_PRORES_KEYS == frozenset(
             {
                 "prores_ox_proxy",
@@ -126,9 +130,14 @@ class TestVideoCodecSpecs:
             if key in ("prores_ox_4444", "prores_ox_xq"):
                 assert s.pix_fmt == "yuv444p12le"
                 assert s.chroma == "4:4:4"
+                assert "12-bit 4:4:4" in s.display_name
+                assert "10-bit on decode" not in s.display_name
+                assert s.format_label.startswith("12-bit ·")
             else:
                 assert s.pix_fmt == "yuv422p12le"
                 assert s.chroma == "4:2:2"
+                assert "12-bit internal, 10-bit on decode" in s.display_name
+                assert "12-bit internal, 10-bit on decode" in s.format_label
         avail_keys = {c.key for c in available_video_codecs()}
         if oxideav_prores_available():
             assert OXIDEAV_PRORES_KEYS <= avail_keys
