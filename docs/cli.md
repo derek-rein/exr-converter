@@ -168,7 +168,11 @@ Keys match `exr2video --codec`. Software ProRes is **always 10-bit** encode
 
 **VideoToolbox** (`prores_vt_*`) is **Apple’s hardware ProRes encoder** on
 **macOS only** — faster than software, and 4444/XQ keep **~12-bit class**
-precision that `prores_ks` does not. Full explanation:
+precision that `prores_ks` does not. Experimental **oxideav** 4444/XQ
+(`prores_ox_4444`, `prores_ox_xq`) are true 12-bit on every OS. oxideav
+**422** profiles (`prores_ox_proxy` / `lt` / `422` / `hq`) code 12-bit
+coefficients and present as **10-bit** (`apco` / `apcs` / `apcn` / `apch`)
+to FFmpeg, Resolve, and QuickTime. Full explanation:
 [ProRes and VideoToolbox](./prores.md).
 
 | Key | Encode (this app) | Notes |
@@ -185,12 +189,12 @@ precision that `prores_ks` does not. Full explanation:
 | `prores_vt_hq` | 10-bit 4:2:2 | VideoToolbox 422 HQ (macOS) |
 | `prores_vt_4444` | ~12-bit 4:4:4:4 | VideoToolbox 4444 (macOS) |
 | `prores_vt_xq` | ~12-bit 4:4:4:4 | VideoToolbox 4444 XQ (macOS) |
-| `prores_ox_proxy` | **12-bit** 4:2:2 | Experimental RDD-36 via oxideav; requires `make oxideav-prores` |
-| `prores_ox_lt` | **12-bit** 4:2:2 | Experimental RDD-36 via oxideav |
-| `prores_ox_422` | **12-bit** 4:2:2 | Experimental RDD-36 via oxideav |
-| `prores_ox_hq` | **12-bit** 4:2:2 | Experimental RDD-36 via oxideav |
-| `prores_ox_4444` | **12-bit** 4:4:4 | Experimental RDD-36 via oxideav |
-| `prores_ox_xq` | **12-bit** 4:4:4 | Experimental RDD-36 via oxideav |
+| `prores_ox_proxy` | 12-bit internal, **10-bit decode** · 4:2:2 | Experimental RDD-36 (`apco`). Other apps read 10-bit. Requires `make oxideav-prores` |
+| `prores_ox_lt` | 12-bit internal, **10-bit decode** · 4:2:2 | Experimental RDD-36 (`apcs`). Other apps read 10-bit |
+| `prores_ox_422` | 12-bit internal, **10-bit decode** · 4:2:2 | Experimental RDD-36 (`apcn`). Other apps read 10-bit |
+| `prores_ox_hq` | 12-bit internal, **10-bit decode** · 4:2:2 | Experimental RDD-36 (`apch`). Other apps read 10-bit |
+| `prores_ox_4444` | **12-bit** 4:4:4 | Experimental RDD-36 (`ap4h`). Other apps read 12-bit |
+| `prores_ox_xq` | **12-bit** 4:4:4 | Experimental RDD-36 (`ap4x`). Other apps read 12-bit |
 | `cineform` | 10-bit 4:2:2 | GoPro CineForm |
 | `cineform_rgb` | 12-bit RGB | CineForm RGB |
 | `dnxhr_lb` / `sq` / `hq` | 8-bit 4:2:2 | DNxHR |

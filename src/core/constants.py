@@ -155,12 +155,18 @@ SCALE_OPTIONS = [
 ]
 DEFAULT_SCALE = 1.0
 
+# oxideav 422-family profiles (Proxy / LT / 422 / HQ) code a 12-bit lattice, but
+# SMPTE RDD 36 has no bit-depth field for 422. The fourcc (apco / apcs / apcn /
+# apch) implies 10-bit, so FFmpeg, Resolve, and QuickTime return the top 10
+# bits. 4444 / XQ (ap4h / ap4x) are the profiles those tools read as 12-bit.
+_OXIDEAV_422_DEPTH = "12-bit internal, 10-bit on decode"
+
 
 class VideoCodecSpec(NamedTuple):
     """One selectable EXR→video codec preset.
 
     Bit depth, chroma, and pix_fmt are first-class so the UI never implies a
-    higher precision than FFmpeg actually encodes (a common VFX gotcha).
+    higher precision than the file presents to other applications.
 
     *platforms* empty = all OSes; otherwise e.g. ``("Darwin",)`` for macOS-only
     encoders such as VideoToolbox ProRes.
@@ -176,8 +182,16 @@ class VideoCodecSpec(NamedTuple):
 
     @property
     def format_label(self) -> str:
-        """Short encode-format line for dialogs: ``10-bit · 4:2:2 · yuv422p10le``."""
-        return f"{self.bit_depth}-bit · {self.chroma} · pix_fmt {self.pix_fmt}"
+        """Short encode-format line for dialogs: ``10-bit · 4:2:2 · yuv422p10le``.
+
+        oxideav 422 presets keep ``bit_depth`` 12 (the coefficient lattice) and
+        say so, plus that third-party decoders return 10-bit.
+        """
+        if self.libav_codec == "oxideav_prores" and self.chroma == "4:2:2":
+            depth = _OXIDEAV_422_DEPTH
+        else:
+            depth = f"{self.bit_depth}-bit"
+        return f"{depth} · {self.chroma} · pix_fmt {self.pix_fmt}"
 
     def is_available(self) -> bool:
         if not self.platforms:
@@ -229,10 +243,18 @@ def _prores_ox(
     pix_fmt: str,
     chroma: str,
 ) -> VideoCodecSpec:
-    """Experimental true 12-bit RDD-36 via oxideav PyO3 (cross-platform)."""
+    """Experimental RDD-36 via oxideav PyO3 (cross-platform).
+
+    4444 / XQ are 12-bit to standard decoders. 422-family profiles code 12-bit
+    coefficients; the fourcc still presents as 10-bit (see ``_OXIDEAV_422_DEPTH``).
+    """
+    if chroma == "4:2:2":
+        depth = f"{_OXIDEAV_422_DEPTH} · {chroma}"
+    else:
+        depth = f"12-bit {chroma}"
     return VideoCodecSpec(
         key,
-        f"{label} · 12-bit {chroma} · oxideav (experimental, RDD-36)",
+        f"{label} · {depth} · oxideav (experimental, RDD-36)",
         "oxideav_prores",
         pix_fmt,
         12,
@@ -288,10 +310,11 @@ VIDEO_CODECS: list[VideoCodecSpec] = [
     # VT 4444/XQ: ayuv64le intermediate; HW keeps ~12-bit mid-bin (unlike prores_ks).
     _prores_vt("prores_vt_4444", "Apple ProRes 4444", "ayuv64le", 12, "4:4:4:4"),
     _prores_vt("prores_vt_xq", "Apple ProRes 4444 XQ", "ayuv64le", 12, "4:4:4:4"),
-    # ── ProRes oxideav (experimental, cross-platform true 12-bit) ────────
-    # Pure-Rust RDD-36 encode via PyO3 ``exr_prores`` (not FFmpeg). Hidden
-    # when the extension is not built — see available_video_codecs().
-    # Full ladder: 422 Proxy/LT/422/HQ + 4444/XQ (crate Profile enum).
+    # ── ProRes oxideav (experimental RDD-36, not FFmpeg) ─────────────────
+    # Pure-Rust encode via PyO3 ``exr_prores``. Hidden when the extension is
+    # not built — see available_video_codecs(). 4444/XQ are 12-bit to other
+    # apps. 422 Proxy/LT/422/HQ stay on a 12-bit lattice internally and
+    # present as 10-bit (apco/apcs/apcn/apch) to standard decoders.
     _prores_ox("prores_ox_proxy", "ProRes 422 Proxy", "yuv422p12le", "4:2:2"),
     _prores_ox("prores_ox_lt", "ProRes 422 LT", "yuv422p12le", "4:2:2"),
     _prores_ox("prores_ox_422", "ProRes 422", "yuv422p12le", "4:2:2"),
@@ -376,7 +399,7 @@ VIDEO_CODECS: list[VideoCodecSpec] = [
 HEVC_CODEC_KEYS: frozenset[str] = frozenset({"hevc", "hevc_8", "hevc_12"})
 FFV1_CODEC_KEYS: frozenset[str] = frozenset({"ffv1", "ffv1_12"})
 X26X_CODEC_KEYS: frozenset[str] = frozenset({"h264"}) | HEVC_CODEC_KEYS
-# Experimental true 12-bit RDD-36 via PyO3 ``exr_prores`` (not FFmpeg).
+# Experimental RDD-36 via PyO3 ``exr_prores`` (not FFmpeg).
 OXIDEAV_PRORES_KEYS: frozenset[str] = frozenset(
     {
         "prores_ox_proxy",

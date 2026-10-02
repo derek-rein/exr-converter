@@ -152,11 +152,16 @@ Nuitka standalone builds still run `scripts/fix_bundle_ocio.py` so
    wheel. **PyAV does not ship `ffplay`.** Do not assume system FFmpeg/ffplay
    exists on user machines. Playback after convert uses the user’s preferred
    player from Preferences (system default or custom path).
-3. **Software ProRes is 10-bit** in FFmpeg/`prores_ks`. True cross-platform
+3. **Software ProRes is 10-bit** in FFmpeg/`prores_ks`. Cross-platform
    12-bit ProRes-compatible output is experimental via oxideav PyO3
    (`prores_ox_*`, `make oxideav-prores`); see
-   `docs/plan-12bit-prores-oxideav.md`. VideoToolbox ProRes (`prores_vt_*`) is
-   **macOS-only**; UI must keep honest bit-depth labels.
+   `docs/plan-12bit-prores-oxideav.md`. **4444 / XQ** (`prores_ox_4444`,
+   `prores_ox_xq`) are 12-bit to standard decoders. **422-family** oxideav
+   presets (`prores_ox_proxy` / `lt` / `422` / `hq`) code a 12-bit lattice and
+   **present as 10-bit** (`apco` / `apcs` / `apcn` / `apch`) to FFmpeg,
+   Resolve, and QuickTime — labels must say “12-bit internal, 10-bit on
+   decode”, not unqualified 12-bit 4:2:2. VideoToolbox ProRes (`prores_vt_*`)
+   is **macOS-only**; UI must keep honest bit-depth labels.
 4. **Slate is QPainter** — no Qt WebEngine. Do not reintroduce browser-based slate.
    **Preview display** prefers **GPU OCIO** (`src/gui/ocio_gpu_plane.py`,
    `QOpenGLWidget` + PyOpenGL + OCIO `getDefaultGPUProcessor`). Do not put
@@ -454,6 +459,9 @@ Public site: `make docs-serve` / `make docs-build`; workflow **Docs** deploys to
 
 - Do not assume system `ffmpeg` / `ffplay` / `mpv` are installed for core features.
 - Do not claim software ProRes is 12-bit.
+- Do not claim oxideav 422 profiles (`prores_ox_proxy` / `lt` / `422` / `hq`)
+  are 12-bit to third-party decoders. They are 12-bit internal, 10-bit on
+  decode. True 12-bit delivery other apps read is 4444 / XQ.
 - Do not commit the proprietary RED R3D SDK (headers, static libs, docs, samples)
   or claim the SDK is open-source; only Redistributable dylibs/so/dll may ship,
   in a private app directory, with required EULA terms — see [docs/r3d.md](./docs/r3d.md).

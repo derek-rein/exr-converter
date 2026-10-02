@@ -1,4 +1,7 @@
-"""oxideav-prores PyO3 extension — true 12-bit ProRes-compatible MOV."""
+"""oxideav-prores PyO3 extension — RDD-36 ProRes-compatible MOV.
+
+4444 / XQ round-trip at 12-bit. 422 profiles code 12-bit and present as 10-bit.
+"""
 
 from __future__ import annotations
 
@@ -84,9 +87,11 @@ class TestOxideavAvailability:
             if key in ("prores_ox_4444", "prores_ox_xq"):
                 assert s.pix_fmt == "yuv444p12le"
                 assert s.chroma == "4:4:4"
+                assert "10-bit on decode" not in s.display_name
             else:
                 assert s.pix_fmt == "yuv422p12le"
                 assert s.chroma == "4:2:2"
+                assert "12-bit internal, 10-bit on decode" in s.display_name
             assert "12" in s.display_name
             assert s.is_available()
 

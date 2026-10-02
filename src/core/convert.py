@@ -312,7 +312,7 @@ def _e2v_oxideav(
     config_path: str,
     workers: int,
 ) -> None:
-    """EXR→video via in-process oxideav-prores PyO3 bindings (true 12-bit RDD-36)."""
+    """EXR→video via in-process oxideav-prores PyO3 bindings (RDD-36)."""
     if not oxideav_prores_available():
         raise RuntimeError(unavailable_reason())
 
@@ -820,7 +820,7 @@ def run_exr_to_video(
             ocio_cfg, slate_overlay, working_space=working_space
         )
 
-    # Experimental true 12-bit RDD-36 ProRes via in-process oxideav bindings.
+    # Experimental RDD-36 ProRes via in-process oxideav bindings.
     n_workers = workers if workers > 0 else _DEFAULT_WORKERS
     if codec_key in OXIDEAV_PRORES_KEYS:
         _e2v_oxideav(

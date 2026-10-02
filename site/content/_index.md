@@ -15,7 +15,7 @@ and packaged binaries for Linux, macOS, and Windows.
 | [ProRes and VideoToolbox](docs/prores/) | Software vs Apple VideoToolbox (macOS HW) vs oxideav |
 | [Nuke integration](docs/nuke/) | Menu helpers to open a Read + session OCIO |
 | [Releasing](docs/releasing/) | How releases are tagged and published |
-| [12-bit ProRes notes](docs/plan-12bit-prores-oxideav/) | Experimental RDD-36 12-bit ProRes (release builds) |
+| [12-bit ProRes notes](docs/plan-12bit-prores-oxideav/) | Experimental RDD-36 ProRes; 4444/XQ are 12-bit, 422 decodes as 10-bit |
 
 ## Downloads
 

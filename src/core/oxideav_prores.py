@@ -1,7 +1,9 @@
-"""Optional oxideav-prores PyO3 bindings for true 12-bit ProRes-compatible MOV.
+"""Optional oxideav-prores PyO3 bindings for RDD-36 ProRes-compatible MOV.
 
 The native extension (``exr_prores``) links pure-Rust oxideav-prores and writes
-``.mov`` in-process — no subprocess sidecar. When the extension is not built
+``.mov`` in-process — no subprocess sidecar. 4444 / XQ are 12-bit to standard
+decoders. 422-family profiles code 12-bit coefficients and present as 10-bit
+(``apco`` / ``apcs`` / ``apcn`` / ``apch``). When the extension is not built
 (dev without Rust / maturin), presets are hidden and CLI reports unavailable.
 """
 
