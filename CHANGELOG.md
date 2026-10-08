@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.10.2] — 2026-10-08
+
 ### Added
 
 - Bundled ACES Studio config adds **Nikon N-Log** (N-Gamut / Rec.2020),
@@ -843,7 +847,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.10.2...HEAD
+[0.10.2]: https://github.com/derek-rein/exr-converter/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/derek-rein/exr-converter/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/derek-rein/exr-converter/compare/v0.9.13...v0.10.0
 [0.9.13]: https://github.com/derek-rein/exr-converter/compare/v0.9.12...v0.9.13
