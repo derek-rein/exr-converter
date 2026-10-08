@@ -152,9 +152,12 @@ long (text elides; width follows the layout).
 
 ## Color (OCIO)
 
-- Config picker: bundled **ACES Studio Config v4**, other built-ins, `$OCIO`, or
-  a custom file. Incompatible Nuke/library configs may appear **greyed out** with
-  a tooltip when the linked OpenColorIO cannot load them.
+- Config picker: bundled **ACES Studio Config v4** (recommended default; stock
+  spaces plus Nikon N-Log, Fujifilm F-Log / F-Log2, Leica L-Log, Sony S-Log /
+  S-Log2, and Canon Log in Rec.709 and Rec.2020 — see
+  `resources/ocio/CAMERAS.md`), other built-ins, `$OCIO`, or a custom file.
+  Incompatible Nuke/library configs may appear **greyed out** with a tooltip
+  when the linked OpenColorIO cannot load them.
 - Source / destination spaces follow the **active (user) config**; aliases are
   remapped where possible (`find_equivalent_space`).
 - **EXR → Video destination:** if the dest name is an OCIO **display**

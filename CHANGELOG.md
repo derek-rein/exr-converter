@@ -13,6 +13,15 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- Bundled ACES Studio config adds **Nikon N-Log** (N-Gamut / Rec.2020),
+  **Fujifilm F-Log** and **F-Log2**, **Leica L-Log** (Rec.2020, and Rec.709 for
+  the SL Typ 601), **Sony S-Log** and **S-Log2** (S-Gamut), **Canon Log**
+  (Cinema Gamut, Rec.2020, Rec.709), and **Canon Log 2 / Log 3** in Rec.2020
+  and Rec.709. Existing colorspace names are unchanged. N-Log is the published
+  curve (a generated 1D LUT), not Nikon's downloadable cube.
+
 ### Changed
 
 - **oxideav ProRes 422** (`prores_ox_proxy`, `prores_ox_lt`, `prores_ox_422`,

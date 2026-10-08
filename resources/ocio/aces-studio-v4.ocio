@@ -1,16 +1,21 @@
+# EXR Converter derivative of the ASWF ACES Studio Config v4.0.0
+# (ACES 2.0, OCIO 2.5). Stock colorspace names are unchanged.
+# Added cameras and their sources: CAMERAS.md next to this file.
 ocio_profile_version: 2.5
 
 environment:
   {}
-search_path: ""
+search_path: "luts"
 strictparsing: true
 luma: [0.2126, 0.7152, 0.0722]
-name: studio-config-v4.0.0_aces-v2.0_ocio-v2.5
+name: studio-config-v4.0.0_aces-v2.0_ocio-v2.5-exr
 description: |
   Academy Color Encoding System - Studio Config [COLORSPACES v4.0.0] [ACES v2.0] [OCIO v2.5]
   ------------------------------------------------------------------------------------------
 
   This "OpenColorIO" config is geared toward studios requiring a config that includes a wide variety of camera colorspaces, displays and looks.
+
+  EXR Converter adds Nikon N-Log, Fujifilm F-Log and F-Log2, Leica L-Log, Sony S-Log and S-Log2, and Canon Log in Rec.709 and Rec.2020. Existing ACES Studio colorspace names are unchanged.
 
 roles:
   aces_interchange: ACES2065-1
@@ -1036,6 +1041,245 @@ colorspaces:
         - !<MatrixTransform> {matrix: [0.674257092126512, 0.220571735923397, 0.10517117195009, 0, -0.00931360607857167, 1.10595886142466, -0.0966452553460855, 0, -0.0382090673002312, -0.017938376600236, 1.05614744390047, 0, 0, 0, 0, 1]}
 
   - !<ColorSpace>
+    name: CanonLog CinemaGamut D55
+    aliases: [canonlog_cinemagamut_d55, Input - Canon - Canon-Log - Cinema Gamut Daylight]
+    family: Input/Canon
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Canon Log Cinema Gamut (Daylight) to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Canon Log Cinema Gamut (Daylight) to ACES2065-1
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.45310179, log_side_offset: 0.12512248, lin_side_slope: 11.288444444444445, lin_side_offset: 1, lin_side_break: 0.0, direction: inverse}
+        - !<MatrixTransform> {matrix: [0.763064454775734, 0.14902116113706, 0.0879143840872056, 0, 0.00365745670512393, 1.10696038037622, -0.110617837081339, 0, -0.0094077940457189, -0.218383304989987, 1.22779109903571, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: CanonLog Rec.2020
+    aliases: [canonlog_rec2020, Input - Canon - Canon-Log - Rec.2020]
+    family: Input/Canon
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Canon Log Rec.2020 to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Canon Log Rec.2020 to ACES2065-1
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.45310179, log_side_offset: 0.12512248, lin_side_slope: 11.288444444444445, lin_side_offset: 1, lin_side_break: 0.0, direction: inverse}
+        - !<MatrixTransform> {matrix: [0.679085634706913, 0.157700914643159, 0.163213450649929, 0, 0.0460020030800595, 0.859054673002905, 0.0949433239170316, 0, -0.000573943187616201, 0.0284677684080262, 0.972106174779585, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: CanonLog Rec.709
+    aliases: [canonlog_rec709, Input - Canon - Canon-Log - Rec.709]
+    family: Input/Canon
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Canon Log Rec.709 to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Canon Log Rec.709 to ACES2065-1
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.45310179, log_side_offset: 0.12512248, lin_side_slope: 11.288444444444445, lin_side_offset: 1, lin_side_break: 0.0, direction: inverse}
+        - !<MatrixTransform> {matrix: [0.439632981919492, 0.382988698151554, 0.177378319928956, 0, 0.0897764429588422, 0.813439428748978, 0.0967841282921771, 0, 0.0175411703831728, 0.111546553302387, 0.870912276314443, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: CanonLog2 Rec.2020
+    aliases: [canonlog2_rec2020, Input - Canon - Canon-Log2 - Rec.2020]
+    family: Input/Canon
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Canon Log 2 Rec.2020 to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Canon Log 2 Rec.2020 to ACES2065-1
+      children:
+        - !<BuiltinTransform> {style: CURVE - CANON_CLOG2_to_LINEAR}
+        - !<MatrixTransform> {matrix: [0.679085634706913, 0.157700914643159, 0.163213450649929, 0, 0.0460020030800595, 0.859054673002905, 0.0949433239170316, 0, -0.000573943187616201, 0.0284677684080262, 0.972106174779585, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: CanonLog2 Rec.709
+    aliases: [canonlog2_rec709, Input - Canon - Canon-Log2 - Rec.709]
+    family: Input/Canon
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Canon Log 2 Rec.709 to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Canon Log 2 Rec.709 to ACES2065-1
+      children:
+        - !<BuiltinTransform> {style: CURVE - CANON_CLOG2_to_LINEAR}
+        - !<MatrixTransform> {matrix: [0.439632981919492, 0.382988698151554, 0.177378319928956, 0, 0.0897764429588422, 0.813439428748978, 0.0967841282921771, 0, 0.0175411703831728, 0.111546553302387, 0.870912276314443, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: CanonLog3 Rec.2020
+    aliases: [canonlog3_rec2020, Input - Canon - Canon-Log3 - Rec.2020]
+    family: Input/Canon
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Canon Log 3 Rec.2020 to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Canon Log 3 Rec.2020 to ACES2065-1
+      children:
+        - !<BuiltinTransform> {style: CURVE - CANON_CLOG3_to_LINEAR}
+        - !<MatrixTransform> {matrix: [0.679085634706913, 0.157700914643159, 0.163213450649929, 0, 0.0460020030800595, 0.859054673002905, 0.0949433239170316, 0, -0.000573943187616201, 0.0284677684080262, 0.972106174779585, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: CanonLog3 Rec.709
+    aliases: [canonlog3_rec709, Input - Canon - Canon-Log3 - Rec.709]
+    family: Input/Canon
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Canon Log 3 Rec.709 to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Canon Log 3 Rec.709 to ACES2065-1
+      children:
+        - !<BuiltinTransform> {style: CURVE - CANON_CLOG3_to_LINEAR}
+        - !<MatrixTransform> {matrix: [0.439632981919492, 0.382988698151554, 0.177378319928956, 0, 0.0897764429588422, 0.813439428748978, 0.0967841282921771, 0, 0.0175411703831728, 0.111546553302387, 0.870912276314443, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: F-Log F-Gamut
+    aliases: [flog_fgamut, Input - Fujifilm - F-Log - F-Gamut]
+    family: Input/Fujifilm
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Fujifilm F-Log F-Gamut (Rec.2020) to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Fujifilm F-Log F-Gamut to ACES2065-1
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.344676, log_side_offset: 0.790453, lin_side_slope: 0.555556, lin_side_offset: 0.009468, lin_side_break: 0.00089, linear_slope: 8.735631, direction: inverse}
+        - !<MatrixTransform> {matrix: [0.679085634706913, 0.157700914643159, 0.163213450649929, 0, 0.0460020030800595, 0.859054673002905, 0.0949433239170316, 0, -0.000573943187616201, 0.0284677684080262, 0.972106174779585, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: F-Log2 F-Gamut
+    aliases: [flog2_fgamut, Input - Fujifilm - F-Log2 - F-Gamut]
+    family: Input/Fujifilm
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Fujifilm F-Log2 F-Gamut (Rec.2020) to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Fujifilm F-Log2 F-Gamut to ACES2065-1
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.245281, log_side_offset: 0.384316, lin_side_slope: 5.555556, lin_side_offset: 0.064829, lin_side_break: 0.000889, linear_slope: 8.799461, direction: inverse}
+        - !<MatrixTransform> {matrix: [0.679085634706913, 0.157700914643159, 0.163213450649929, 0, 0.0460020030800595, 0.859054673002905, 0.0949433239170316, 0, -0.000573943187616201, 0.0284677684080262, 0.972106174779585, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: L-Log Rec.2020
+    aliases: [llog_rec2020, Input - Leica - L-Log - Rec.2020]
+    family: Input/Leica
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Leica L-Log Rec.2020 to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Leica L-Log Rec.2020 to ACES2065-1
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.27, log_side_offset: 0.6, lin_side_slope: 1.3, lin_side_offset: 0.0115, lin_side_break: 0.006, linear_slope: 8, direction: inverse}
+        - !<MatrixTransform> {matrix: [0.679085634706913, 0.157700914643159, 0.163213450649929, 0, 0.0460020030800595, 0.859054673002905, 0.0949433239170316, 0, -0.000573943187616201, 0.0284677684080262, 0.972106174779585, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: L-Log Rec.709
+    aliases: [llog_rec709, Input - Leica - L-Log - Rec.709]
+    family: Input/Leica
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Leica L-Log Rec.709 (SL Typ 601) to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Leica L-Log Rec.709 to ACES2065-1
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.27, log_side_offset: 0.6, lin_side_slope: 1.3, lin_side_offset: 0.0115, lin_side_break: 0.006, linear_slope: 8, direction: inverse}
+        - !<MatrixTransform> {matrix: [0.439632981919492, 0.382988698151554, 0.177378319928956, 0, 0.0897764429588422, 0.813439428748978, 0.0967841282921771, 0, 0.0175411703831728, 0.111546553302387, 0.870912276314443, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: N-Log N-Gamut
+    aliases: [nlog_ngamut, Input - Nikon - N-Log - N-Gamut]
+    family: Input/Nikon
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Nikon N-Log N-Gamut (Rec.2020) to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Nikon N-Log N-Gamut to ACES2065-1
+      children:
+        - !<FileTransform> {src: nlog_to_lin.spi1d, interpolation: linear}
+        - !<MatrixTransform> {matrix: [0.679085634706913, 0.157700914643159, 0.163213450649929, 0, 0.0460020030800595, 0.859054673002905, 0.0949433239170316, 0, -0.000573943187616201, 0.0284677684080262, 0.972106174779585, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: S-Log S-Gamut
+    aliases: [slog_sgamut, Input - Sony - S-Log - S-Gamut]
+    family: Input/Sony
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Sony S-Log S-Gamut to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Sony S-Log S-Gamut to ACES2065-1
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.3705223108504399, log_side_offset: 0.6162444731182795, lin_side_slope: 1.1111111111111112, lin_side_offset: 0.037584, lin_side_break: 0.0, direction: inverse}
+        - !<MatrixTransform> {matrix: [0.75298259539984, 0.143370216235557, 0.103647188364603, 0, 0.0217076974414429, 1.01531883550528, -0.0370265329467195, 0, -0.00941605274963355, 0.00337041785882367, 1.00604563489081, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: S-Log2 S-Gamut
+    aliases: [slog2_sgamut, Input - Sony - S-Log2 - S-Gamut]
+    family: Input/Sony
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Sony S-Log2 S-Gamut to ACES2065-1
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Sony S-Log2 S-Gamut to ACES2065-1
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.3705223108504399, log_side_offset: 0.6162444731182795, lin_side_slope: 0.7864028411973617, lin_side_offset: 0.037584, lin_side_break: 0.0, direction: inverse}
+        - !<MatrixTransform> {matrix: [0.75298259539984, 0.143370216235557, 0.103647188364603, 0, 0.0217076974414429, 1.01531883550528, -0.0370265329467195, 0, -0.00941605274963355, 0.00337041785882367, 1.00604563489081, 0, 0, 0, 0, 1]}
+
+
+  - !<ColorSpace>
     name: sRGB Encoded Rec.709 (sRGB)
     aliases: [srgb_encoded_rec709_srgb, srgb_texture, srgb_rec709_scene, Utility - sRGB - Texture, Input - Generic - sRGB - Texture, sRGB - Texture, srgb_tx]
     interop_id: srgb_rec709_scene
@@ -1418,6 +1662,91 @@ named_transforms:
       name: S-Log3 Log to Linear Curve
       children:
         - !<LogCameraTransform> {base: 10, log_side_slope: 0.255620723362659, log_side_offset: 0.410557184750733, lin_side_slope: 5.26315789473684, lin_side_offset: 0.0526315789473684, lin_side_break: 0.01125, linear_slope: 6.62194371177582, direction: inverse}
+
+  - !<NamedTransform>
+    name: Canon Log - Curve
+    aliases: [canonlog_crv, crv_canonlog]
+    description: Convert Canon Log (arbitrary primaries) to linear (arbitrary primaries)
+    family: Input/Canon
+    categories: [file-io]
+    encoding: log
+    transform: !<GroupTransform>
+      name: Canon Log to linear
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.45310179, log_side_offset: 0.12512248, lin_side_slope: 11.288444444444445, lin_side_offset: 1, lin_side_break: 0.0, direction: inverse}
+
+  - !<NamedTransform>
+    name: F-Log - Curve
+    aliases: [flog_crv, crv_flog]
+    description: Convert Fujifilm F-Log (arbitrary primaries) to linear (arbitrary primaries)
+    family: Input/Fujifilm
+    categories: [file-io]
+    encoding: log
+    transform: !<GroupTransform>
+      name: Fujifilm F-Log to linear
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.344676, log_side_offset: 0.790453, lin_side_slope: 0.555556, lin_side_offset: 0.009468, lin_side_break: 0.00089, linear_slope: 8.735631, direction: inverse}
+
+  - !<NamedTransform>
+    name: F-Log2 - Curve
+    aliases: [flog2_crv, crv_flog2]
+    description: Convert Fujifilm F-Log2 (arbitrary primaries) to linear (arbitrary primaries)
+    family: Input/Fujifilm
+    categories: [file-io]
+    encoding: log
+    transform: !<GroupTransform>
+      name: Fujifilm F-Log2 to linear
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.245281, log_side_offset: 0.384316, lin_side_slope: 5.555556, lin_side_offset: 0.064829, lin_side_break: 0.000889, linear_slope: 8.799461, direction: inverse}
+
+  - !<NamedTransform>
+    name: L-Log - Curve
+    aliases: [llog_crv, crv_llog]
+    description: Convert Leica L-Log (arbitrary primaries) to linear (arbitrary primaries)
+    family: Input/Leica
+    categories: [file-io]
+    encoding: log
+    transform: !<GroupTransform>
+      name: Leica L-Log to linear
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.27, log_side_offset: 0.6, lin_side_slope: 1.3, lin_side_offset: 0.0115, lin_side_break: 0.006, linear_slope: 8, direction: inverse}
+
+  - !<NamedTransform>
+    name: N-Log - Curve
+    aliases: [nlog_crv, crv_nlog]
+    description: Convert Nikon N-Log (arbitrary primaries) to linear (arbitrary primaries)
+    family: Input/Nikon
+    categories: [file-io]
+    encoding: log
+    transform: !<GroupTransform>
+      name: Nikon N-Log to linear
+      children:
+        - !<FileTransform> {src: nlog_to_lin.spi1d, interpolation: linear}
+
+  - !<NamedTransform>
+    name: S-Log - Curve
+    aliases: [slog_crv, crv_slog]
+    description: Convert Sony S-Log (arbitrary primaries) to linear (arbitrary primaries)
+    family: Input/Sony
+    categories: [file-io]
+    encoding: log
+    transform: !<GroupTransform>
+      name: Sony S-Log to linear
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.3705223108504399, log_side_offset: 0.6162444731182795, lin_side_slope: 1.1111111111111112, lin_side_offset: 0.037584, lin_side_break: 0.0, direction: inverse}
+
+  - !<NamedTransform>
+    name: S-Log2 - Curve
+    aliases: [slog2_crv, crv_slog2]
+    description: Convert Sony S-Log2 (arbitrary primaries) to linear (arbitrary primaries)
+    family: Input/Sony
+    categories: [file-io]
+    encoding: log
+    transform: !<GroupTransform>
+      name: Sony S-Log2 to linear
+      children:
+        - !<LogCameraTransform> {base: 10, log_side_slope: 0.3705223108504399, log_side_offset: 0.6162444731182795, lin_side_slope: 0.7864028411973617, lin_side_offset: 0.037584, lin_side_break: 0.0, direction: inverse}
+
 
   - !<NamedTransform>
     name: sRGB - Curve

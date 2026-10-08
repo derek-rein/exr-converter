@@ -596,11 +596,22 @@ jobs:
           # The app resolves the config relative to the bundle, so it must ship
           # inside it. Search the whole tree (Nuitka may place data under
           # Contents/MacOS or Contents/Resources on macOS).
-          if find "$ROOT" -type f -name 'aces-studio-v4.ocio' | grep -q .; then
-            echo "OK: bundled OCIO config found:"
-            find "$ROOT" -type f -name 'aces-studio-v4.ocio'
-          else
-            echo "ERROR: $CFG was not bundled into $ROOT" >&2
+          cfgs=0
+          bad=0
+          while IFS= read -r cfg; do
+            cfgs=$((cfgs + 1))
+            lut="$(dirname "$cfg")/luts/nlog_to_lin.spi1d"
+            if [ -f "$lut" ]; then
+              echo "OK: bundled OCIO config and N-Log LUT:"
+              echo "  $cfg"
+              echo "  $lut"
+            else
+              echo "ERROR: $cfg is missing sibling luts/nlog_to_lin.spi1d" >&2
+              bad=1
+            fi
+          done < <(find "$ROOT" -type f -name 'aces-studio-v4.ocio')
+          if [ "$cfgs" -eq 0 ] || [ "$bad" -ne 0 ]; then
+            echo "ERROR: $CFG was not bundled into $ROOT with luts/nlog_to_lin.spi1d beside it" >&2
             exit 1
           fi
 
