@@ -22,9 +22,9 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Fixed
 
-- macOS notarization waits up to two hours for Apple, then keeps checking that
-  same submission instead of uploading the DMG again. A rejection still prints
-  the notary log.
+- macOS notarization records the Apple submission id as soon as the upload
+  finishes, then checks that same submission for up to five hours. A rejection
+  still prints the notary log. The build does not upload the DMG again.
 - Developer ID signing of the macOS app no longer stops on data files that
   Nuitka places under `Contents/MacOS` (OCIO configs, `pyproject.toml`,
   package data). Those files move to `Contents/Resources`, with relative

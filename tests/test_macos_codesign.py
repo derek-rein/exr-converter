@@ -155,15 +155,26 @@ def test_release_workflow_notarizes_with_adhoc_fallback() -> None:
     assert "xcrun notarytool submit" in text
     assert text.count("xcrun notarytool submit") == 1
     assert "--timeout 30m" not in text
-    assert 'NOTARY_WAIT="2h"' in text
-    assert '--timeout "$NOTARY_WAIT"' in text
+    submit = text.split("xcrun notarytool submit", 1)[1].split(">", 1)[0]
+    assert "--wait" not in submit
+    assert "--timeout" not in submit
+    assert "--output-format json" in submit
+    assert "NOTARY_WAIT" not in text
+    assert "POLL_BUDGET_SECONDS=18000" in text
+    assert "POLL_INTERVAL_SECONDS=60" in text
+    assert "INFO_CALL_TIMEOUT_SECONDS=120" in text
     assert "xcrun notarytool info" in text
-    assert "polling notarytool info (not resubmitting)." in text
+    assert "polling notarytool info" in text
+    assert "not resubmitting" in text
+    assert "notary submission id=" in text
+    assert "did not return a submission id" in text
     assert "xcrun notarytool log" in text
     assert "xcrun stapler staple" in text
+    assert "xcrun stapler validate" in text
     assert "contains(matrix.os, 'macos') && 360 || 180" in text
     assert "codesign --verify --deep --strict --verbose=2" in text
-    assert "spctl -a -t open --context context:primary-signature -vv" in text
+    assert "spctl -a -vvv -t install" in text
+    assert "spctl -a -t open --context context:primary-signature" not in text
     assert "codesign --force --deep" not in text
     assert "set-key-partition-list" in text
     assert "security delete-keychain" in text

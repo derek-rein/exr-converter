@@ -334,7 +334,7 @@ gh pr checks
 | `lint` | Tag↔pyproject + CHANGELOG gate, then Ruff check + format |
 | `test` | Full pytest on ubuntu / macos / windows |
 | `gate` | Aborts release if lint or any OS test failed |
-| `build` | Nuitka → AppImage / DMG / Windows setup (180m timeout; LTO + Qt strip aligned with `make bundle`). macOS DMGs are Developer ID-signed, notarized, and stapled here, before upload, when the Apple secrets below are set |
+| `build` | Nuitka → AppImage / DMG / Windows setup (3h timeout, 6h on macOS so notarization can finish; LTO + Qt strip aligned with `make bundle`). macOS DMGs are Developer ID-signed, notarized, and stapled here, before upload, when the Apple secrets below are set |
 | `sign-windows` | Optional SignPath Authenticode (skipped unless vars configured; runs **before** Cosign) |
 | `sign` | Assemble final bits → Cosign keyless + `actions/attest-build-provenance` (skipped for a `macos_only` signing test; those DMGs are already the build artifacts) |
 | `release` | CHANGELOG section + verify notes → single GitHub Release upload. Skipped when `publish` is false or `macos_only` is true |
@@ -401,13 +401,13 @@ Ad-hoc signing does not. Directory names that contain `.` and still hold
 Mach-O binaries are renamed with `__dot__` and symlinked back. Runtime lookup
 follows the symlinks (`runtime_exe_dirs()` also searches `Contents/Resources`).
 
-`notarytool submit --wait` uses a **2 hour** timeout. If Apple is still
-`In Progress` when that expires, the job polls `notarytool info` on the same
-submission id for up to another 2 hours and does not upload the DMG again.
-`Invalid` / `Rejected` prints `notarytool log`. macOS build jobs use the
-6-hour GitHub-hosted limit so that wait fits after Nuitka; other OS stay at
-3 hours. Without the certificate secrets the build still ad-hoc signs and
-skips notarization.
+`notarytool submit` returns the submission id immediately. The job then polls
+`notarytool info` on that id about once a minute for up to five hours and does
+not upload the DMG again. Each info call has a two-minute timeout and is
+retried when Apple or the network fails transiently. `Invalid` / `Rejected`
+prints `notarytool log`. macOS build jobs use the 6-hour GitHub-hosted limit
+so that poll fits after Nuitka; other OS stay at 3 hours. Without the
+certificate secrets the build still ad-hoc signs and skips notarization.
 
 **Signing test without publishing a release** (after this workflow is on the
 ref you pass):
@@ -424,7 +424,7 @@ It does not create a GitHub Release. `macos_only` forces publish off even if
 `publish=true` is also set. Download the DMG from the run and check:
 
 ```bash
-spctl -a -t open --context context:primary-signature -vv exr_converter-macos-arm64.dmg
+spctl -a -vvv -t install exr_converter-macos-arm64.dmg
 codesign --verify --deep --strict --verbose=2 exr_converter-macos-arm64.dmg
 ```
 

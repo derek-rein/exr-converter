@@ -256,9 +256,10 @@ jobs:
   build:
     needs: build-matrix
     # Nuitka + packaging can be slow; fail hung jobs instead of burning runner hours.
-    # GitHub-hosted jobs cannot run longer than 6h. macOS uses that cap so a
-    # 2h notarytool --wait plus later `notarytool info` polls still fit after
-    # the build. Other OS stay at 3h.
+    # GitHub-hosted jobs cannot run longer than 6h. macOS uses that cap.
+    # Notarization submits once, then polls that submission for about 5h, so
+    # the poll stays inside this limit when the build finishes in time.
+    # Other OS stay at 3h.
     timeout-minutes: ${{ contains(matrix.os, 'macos') && 360 || 180 }}
     strategy:
       fail-fast: false
@@ -867,19 +868,19 @@ jobs:
           printf '%s\n' "$ASC_API_KEY_P8" > "$P8"
           unset ASC_API_KEY_P8
           # create-dmg copies the signed app. Re-check the bundle before the
-          # notary upload so a broken signature fails here, not after the wait.
+          # notary upload so a broken signature fails here, not after upload.
           codesign --verify --deep --strict --verbose=2 "dist/EXR Converter.app"
           uv run python scripts/macos_codesign.py \
             --dmg "$DMG" \
             --identity "$MACOS_SIGNING_IDENTITY" \
             --keychain "$KEYCHAIN"
 
-          # One upload. --wait blocks until Apple finishes or --timeout (2h).
-          # A timeout is not a rejection: the submission stays In Progress.
-          # Poll that id with `notarytool info`. Do not submit the DMG again.
-          NOTARY_WAIT="2h"
-          POLL_BUDGET_SECONDS=7200
+          # One upload, without blocking on Apple. The submission id is in the
+          # JSON as soon as the upload is accepted. Poll `notarytool info` on
+          # that id for about 5h (under the 6h job cap). Never submit again.
+          POLL_BUDGET_SECONDS=18000
           POLL_INTERVAL_SECONDS=60
+          INFO_CALL_TIMEOUT_SECONDS=120
           INFO_JSON="$RUNNER_TEMP/notary-info.json"
           notary_field() {
             python3 - "$1" "$2" <<'PY'
@@ -909,40 +910,70 @@ jobs:
               --key-id "$ASC_KEY_ID" \
               --issuer "$ASC_ISSUER_ID" >&2 || true
           }
+          # Bound one info call. A hung request must not stall the poll, and
+          # killing the process group covers xcrun's child. Exit 124 is transient.
+          run_with_timeout() {
+            local seconds="$1"
+            shift
+            python3 - "$seconds" "$@" <<'PY'
+          import os
+          import signal
+          import subprocess
+          import sys
+
+          seconds = int(sys.argv[1])
+          cmd = sys.argv[2:]
+          proc = subprocess.Popen(cmd, start_new_session=True)
+          try:
+              rc = proc.wait(timeout=seconds)
+          except subprocess.TimeoutExpired:
+              os.killpg(proc.pid, signal.SIGTERM)
+              try:
+                  proc.wait(timeout=5)
+              except subprocess.TimeoutExpired:
+                  os.killpg(proc.pid, signal.SIGKILL)
+                  proc.wait()
+              sys.exit(124)
+          sys.exit(rc)
+          PY
+          }
           submit_status=0
           xcrun notarytool submit "$DMG" \
             --key "$P8" \
             --key-id "$ASC_KEY_ID" \
             --issuer "$ASC_ISSUER_ID" \
-            --wait \
-            --timeout "$NOTARY_WAIT" \
             --output-format json \
             >"$SUBMIT_JSON" || submit_status=$?
           if [ -s "$SUBMIT_JSON" ]; then
             cat "$SUBMIT_JSON"
           fi
           sub_id="$(notary_field "$SUBMIT_JSON" id)"
-          notary_status="$(notary_field "$SUBMIT_JSON" status)"
-          echo "notary status: ${notary_status:-unknown} id=${sub_id:-none} (submit exit ${submit_status})"
-          if [ "$notary_status" = "Invalid" ] || [ "$notary_status" = "Rejected" ]; then
-            echo "ERROR: notarization ${notary_status} (id ${sub_id:-unknown})" >&2
-            if [ -n "$sub_id" ]; then
-              fetch_notary_log
-            fi
+          if [ -z "$sub_id" ]; then
+            echo "ERROR: notarytool submit did not return a submission id (exit ${submit_status}); not resubmitting." >&2
             exit 1
           fi
-          timed_out=0
-          if [ "$submit_status" -eq 124 ] || [ "$notary_status" = "In Progress" ]; then
-            timed_out=1
-          elif [ "$submit_status" -ne 0 ] && [ -s "$SUBMIT_JSON" ] && grep -q "Timeout of " "$SUBMIT_JSON"; then
-            timed_out=1
+          echo "notary submission id=${sub_id}"
+          if [ "$submit_status" -ne 0 ]; then
+            echo "notarytool submit exited ${submit_status} with id ${sub_id}; polling that submission (not resubmitting)." >&2
           fi
-          if [ "$notary_status" != "Accepted" ] && [ "$timed_out" -eq 1 ] && [ -n "$sub_id" ]; then
-            echo "notarytool wait timed out for ${sub_id}; polling notarytool info (not resubmitting)."
+          notary_status="$(notary_field "$SUBMIT_JSON" status)"
+          echo "notary status: ${notary_status:-unknown} id=${sub_id} (submit exit ${submit_status})"
+          if [ "$notary_status" = "Invalid" ] || [ "$notary_status" = "Rejected" ]; then
+            echo "ERROR: notarization ${notary_status} (id ${sub_id})" >&2
+            fetch_notary_log
+            exit 1
+          fi
+          if [ "$notary_status" != "Accepted" ]; then
+            echo "polling notarytool info for ${sub_id} every ${POLL_INTERVAL_SECONDS}s for up to ${POLL_BUDGET_SECONDS}s (not resubmitting)."
             poll_deadline=$((SECONDS + POLL_BUDGET_SECONDS))
-            while [ "$SECONDS" -lt "$poll_deadline" ]; do
+            while [ "$notary_status" != "Accepted" ]; do
+              if [ "$SECONDS" -ge "$poll_deadline" ]; then
+                echo "ERROR: notarization still ${notary_status:-in progress} after ${POLL_BUDGET_SECONDS}s (id ${sub_id}); not resubmitting." >&2
+                exit 1
+              fi
               info_status=0
-              xcrun notarytool info "$sub_id" \
+              run_with_timeout "$INFO_CALL_TIMEOUT_SECONDS" \
+                xcrun notarytool info "$sub_id" \
                 --key "$P8" \
                 --key-id "$ASC_KEY_ID" \
                 --issuer "$ASC_ISSUER_ID" \
@@ -961,28 +992,21 @@ jobs:
                 fetch_notary_log
                 exit 1
               fi
+              if [ "$info_status" -ne 0 ] || [ -z "$notary_status" ]; then
+                echo "notarytool info failed (exit ${info_status}, id ${sub_id}); retrying (not resubmitting)." >&2
+              fi
               remaining=$((poll_deadline - SECONDS))
               if [ "$remaining" -le 0 ]; then
-                break
+                echo "ERROR: notarization still ${notary_status:-in progress} after ${POLL_BUDGET_SECONDS}s (id ${sub_id}); not resubmitting." >&2
+                exit 1
               fi
-              if [ "$remaining" -gt "$POLL_INTERVAL_SECONDS" ]; then
-                remaining=$POLL_INTERVAL_SECONDS
+              sleep_for=$POLL_INTERVAL_SECONDS
+              if [ "$remaining" -lt "$sleep_for" ]; then
+                sleep_for=$remaining
               fi
-              echo "submission ${sub_id} still ${notary_status:-in progress}; sleeping ${remaining}s (not resubmitting)."
-              sleep "$remaining"
+              echo "submission ${sub_id} still ${notary_status:-in progress}; sleeping ${sleep_for}s (not resubmitting)."
+              sleep "$sleep_for"
             done
-          fi
-          if [ "$notary_status" != "Accepted" ]; then
-            echo "ERROR: notarization was not accepted (status ${notary_status:-unknown}, submit exit ${submit_status})" >&2
-            if [ -s "$SUBMIT_JSON" ]; then
-              cat "$SUBMIT_JSON" >&2
-            fi
-            if [ "$timed_out" -eq 1 ] && [ -z "$sub_id" ]; then
-              echo "ERROR: notarytool timed out and the submission id was missing; not resubmitting." >&2
-            elif [ -n "$sub_id" ] && [ "$notary_status" = "Invalid" -o "$notary_status" = "Rejected" ]; then
-              fetch_notary_log
-            fi
-            exit 1
           fi
           echo "notary status: Accepted id=${sub_id}"
 
@@ -999,11 +1023,13 @@ jobs:
             echo "ERROR: stapler staple failed after retries" >&2
             exit 1
           fi
+          echo "--- stapler validate ${DMG} ---"
           xcrun stapler validate "$DMG"
           codesign --verify --deep --strict --verbose=2 "$DMG"
+          echo "--- spctl -a -vvv -t install ${DMG} ---"
           assessed=0
           for attempt in 1 2 3 4 5 6; do
-            if spctl -a -t open --context context:primary-signature -vv "$DMG"; then
+            if spctl -a -vvv -t install "$DMG"; then
               assessed=1
               break
             fi
@@ -1306,7 +1332,7 @@ jobs:
               echo "Gatekeeper should open them without an unidentified-developer warning."
               echo
               echo '```bash'
-              echo "spctl -a -t open --context context:primary-signature -vv <DMG>"
+              echo "spctl -a -vvv -t install <DMG>"
               echo "codesign --verify --deep --strict --verbose=2 <DMG>"
               echo '```'
             else
