@@ -15,7 +15,7 @@ description: |
 
   This "OpenColorIO" config is geared toward studios requiring a config that includes a wide variety of camera colorspaces, displays and looks.
 
-  EXR Converter adds Nikon N-Log, Fujifilm F-Log, F-Log2 and F-Log2 C, Leica L-Log, Sony S-Log and S-Log2, Canon Log in Rec.709 and Rec.2020, KineLOG3, GoPro Protune / GP-Log / GP-Log2, and Blackmagic Film Gen 4. Existing ACES Studio colorspace names are unchanged. Sources and measured error: CAMERAS.md.
+  EXR Converter adds Nikon N-Log, Fujifilm F-Log, F-Log2 and F-Log2 C, Leica L-Log, Sony S-Log and S-Log2, Canon Log in Rec.709 and Rec.2020, KineLOG3, GoPro Protune / GP-Log / GP-Log2, Blackmagic Film Gen 4, OPPO O-Log, and Apple Log 2. Existing ACES Studio colorspace names are unchanged. Sources and measured error: CAMERAS.md.
 
 roles:
   aces_interchange: ACES2065-1
@@ -561,6 +561,23 @@ colorspaces:
         urn:ampas:aces:transformId:v2.0:CSC.Apple.AppleLog_BT2020_to_ACES.a2.v1
     allocation: uniform
     to_scene_reference: !<BuiltinTransform> {style: APPLE_LOG_to_ACES2065-1}
+
+  - !<ColorSpace>
+    name: Apple Log 2
+    aliases: [apple_log2, Input - Apple - Apple Log 2]
+    family: Input/Apple
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert Apple Log 2 (Apple Wide Gamut) to ACES2065-1. Same curve as Apple Log.
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Apple Log 2 to ACES2065-1
+      children:
+        - !<BuiltinTransform> {style: CURVE - APPLE_LOG_to_LINEAR}
+        - !<MatrixTransform> {matrix: [0.694961049318096, 0.241405268785364, 0.06363368189654, 0, 0.047362746414932, 1.004295925054283, -0.051658671469216, 0, -0.021989789359883, -0.028989104971474, 1.050978894331357, 0, 0, 0, 0, 1]}
 
   - !<ColorSpace>
     name: ARRI LogC3 (EI800)
@@ -1228,6 +1245,23 @@ colorspaces:
         - !<MatrixTransform> {matrix: [0.439632981919492, 0.382988698151554, 0.177378319928956, 0, 0.0897764429588422, 0.813439428748978, 0.0967841282921771, 0, 0.0175411703831728, 0.111546553302387, 0.870912276314443, 0, 0, 0, 0, 1]}
 
   - !<ColorSpace>
+    name: O-Log Rec.2020
+    aliases: [olog_rec2020, Input - OPPO - O-Log - Rec.2020]
+    family: Input/OPPO
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Convert OPPO O-Log Rec.2020 to ACES2065-1 (section 3 reflectance, not the CTL gain)
+    isdata: false
+    categories: [file-io]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: OPPO O-Log Rec.2020 to ACES2065-1
+      children:
+        - !<LogCameraTransform> {base: 2.71828182845905, log_side_slope: 0.139, log_side_offset: 0.614, lin_side_slope: 1, lin_side_offset: 0.019, lin_side_break: -0.018, direction: inverse}
+        - !<MatrixTransform> {matrix: [0.679085634706913, 0.157700914643159, 0.163213450649929, 0, 0.0460020030800595, 0.859054673002905, 0.0949433239170316, 0, -0.000573943187616201, 0.0284677684080262, 0.972106174779585, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
     name: N-Log N-Gamut
     aliases: [nlog_ngamut, Input - Nikon - N-Log - N-Gamut]
     family: Input/Nikon
@@ -1846,6 +1880,18 @@ named_transforms:
       name: Leica L-Log to linear
       children:
         - !<LogCameraTransform> {base: 10, log_side_slope: 0.27, log_side_offset: 0.6, lin_side_slope: 1.3, lin_side_offset: 0.0115, lin_side_break: 0.006, linear_slope: 8, direction: inverse}
+
+  - !<NamedTransform>
+    name: O-Log - Curve
+    aliases: [olog_crv, crv_olog]
+    description: Convert OPPO O-Log (arbitrary primaries) to scene reflectance
+    family: Input/OPPO
+    categories: [file-io]
+    encoding: log
+    transform: !<GroupTransform>
+      name: OPPO O-Log to scene reflectance
+      children:
+        - !<LogCameraTransform> {base: 2.71828182845905, log_side_slope: 0.139, log_side_offset: 0.614, lin_side_slope: 1, lin_side_offset: 0.019, lin_side_break: -0.018, direction: inverse}
 
   - !<NamedTransform>
     name: N-Log - Curve

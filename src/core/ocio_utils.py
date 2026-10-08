@@ -44,7 +44,8 @@ def get_bundled_aces_studio_path() -> Path | None:
     in ``resources/ocio/CAMERAS.md`` (Nikon N-Log, Fujifilm F-Log / F-Log2 /
     F-Log2 C, Leica L-Log, Sony S-Log / S-Log2, Canon Log in Rec.709 and
     Rec.2020, KineLOG3, GoPro Protune / GP-Log / GP-Log2, Blackmagic Film
-    Gen 4). Stock colorspace names are unchanged. N-Log's curve is
+    Gen 4, OPPO O-Log, Apple Log 2). Stock colorspace names are unchanged.
+    N-Log's curve is
     ``resources/ocio/luts/nlog_to_lin.spi1d`` beside the config.
 
     Tries several locations to work in dev, Nuitka onefile, and especially

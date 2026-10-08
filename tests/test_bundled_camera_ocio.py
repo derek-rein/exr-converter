@@ -55,6 +55,8 @@ _ADDED = (
     "Protune Rec.709",
     "GP-Log Rec.709",
     "GP-Log2 Rec.2020",
+    "O-Log Rec.2020",
+    "Apple Log 2",
 )
 
 
@@ -127,6 +129,16 @@ def _kinelog3_code(reflectance: float) -> float:
 def _log_base_code(reflectance: float, base: float) -> float:
     """GoPro-style ``log(reflectance * (base - 1) + 1) / log(base)``."""
     return math.log(reflectance * (base - 1.0) + 1.0) / math.log(base)
+
+
+def _olog_code(reflectance: float) -> float:
+    """OPPO O-Log white paper section 3.1. ``reflectance`` 0.18 is 18%."""
+    return 0.139 * math.log(reflectance + 0.019) + 0.614
+
+
+def _apple_log_code(reflectance: float) -> float:
+    """Apple Log encoding (18% is above the parabolic toe). Apple Log 2 uses it too."""
+    return 0.08550479 * math.log2(reflectance + 0.00964052) + 0.69336945
 
 
 def _canon_log3_code(reflectance: float) -> float:
@@ -213,6 +225,8 @@ def test_nlog_lut_matches_spec() -> None:
         ("Protune Rec.709", _log_base_code(0.18, 113.0)),
         ("GP-Log Rec.709", _log_base_code(0.18, 400.0)),
         ("GP-Log2 Rec.2020", _log_base_code(0.18 / (2.0**1.8), 600.0)),
+        ("O-Log Rec.2020", _olog_code(0.18)),
+        ("Apple Log 2", _apple_log_code(0.18)),
     ],
 )
 def test_mid_grey_lands_near_018(bundled: OCIO.Config, space: str, code: float) -> None:
@@ -229,12 +243,27 @@ def test_mid_grey_lands_near_018(bundled: OCIO.Config, space: str, code: float) 
         ("S-Log2 S-Gamut", 347 / 1023),
         ("CanonLog Rec.709", 351 / 1023),
         ("N-Log N-Gamut", 372 / 1023),
+        ("O-Log Rec.2020", 399 / 1023),
     ],
 )
 def test_published_10bit_mid_grey_codes(bundled: OCIO.Config, space: str, code: float) -> None:
     """Maker tables round 18% grey to an integer 10-bit code."""
     out = _apply(bundled, space, [code, code, code])
     assert out == pytest.approx([0.18, 0.18, 0.18], abs=1e-3)
+
+
+def test_apple_log2_matches_ocio_unit_sample(bundled: OCIO.Config) -> None:
+    """OCIO PR 2343 sample: code (0.5, 0.4, 0.3) through Apple Log 2."""
+    out = _apply(bundled, "Apple Log 2", [0.5, 0.4, 0.3])
+    assert out == pytest.approx([0.160302015, 0.091223177, 0.026405713], abs=1e-5)
+
+
+def test_apple_log2_neutral_matches_apple_log(bundled: OCIO.Config) -> None:
+    """Same curve and a white-preserving matrix, so grey matches stock Apple Log."""
+    code = _apple_log_code(0.18)
+    log2 = _apply(bundled, "Apple Log 2", [code, code, code])
+    log1 = _apply(bundled, "Apple Log", [code, code, code])
+    assert log2 == pytest.approx(log1, abs=1e-6)
 
 
 def test_stock_slog3_matches_ocio_builtin(bundled: OCIO.Config) -> None:
@@ -290,6 +319,8 @@ def test_formula_error_within_tolerance(bundled: OCIO.Config) -> None:
         "Protune - Curve",
         "GP-Log - Curve",
         "GP-Log2 - Curve",
+        "O-Log - Curve",
+        "Apple Log 2",
         "BMD Broadcast Film Gen4 - Curve",
         "BMD Pocket 4K Film Gen4 - Curve",
         "BMD Pocket 6K Film Gen4 - Curve",

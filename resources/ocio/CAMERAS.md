@@ -32,6 +32,59 @@ cube at those points still mixes in the cube's interpolation and, for a
 viewing LUT, the vendor tone map. The numbers below are that comparison.
 They are not a claim that a formula reproduces a Rec.709 look LUT.
 
+## Coverage of popular video cameras
+
+Cameras from about 2016 through 2026 that record the same curve and gamut
+share a row. Status is against this file:
+
+| Status | Meaning |
+| --- | --- |
+| already in config | Stock ACES Studio v4 colorspace, name unchanged. |
+| added in #59 | Specification transform added on this change before the coverage pass. |
+| added now | Added in the coverage pass, from a published equation or from reference data checked against that equation. |
+| not possible | No public scene-linear equation or official reference file could be verified. Nothing was guessed. |
+
+| Family | Curve | Gamut | Status | Source |
+| --- | --- | --- | --- | --- |
+| ARRI Alexa Mini, LF, Mini LF, Amira, and other LogC3 bodies | LogC3, normalized at EI 800 | ALEXA Wide Gamut 3 | already in config | `ARRI LogC3 (EI800)`. Other EIs are exposure offsets of that curve, not extra spaces. |
+| ARRI Alexa 35 and other LogC4 bodies | LogC4 | ALEXA Wide Gamut 4 | already in config | `ARRI LogC4`. |
+| RED Weapon, Helium, Monstro, Gemini, Komodo, V-Raptor, Raptor (IPP2) | Log3G10 | REDWideGamutRGB | already in config | `Log3G10 REDWideGamutRGB`. Older REDlogFilm is display-referred and is not used as an input transform. |
+| Sony Venice, Venice 2, Burano | S-Log3 | S-Gamut3 and S-Gamut3.Cine | already in config | `S-Log3 Venice S-Gamut3` and `S-Log3 Venice S-Gamut3.Cine`. |
+| Sony FX9, FX6, FX3, FX30, and Alpha bodies that record S-Log3 | S-Log3 | S-Gamut3 and S-Gamut3.Cine | already in config | `S-Log3 S-Gamut3` and `S-Log3 S-Gamut3.Cine`. Sony publishes the same chromaticities for the original S-Gamut and for S-Gamut3. |
+| Older Sony S-Log and S-Log2 bodies | S-Log, S-Log2 | S-Gamut | added in #59 | Sony *S-Log White Paper* and *S-Log2 Technical Paper*. |
+| Canon C300 III, C500 II, C70, C400, C80, C200, EOS R5, R5 C, R6, R3 | Canon Log 2 and Canon Log 3 | Cinema Gamut | already in config | `CanonLog2 CinemaGamut D55` and `CanonLog3 CinemaGamut D55`. |
+| Those Canon bodies, Rec.2020 or Rec.709 record setting | Canon Log 2 and Canon Log 3 | Rec.2020, Rec.709 | added in #59 | Same OCIO curves plus this config's Rec.2020 or Rec.709 matrix. DCI-P3 on these cameras is a monitor gamut, not a published record IDT. |
+| Canon C100, C300, C500, and Canon Log on later bodies | Canon Log | Cinema Gamut, Rec.2020, Rec.709 | added in #59 | Canon, *Canon-Log Transfer Characteristic* (2012). |
+| Panasonic VariCam 35, VariCam LT, EVA1, S1H, S5, S5 II, GH5S, GH6, GH7, BS1H | V-Log | V-Gamut | already in config | `V-Log V-Gamut`. Panasonic V-Log / V-Gamut document. |
+| Panasonic GH4 and other V-Log L bodies | V-Log L | V-Gamut | already in config | Same published V-Log curve (18% grey at code 433/1023). V-Log L reaches fewer highlight stops; it is not a second equation. |
+| Nikon Z 6, Z 7, Z 8, Z 9, Zf, and later N-Log bodies | N-Log | N-Gamut (Rec.2020 primaries) | added in #59 | Nikon *N-Log Specification Document* v1.0.0. |
+| Fujifilm X-T4, X-H2, X-H2S, GFX, and other F-Log bodies | F-Log, F-Log2, F-Log2 C | F-Gamut, F-Gamut C | added in #59 | Fujifilm data sheets and the official IDT CTL / CLF. |
+| Leica SL2, SL2-S, SL3, Q3 | L-Log | Rec.2020 | added in #59 | Leica *L-Log Reference Manual*. |
+| Leica SL (Typ 601) | L-Log | Rec.709 | added in #59 | Same manual. Rec.709 is specified for the Typ 601 only. |
+| Sigma fp, fp L, BF | no published scene log | CinemaDNG is linear | not possible | Sigma has not published an L-Log curve. L-Log is Leica's. MOV profiles are not a published scene OETF. |
+| OM System OM-1, OM-5, E-M1 | OM-Log400 | P3-D65 (H.264) or BT.2020 (H.265) | not possible | Official files are OM-Log400 to a WDR Rec.709 viewing look. No scene-linear equation is published, so the LUTs were not fitted. |
+| Ricoh GR, Pentax | none found | | not possible | No published scene-referred log video profile for current bodies. |
+| Blackmagic URSA Mini Pro, URSA Broadcast | Film Gen 4 | Wide Gamut | added in #59 | `BMD Broadcast Film WideGamut Gen4`, fitted to a Resolve transfer LUT. Blackmagic has not published the equation. |
+| Blackmagic Pocket Cinema Camera 4K and original Pocket 6K | Film Gen 4 | Wide Gamut | added in #59 | Separate Pocket 4K and Pocket 6K fits. Same Wide Gamut matrix. |
+| Blackmagic Pyxis, Cinema Camera 6K, Pocket 6K Pro, Pocket 6K G2, URSA Mini Pro 12K | Film Gen 5 | Wide Gamut | already in config | `BMDFilm WideGamut Gen5`. |
+| Blackmagic URSA Mini 4.6K | Film Gen 3 | Wide Gamut | not possible | No Blackmagic equation. A third-party Resolve export exists; it is not official reference data, so it was not fitted. |
+| Kinefinity MAVO and TERRA | KineLOG3 | Wide Gamut | added in #59 | Kinefinity KineLOG3 technical specifications. |
+| Z CAM E2, F6, F8 | Z-Log2 | not published as a matrix | not possible | No published equation. Z CAM's LUT pages did not return a cube from this environment. |
+| DJI Ronin 4D, Inspire, Zenmuse X5 and X7 | D-Log | D-Gamut | already in config | DJI D-Log white paper. `D-Log D-Gamut`. |
+| DJI Mavic, Air, Avata, Osmo Action, Osmo Pocket | D-Log M | product gamut, not the white-paper D-Gamut | not possible | No scene-linear equation. Official Rec.709 cubes disagree with each other and map code 1 to display white. |
+| GoPro Protune bodies | Protune | Rec.709 | added in #59 | GoPro log note, base 113. |
+| GoPro HERO12 | GP-Log | Rec.709 | added in #59 | Same note, base 400. |
+| GoPro GP-Log2 bodies | GP-Log2 | Rec.2020 | added in #59 | Same note, base 600, then the published +1.8 stop so metered 18% grey lands on 0.18. |
+| Insta360 X6, Luna, ONE R, ONE RS | I-Log | BT.2020 stated for 10-bit I-Log | not possible | The 10-bit I-Log white paper is listed on Insta360's download page and returned HTTP 403 here. Secondary writeups were not used as the equation. |
+| iPhone 15 Pro and 16 Pro | Apple Log | Rec.2020 | already in config | `Apple Log`. Apple *Log Profile White Paper*, September 2023. |
+| Blackmagic Camera app on iPhone | Apple Log, plus Rec.709, Rec.2020, P3 D65, HLG, HDR10, ACES | those encodings | already in config | The app's log mode is Apple Log. ACES recording is the ACES working space, not a separate camera curve. |
+| iPhone 17 Pro | Apple Log 2 | Apple Wide Gamut | added now | Same curve as Apple Log. Primaries from the merged OpenColorIO implementation of Apple's Log 2 white paper (commit `3f96f20`, PR 2343): R 0.725 0.301, G 0.221 0.814, B 0.068 −0.076, D65. Apple's developer docs name the space. The PDF is behind Apple's developer download and was not fetched. |
+| Samsung Galaxy log video | Samsung Log | BT.2020 stated publicly | not possible | The white paper, 1D linearisation LUT, and Rec.709 cube require a Samsung account and were not retrieved. |
+| Xiaomi 15 Ultra and 17 Ultra | Mi-Log | BT.2020 stated | not possible | The December 2024 white paper URL returned HTML rather than the PDF. Constants repeated by colour libraries were not copied. |
+| vivo | none found | | not possible | No public log equation. |
+| OPPO Find X8 Ultra, Find X9, Find X9 Pro, OnePlus 15 | O-Log | O-Gamut (BT.2020 primaries) | added now | OPPO *O-Log White Paper*, English text dated 2025-10-22. Section 3 reflectance equation and this config's Rec.2020 matrix. |
+| Google Pixel | none | Rec.709, HLG, Ultra HDR | not possible | No cinema-log equation is published. |
+
 ## Added colorspaces
 
 | Colorspace | Origin | Source | License / redistribution |
@@ -55,12 +108,15 @@ They are not a claim that a formula reproduces a Rec.709 look LUT.
 | `BMD Broadcast Film WideGamut Gen4` | Fitted | No Blackmagic curve equation is published. Coefficients were fitted to the Resolve-exported 1D LUT in Nathan Vegdahl's *Blackmagic Design Transfer Function LUTs* (2022-04-23). Gamut is the stock Wide Gamut Gen 5 matrix: Gen 4 and Gen 5 Wide Gamut chromaticities match. | Fitted parameters only. The spi1d / cube files are not redistributed. |
 | `BMD Pocket 4K Film Gen4` | Fitted | Same source, Pocket 4K Film Gen 4 transfer LUT. Same Wide Gamut matrix. | Same. The linear and log pieces in the source LUT do not meet; a single LogCamera keeps that kink. |
 | `BMD Pocket 6K Film Gen4` | Fitted | Same source, Pocket 6K Film Gen 4 transfer LUT. Pocket 6K-specific primaries were not published separately, so this uses the same Wide Gamut matrix as Gen 4/5. | Same, including the toe kink. |
+| `O-Log Rec.2020` | Published equation | OPPO *O-Log White Paper* (English, 2025-10-22), section 3. `P = 0.139·ln(R + 0.019) + 0.614` for scene reflectance `R` from 0 to 16. 18% grey is code 0.389591 (Table 1 rounds that to 0.3895463, 10-bit 399). Primaries are BT.2020, so the matrix is this config's Rec.2020 → ACES matrix. The paper's section 6 CTL divides by 16 and multiplies by 7.37235 (about 1.12 stops) and its prose maps 18% to 0.4901589, which is Table 1's 39% row. That gain is not applied: section 3 puts 18% reflectance on 0.18. The log is valid through code 0. | Equations only. The PDF is not bundled. |
+| `Apple Log 2` | Published curve, primaries from the OCIO implementation of Apple's white paper | Same transfer function as stock `Apple Log` (`CURVE - APPLE_LOG_to_LINEAR`). Apple Wide Gamut primaries R 0.725 0.301, G 0.221 0.814, B 0.068 −0.076, D65, Bradford to ACES2065-1, as in OpenColorIO commit `3f96f20` (PR 2343), which cites the Apple Log 2 white paper. Apple's public docs describe Apple Log 2 as Apple Gamut plus an Apple log curve. The PDF was not downloaded (Apple developer login). 18% grey uses the Apple Log code, about 0.48827. There is no second curve transform; `Apple Log - Curve` is the curve. | Matrix computed from those primaries. No LUT bundled. |
 
 Curve-only named transforms (no gamut matrix): `N-Log - Curve`, `F-Log - Curve`,
 `F-Log2 - Curve`, `F-Log2C - Curve`, `L-Log - Curve`, `S-Log - Curve`,
 `S-Log2 - Curve`, `Canon Log - Curve`, `KineLOG3 - Curve`, `Protune - Curve`,
-`GP-Log - Curve`, `GP-Log2 - Curve` (before the +1.8 stop), `BMD Broadcast Film
-Gen4 - Curve`, `BMD Pocket 4K Film Gen4 - Curve`, `BMD Pocket 6K Film Gen4 - Curve`.
+`GP-Log - Curve`, `GP-Log2 - Curve` (before the +1.8 stop), `O-Log - Curve`,
+`BMD Broadcast Film Gen4 - Curve`, `BMD Pocket 4K Film Gen4 - Curve`,
+`BMD Pocket 6K Film Gen4 - Curve`. Apple Log 2 uses the stock `Apple Log - Curve`.
 
 ## Measured error
 
@@ -92,6 +148,9 @@ of times mid-grey and a float32 ulp is about 1e-5 to 1e-4.
 | GP-Log2 base 600, before the +1.8 stop | 2.5e-6 | 2.5e-7 | Same. |
 | GP-Log2 neutral grey after × 2^1.8 | 8.8e-6 | 8.7e-7 | Rec.2020 row sums are 1, so the gain is the whole matrix scale. |
 | Broadcast / Pocket Gen 4 OCIO vs the fitted LogCamera parameters | ≤ 2.6e-5 | ≤ 2.8e-6 | Checks that the config implements the fit. The spi1d residual is the next table. |
+| O-Log, codes 0–1 | 4.1e-5 | 3.7e-6 | Section 3 reflectance equation. Max is float32 near code 1 (reflectance ~16). |
+| Apple Log 2 neutral axis vs the Apple Log equation | 2.4e-5 | 1.5e-6 | The OCIO curve builtin is a half-float LUT of that equation. Wide Gamut row sums are 1, so grey is the curve. |
+| Apple Log 2 code (0.5, 0.4, 0.3) vs the OCIO unit-test ACES sample | 4.0e-7 | 2.0e-7 | OpenColorIO PR 2343. Their own tolerance is 1e-6. |
 
 ### Fitted Blackmagic curves vs the Resolve 1D LUTs
 
@@ -148,3 +207,10 @@ equation only.
 | DJI D-Log M / D-Log2 | No published scene-linear equation. Official Rec.709 cubes disagree with each other and clip code 1 to display white. Stock `D-Log D-Gamut` remains the white-paper D-Log, which is a different curve. |
 | Samsung Log | Samsung's developer page lists a white paper, a Log-to-linear 1D LUT, and a Log-to-Rec.709 3D LUT. Those downloads require a Samsung account and were not retrieved. BT.2020 primaries are stated publicly; the curve equation was not. No formula was invented. |
 | Z CAM Z-Log2 | No published equation. Z CAM's LUT pages did not return a cube from this environment. The community DCTL references a vendor `zlog2_to_linear` cube rather than a formula, and that cube was not available to fit. |
+| Xiaomi Mi-Log | The December 2024 white paper did not download (the public URL returned HTML). No equation was taken from a colour library. |
+| vivo, Google Pixel, Ricoh, Pentax | No published scene-log equation was found. |
+| Insta360 I-Log | The 10-bit I-Log white paper is advertised on Insta360's download page and was not retrievable here (HTTP 403). |
+| OM-Log400 | Official LUTs convert to a WDR Rec.709 look. They are not a scene-linear IDT, and OM System has not published the decode equation. |
+| Sigma fp / fp L / BF | No published scene-log OETF. Leica L-Log is a different camera. |
+| Blackmagic Film Gen 3 | No Blackmagic equation. Only an unofficial Resolve export was available, so it was not fitted. |
+| OPPO section 6 CTL gain | The gain `(exp((P−0.614)/0.139) − 0.019) / 16 × 7.37235` does not invert section 3. It is documented above and is not in the config. |

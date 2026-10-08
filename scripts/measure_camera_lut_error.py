@@ -122,6 +122,27 @@ def log_base_to_linear(code: float, base: float) -> float:
     return (base**code - 1.0) / (base - 1.0)
 
 
+def olog_to_linear(code: float) -> float:
+    """OPPO O-Log white paper section 3.2, scene reflectance."""
+    return math.exp((code - 0.614) / 0.139) - 0.019
+
+
+def apple_log_to_linear(code: float) -> float:
+    """Apple Log white paper / OCIO ``APPLE_LOG`` constants. Apple Log 2 shares this curve."""
+    r0 = -0.05641088
+    rt = 0.01
+    sigma = 47.28711236
+    beta = 0.00964052
+    gamma = 0.08550479
+    delta = 0.69336945
+    pt = sigma * (rt - r0) ** 2
+    if code >= pt:
+        return 2.0 ** ((code - delta) / gamma) - beta
+    if code >= 0.0:
+        return math.sqrt(code / sigma) + r0
+    return r0
+
+
 def bmd_to_linear(
     code: float,
     *,
@@ -345,6 +366,37 @@ def measure_formulas(config: OCIO.Config) -> list[ErrorRow]:
             gplog2 - raw,
             tolerance=_FORMULA_TOL,
             note="neutral grey: decode × 2^1.8, Rec.2020 row sums are 1",
+        )
+    )
+    curve_vs(
+        "O-Log - Curve",
+        olog_to_linear,
+        tolerance=_FORMULA_TOL,
+        note="OPPO section 3 reflectance. The section 6 CTL gain is not applied",
+    )
+    curve_vs(
+        "Apple Log 2",
+        apple_log_to_linear,
+        tolerance=_FORMULA_TOL,
+        note=(
+            "same Apple Log equation as the OCIO builtin; neutral axis, "
+            "Apple Wide Gamut row sums are 1"
+        ),
+        space="Apple Log 2",
+    )
+    # OCIO PR 2343 unit-test sample. Their tolerance is 1e-6 against the half LUT.
+    apple_sample = np.array([[0.5, 0.4, 0.3]], dtype=np.float64)
+    apple_got = _apply(
+        _space_cpu(config, "Apple Log 2", "ACES2065-1"), apple_sample
+    )[0]
+    apple_expect = np.array([0.160302015, 0.091223177, 0.026405713])
+    rows.append(
+        _row(
+            "Apple Log 2",
+            "published",
+            apple_got - apple_expect,
+            tolerance=1e-5,
+            note="OCIO unit test {0.5, 0.4, 0.3} to ACES, Apple Wide Gamut matrix",
         )
     )
 

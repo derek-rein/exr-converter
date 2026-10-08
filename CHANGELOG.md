@@ -27,6 +27,11 @@ rolling the `[Unreleased]` section into a versioned heading.
   Rec.709 camera cubes that bake in a vendor tone map are not used as the
   scene-linear transform. DJI D-Log M, Samsung Log, and Z CAM Z-Log2 are not
   included: no scene-linear equation was available to match.
+- Bundled ACES Studio config also adds **OPPO O-Log** (Rec.2020; 18%
+  reflectance stays on linear 0.18) and **Apple Log 2** (Apple Wide Gamut,
+  same curve as Apple Log). `resources/ocio/CAMERAS.md` lists popular
+  2016–2026 cameras and whether each log is already in the config, added
+  here, or left out because no public equation could be checked.
 
 ### Changed
 
