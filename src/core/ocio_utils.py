@@ -37,13 +37,16 @@ def list_builtin_configs() -> list[tuple[str, str, bool]]:
 
 
 def get_bundled_aces_studio_path() -> Path | None:
-    """Locate the bundled 'super awesome' ACES Studio config (v4 / ACES 2.0).
+    """Locate the bundled ACES Studio config (v4 / ACES 2.0, plus camera logs).
 
-    This is the official AcademySoftwareFoundation/OpenColorIO-Config-ACES
-    studio config. It is a single small .ocio file (uses OCIO built-in
-    transforms) containing a wide variety of camera input transforms/IDTs
-    (ARRI Alexa, RED, Sony Venice, Canon, DJI, Apple Log, etc.) plus modern
-    ACES Output Transforms. It is legally redistributable (BSD-3-Clause).
+    Starts from the official AcademySoftwareFoundation/OpenColorIO-Config-ACES
+    studio config (BSD-3-Clause) and adds the camera input transforms documented
+    in ``resources/ocio/CAMERAS.md`` (Nikon N-Log, Fujifilm F-Log / F-Log2 /
+    F-Log2 C, Leica L-Log, Sony S-Log / S-Log2, Canon Log in Rec.709 and
+    Rec.2020, KineLOG3, GoPro Protune / GP-Log / GP-Log2, Blackmagic Film
+    Gen 4, OPPO O-Log, Apple Log 2). Stock colorspace names are unchanged.
+    N-Log's curve is
+    ``resources/ocio/luts/nlog_to_lin.spi1d`` beside the config.
 
     Tries several locations to work in dev, Nuitka onefile, and especially
     macOS .app bundles created with --macos-create-app-bundle +
@@ -124,7 +127,7 @@ def list_app_configs() -> list[tuple[str, str, bool]]:
     """App-provided configs (our bundled super config first)."""
     p = get_bundled_aces_studio_path()
     if p:
-        label = "ACES Studio Config (v4 • ACES 2.0 • cameras)"
+        label = "ACES Studio Config (v4 • ACES 2.0 • + extra camera logs)"
         return [(BUNDLED_ACES_STUDIO_KEY, label, True)]
     # Fallback: if for some reason the file isn't there, surface nothing extra
     return []
