@@ -3,9 +3,14 @@
 # Triggers:
 #   1. push of tag v* (human / PAT push — GITHUB_TOKEN tag pushes do NOT fire this)
 #   2. workflow_dispatch (Auto-tag after merge: --ref main -f tag=vX.Y.Z)
+#   3. workflow_dispatch signing test (no GitHub Release):
+#        gh workflow run Release --ref <branch> -f macos_only=true -f publish=false
+#      Builds, Developer ID-signs, notarizes, and staples the two macOS DMGs
+#      and uploads them as Actions artifacts. Does not publish.
 #
 # Gate: lint + full pytest suite (unit + integration) must pass on all
 # platforms before any Nuitka build or GitHub Release is published.
+# macos_only still runs that gate, then only the macOS build cells.
 #
 # Cosign OIDC identity for workflow_dispatch (normal auto-tag path) is:
 #   …/release.yml@refs/heads/main
@@ -18,25 +23,42 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    # Prefer: gh workflow run Release --ref main -f tag=v0.5.2
-    # Workflow *file* comes from --ref (use main). Source *code* is checked out
-    # from source_ref (default = tag). Re-dispatching an old tag without a new
-    # tag will NOT pick up packaging fixes that only exist on main.
+    # Real release (Auto-tag): gh workflow run Release --ref main -f tag=v0.5.2
+    # Workflow *file* comes from --ref. Source *code* is checked out from
+    # source_ref (default = tag). Re-dispatching an old tag without a new tag
+    # will NOT pick up packaging fixes that only exist on main.
+    #
+    # Signing test (no publish), after this file is on the ref you pass:
+    #   gh workflow run Release --ref <branch> -f macos_only=true -f publish=false
+    # macos_only forces publish off. It checks out that ref (not a tag) unless
+    # source_ref is set, and uploads the notarized DMGs as Actions artifacts.
     inputs:
       tag:
-        description: "Release tag name (e.g. v0.5.2). Required for dispatch."
-        required: true
-        type: string
-      source_ref:
-        description: "Git ref to build (default: same as tag). Set to main only for emergency rebuilds."
+        description: "Release tag (vX.Y.Z). Required when publish is true. Not used as the checkout ref for macos_only."
         required: false
         type: string
         default: ""
+      source_ref:
+        description: "Git ref to build. Default: the tag when publishing; this workflow ref for macos_only."
+        required: false
+        type: string
+        default: ""
+      publish:
+        description: "Create the GitHub Release. Default true. Ignored when macos_only is true (never publishes)."
+        required: false
+        type: boolean
+        default: true
+      macos_only:
+        description: "Sign and notarize only the macOS DMGs. Upload Actions artifacts. Do not publish a GitHub Release."
+        required: false
+        type: boolean
+        default: false
 
-# One pipeline per tag across push:tags and workflow_dispatch. Never cancel an
-# in-flight Nuitka build — queue the newer run instead.
+# One pipeline per tag across push:tags and workflow_dispatch. A macOS signing
+# test uses its own group so it does not queue behind a real release.
+# Never cancel an in-flight Nuitka build — queue the newer run instead.
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_only && format('macos-sign-test-{0}', github.ref_name) || format('release-{0}', github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name) }}
   cancel-in-progress: false
 
 permissions:
@@ -46,10 +68,10 @@ permissions:
 env:
   NUITKA_ASSUME_YES_FOR_DOWNLOADS: "1"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  # Published version / GitHub Release name
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-  # Code to build (must contain packaging scripts for that release)
-  RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && (inputs.source_ref != '' && inputs.source_ref || inputs.tag) || github.ref_name }}
+  # Published version / GitHub Release name. macos_only is not a release.
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && (inputs.macos_only && 'signing-test' || (inputs.tag != '' && inputs.tag || '')) || github.ref_name }}
+  # Code to build. macos_only defaults to the ref the workflow was dispatched on.
+  RELEASE_REF: ${{ github.event_name != 'workflow_dispatch' && github.ref_name || (inputs.source_ref != '' && inputs.source_ref || (inputs.macos_only && github.ref_name || (inputs.tag != '' && inputs.tag || github.ref_name))) }}
 
 jobs:
   # ── Quality gate (must pass before build / sign / publish) ────────────────
@@ -65,8 +87,14 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           SOURCE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || '' }}
+          MACOS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_only && 'true' || 'false' }}
         run: |
           set -euo pipefail
+          if [ "${MACOS_ONLY}" = "true" ]; then
+            echo "macos_only signing test: building ${RELEASE_REF}."
+            echo "Not a release. Tag/changelog publish gates are skipped. No GitHub Release will be published."
+            exit 0
+          fi
           TAG="${RELEASE_TAG}"
           VERSION="${TAG#v}"
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -189,28 +217,50 @@ jobs:
             echo "ERROR: tests failed — aborting release" >&2
             exit 1
           fi
-          echo "Release gate passed — proceeding to multi-platform build"
+          echo "Release gate passed — proceeding to build"
+
+  # Job-level if cannot read matrix, so the target list is chosen here.
+  # macos_only keeps the two DMG rows; a real release keeps all four.
+  build-matrix:
+    needs: gate
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.set.outputs.include }}
+    steps:
+      - name: Choose build targets
+        id: set
+        env:
+          MACOS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_only && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$MACOS_ONLY" = "true" ]; then
+            echo "macos_only: macOS arm64 and x86_64 DMGs only. No GitHub Release."
+            json='[
+              {"os":"macos-latest","artifact":"exr_converter-macos-arm64","ext":"dmg"},
+              {"os":"macos-26-intel","artifact":"exr_converter-macos-x86_64","ext":"dmg"}
+            ]'
+          else
+            json='[
+              {"os":"ubuntu-24.04","artifact":"exr_converter-linux-x86_64","ext":"AppImage"},
+              {"os":"macos-latest","artifact":"exr_converter-macos-arm64","ext":"dmg"},
+              {"os":"macos-26-intel","artifact":"exr_converter-macos-x86_64","ext":"dmg"},
+              {"os":"windows-latest","artifact":"exr_converter-windows-x86_64-setup","ext":"exe"}
+            ]'
+          fi
+          {
+            echo "include<<EOF"
+            echo "$json"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
   build:
-    needs: gate
+    needs: build-matrix
     # Nuitka + packaging can be slow; fail hung jobs instead of burning runner hours.
     timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            artifact: exr_converter-linux-x86_64
-            ext: AppImage
-          - os: macos-latest
-            artifact: exr_converter-macos-arm64
-            ext: dmg
-          - os: macos-26-intel
-            artifact: exr_converter-macos-x86_64
-            ext: dmg
-          - os: windows-latest
-            artifact: exr_converter-windows-x86_64-setup
-            ext: exe
+        include: ${{ fromJson(needs.build-matrix.outputs.include) }}
 
     runs-on: ${{ matrix.os }}
 
@@ -359,6 +409,16 @@ jobs:
           if [ "$RUNNER_OS" == "macOS" ]; then
             EXTRA_FLAGS+=(--macos-create-app-bundle "--macos-app-name=EXR Converter" "--macos-app-icon=${{ steps.icon.outputs.path }}")
             EXTRA_FLAGS+=("--macos-target-arch=${{ runner.arch == 'ARM64' && 'arm64' || 'x86_64' }}")
+            # Display name stays "EXR Converter". The bundle id must be reverse-DNS
+            # or notarization rejects it (Nuitka's default id is the display name).
+            # Keep this in sync with macos_codesign.MACOS_BUNDLE_ID and the Makefile.
+            EXTRA_FLAGS+=("--macos-signed-app-name=com.vfxtools.exrconverter")
+            APP_VERSION="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+            EXTRA_FLAGS+=("--macos-app-version=${APP_VERSION}")
+            # Do not pass Nuitka --macos-sign-identity / --macos-sign-notarization.
+            # lipo/strip below invalidate that signature, and Nuitka signs with
+            # --deep, which fails on BlackmagicRawAPI.framework. Signing happens
+            # after slimming in scripts/macos_codesign.py.
             # Do not --noinclude-dlls libssl/libcrypto: that breaks Python HTTPS
             # in the frozen app (urlopen "unknown url type: https") if anything
             # needs TLS later. Check for Updates uses the system browser.
@@ -520,30 +580,124 @@ jobs:
           echo "Bundle size after slimming:"
           du -sh "$APP"
 
-      - name: Re-sign macOS bundle (ad-hoc)
+      - name: Re-sign macOS bundle
+        id: macos_sign
         if: runner.os == 'macOS'
         shell: bash
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          set -euo pipefail
           APP="dist/EXR Converter.app"
           # lipo/strip above rewrote Mach-O files and invalidated Nuitka's
           # ad-hoc signatures. On Apple Silicon every executable page needs a
           # valid signature or the kernel kills dlopen ("CODESIGNING /
           # Invalid Page").
           #
-          # Do NOT use codesign --deep here. BlackmagicRawAPI.framework
+          # Do NOT pass --deep to codesign. BlackmagicRawAPI.framework
           # (SDK 6.0) is not a clean versioned framework: flattened
           # Versions/Current, top-level Resources/, Contents/, Libraries/,
-          # PlugIns/, or a nested .bundle/.app make --deep report
+          # PlugIns/, or a nested .bundle/.app make a deep sign report
           # "bundle format is ambiguous (could be app or framework)" even
           # when the tree lives under Contents/Frameworks/braw/ (PR #54).
           # scripts/macos_codesign.py signs Mach-Os deepest-first, then
-          # each .framework without --deep, then the outer .app.
+          # each .framework without that flag, then the outer .app.
+          # Developer ID verification (later) uses --verify --deep --strict.
           if find "$APP/Contents/MacOS" -name '*.framework' | grep -q .; then
             echo "ERROR: .framework under Contents/MacOS" >&2
             find "$APP/Contents/MacOS" -name '*.framework'
             exit 1
           fi
-          uv run python scripts/macos_codesign.py "$APP"
+
+          have_p12=0
+          have_pw=0
+          have_id=0
+          [ -n "${MACOS_CERT_P12_BASE64:-}" ] && have_p12=1
+          [ -n "${MACOS_CERT_PASSWORD:-}" ] && have_pw=1
+          [ -n "${MACOS_SIGNING_IDENTITY:-}" ] && have_id=1
+          if [ "${have_p12}${have_pw}${have_id}" = "000" ]; then
+            echo "macOS Developer ID certificate secrets are not set (MACOS_CERT_P12_BASE64, MACOS_CERT_PASSWORD, MACOS_SIGNING_IDENTITY)."
+            echo "Using an ad-hoc signature and skipping notarization."
+            uv run python scripts/macos_codesign.py "$APP"
+            echo "mode=adhoc" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${have_p12}${have_pw}${have_id}" != "111" ]; then
+            echo "ERROR: partial macOS signing secrets. Set all of MACOS_CERT_P12_BASE64, MACOS_CERT_PASSWORD, and MACOS_SIGNING_IDENTITY, or none of them." >&2
+            exit 1
+          fi
+          echo "Developer ID certificate secrets are set. Signing with hardened runtime; notarization follows the DMG step."
+          # G2 Developer ID Application cert for team 83546T4BT8, expires 2031-09-17.
+          # Compare without printing the secret value (GitHub may store a trailing newline).
+          expected_identity="Developer ID Application: Medeu Global LLC (83546T4BT8)"
+          got_identity="$(printf '%s' "$MACOS_SIGNING_IDENTITY" | tr -d '\r\n')"
+          if [ "$got_identity" != "$expected_identity" ]; then
+            echo "ERROR: MACOS_SIGNING_IDENTITY must be 'Developer ID Application: Medeu Global LLC (83546T4BT8)'." >&2
+            exit 1
+          fi
+          MACOS_SIGNING_IDENTITY="$got_identity"
+          MACOS_CERT_PASSWORD="$(printf '%s' "$MACOS_CERT_PASSWORD" | tr -d '\r\n')"
+          if [ -n "${APPLE_TEAM_ID:-}" ]; then
+            team_id="$(printf '%s' "$APPLE_TEAM_ID" | tr -d '\r\n')"
+            if [ "$team_id" != "83546T4BT8" ]; then
+              echo "ERROR: APPLE_TEAM_ID must be 83546T4BT8" >&2
+              exit 1
+            fi
+          fi
+
+          KEYCHAIN="$RUNNER_TEMP/exr-signing.keychain-db"
+          P12="$RUNNER_TEMP/developer-id.p12"
+          cleanup_p12() { rm -f "$P12"; }
+          trap cleanup_p12 EXIT
+          KEYCHAIN_PASS="$(openssl rand -base64 24)"
+          # PKCS#12 from `openssl pkcs12 -export -legacy` (certificate + private key).
+          # macOS `security import` accepts that legacy profile. OpenSSL 3's default
+          # AES-256 PKCS#12 fails import with "MAC verification failed".
+          echo "Importing OpenSSL-legacy PKCS#12 into a temporary keychain."
+          printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -D > "$P12"
+          chmod 600 "$P12"
+          security delete-keychain "$KEYCHAIN" 2>/dev/null || true
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          if ! security import "$P12" \
+            -k "$KEYCHAIN" \
+            -P "$MACOS_CERT_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security \
+            -f pkcs12; then
+            echo "ERROR: security import failed. Re-export the p12 with OpenSSL 3: openssl pkcs12 -export -legacy (certificate and private key). Do not use OpenSSL 3's default AES-256 PKCS#12." >&2
+            exit 1
+          fi
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASS" \
+            "$KEYCHAIN"
+          keychains=("$KEYCHAIN")
+          while IFS= read -r line; do
+            line="${line//\"/}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            [ -n "$line" ] || continue
+            keychains+=("$line")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "${keychains[@]}"
+          rm -f "$P12"
+          unset MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD KEYCHAIN_PASS
+          if ! security find-identity -p codesigning -v "$KEYCHAIN" | grep -F -- "$MACOS_SIGNING_IDENTITY" >/dev/null; then
+            echo "ERROR: imported keychain has no codesigning identity matching MACOS_SIGNING_IDENTITY" >&2
+            security find-identity -p codesigning -v "$KEYCHAIN" >&2
+            exit 1
+          fi
+          uv run python scripts/macos_codesign.py \
+            --identity "$MACOS_SIGNING_IDENTITY" \
+            --keychain "$KEYCHAIN" \
+            "$APP"
+          echo "mode=developer-id" >> "$GITHUB_OUTPUT"
 
       - name: Slim Linux bundle
         if: runner.os == 'Linux'
@@ -674,6 +828,129 @@ jobs:
             "${{ matrix.artifact }}.${{ matrix.ext }}" \
             "dist/EXR Converter.app"
 
+      - name: Notarize and staple macOS DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          mode="${{ steps.macos_sign.outputs.mode }}"
+          DMG="${{ matrix.artifact }}.${{ matrix.ext }}"
+          if [ "$mode" != "developer-id" ]; then
+            echo "Skipping notarization: macOS bundle was ad-hoc signed (Developer ID certificate secrets are not set)."
+            exit 0
+          fi
+          if [ -z "${ASC_API_KEY_P8:-}" ] || [ -z "${ASC_KEY_ID:-}" ] || [ -z "${ASC_ISSUER_ID:-}" ]; then
+            echo "ERROR: Developer ID signing ran but ASC_API_KEY_P8, ASC_KEY_ID, or ASC_ISSUER_ID is missing." >&2
+            echo "Refusing to publish a Developer ID DMG that was not notarized." >&2
+            exit 1
+          fi
+          KEYCHAIN="$RUNNER_TEMP/exr-signing.keychain-db"
+          P8="$RUNNER_TEMP/AuthKey.p8"
+          SUBMIT_JSON="$RUNNER_TEMP/notary-submit.json"
+          cleanup_p8() { rm -f "$P8"; }
+          trap cleanup_p8 EXIT
+          umask 077
+          printf '%s\n' "$ASC_API_KEY_P8" > "$P8"
+          unset ASC_API_KEY_P8
+          # create-dmg copies the signed app. Re-check the bundle before the
+          # notary upload so a broken signature fails here, not after the wait.
+          codesign --verify --deep --strict --verbose=2 "dist/EXR Converter.app"
+          uv run python scripts/macos_codesign.py \
+            --dmg "$DMG" \
+            --identity "$MACOS_SIGNING_IDENTITY" \
+            --keychain "$KEYCHAIN"
+
+          submit_status=0
+          xcrun notarytool submit "$DMG" \
+            --key "$P8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait \
+            --timeout 30m \
+            --output-format json \
+            >"$SUBMIT_JSON" || submit_status=$?
+          if [ "$submit_status" -ne 0 ]; then
+            echo "ERROR: notarytool submit failed (exit ${submit_status})" >&2
+            if [ -s "$SUBMIT_JSON" ]; then
+              cat "$SUBMIT_JSON" >&2
+            fi
+            sub_id="$(python3 - "$SUBMIT_JSON" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          raw = Path(sys.argv[1]).read_text(encoding="utf-8") if Path(sys.argv[1]).is_file() else ""
+          try:
+              print(json.loads(raw).get("id") or "")
+          except (json.JSONDecodeError, AttributeError):
+              print("")
+          PY
+          )"
+            if [ -n "$sub_id" ]; then
+              echo "--- notary log ${sub_id} ---" >&2
+              xcrun notarytool log "$sub_id" \
+                --key "$P8" \
+                --key-id "$ASC_KEY_ID" \
+                --issuer "$ASC_ISSUER_ID" >&2 || true
+            fi
+            exit 1
+          fi
+          python3 - "$SUBMIT_JSON" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          doc = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          status = doc.get("status")
+          print(f"notary status: {status} id={doc.get('id', '')}")
+          if status != "Accepted":
+              raise SystemExit(f"notarization was not accepted: {status!r}")
+          PY
+
+          stapled=0
+          for attempt in 1 2 3 4 5 6; do
+            if xcrun stapler staple "$DMG"; then
+              stapled=1
+              break
+            fi
+            echo "stapler staple failed (attempt ${attempt}); waiting 15s for the ticket" >&2
+            sleep 15
+          done
+          if [ "$stapled" -ne 1 ]; then
+            echo "ERROR: stapler staple failed after retries" >&2
+            exit 1
+          fi
+          xcrun stapler validate "$DMG"
+          codesign --verify --deep --strict --verbose=2 "$DMG"
+          assessed=0
+          for attempt in 1 2 3 4 5 6; do
+            if spctl -a -t open --context context:primary-signature -vv "$DMG"; then
+              assessed=1
+              break
+            fi
+            echo "spctl rejected the DMG (attempt ${attempt}); waiting 10s" >&2
+            sleep 10
+          done
+          if [ "$assessed" -ne 1 ]; then
+            echo "ERROR: Gatekeeper assessment failed for ${DMG}" >&2
+            exit 1
+          fi
+          echo "Notarized and stapled ${DMG}"
+
+      - name: Remove temporary macOS signing material
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          security delete-keychain "$RUNNER_TEMP/exr-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/notary-submit.json"
+          echo "Removed temporary keychain and signing files (if any)."
+
       - name: Create AppImage (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -736,7 +1013,9 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ matrix.artifact }}
+          # macos_only artifacts are the notarized DMGs. Distinct name so a
+          # signing test is not confused with a published release asset.
+          name: ${{ (github.event_name == 'workflow_dispatch' && inputs.macos_only) && format('{0}-signed', matrix.artifact) || matrix.artifact }}
           path: ${{ matrix.artifact }}.${{ matrix.ext }}
 
   # ── SignPath Foundation (Windows Authenticode) — optional ────────────────
@@ -751,7 +1030,7 @@ jobs:
   # When vars.SIGNPATH_PROJECT_SLUG is empty, this job is skipped.
   # Must run *before* Cosign so signatures cover the Authenticode binary.
   sign-windows:
-    if: ${{ vars.SIGNPATH_PROJECT_SLUG != '' }}
+    if: ${{ vars.SIGNPATH_PROJECT_SLUG != '' && !(github.event_name == 'workflow_dispatch' && inputs.macos_only) }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -802,9 +1081,14 @@ jobs:
 
   # ── Cosign (Sigstore keyless) + GitHub build provenance ───────────────────
   # Runs after optional SignPath so Cosign/attest cover the final Windows bits.
+  # macOS DMGs are already Developer ID-signed, notarized, and stapled inside
+  # the build job (or left ad-hoc when those secrets are unset), so the hashes
+  # below match the files users download.
   sign:
     needs: [build, sign-windows]
-    if: ${{ always() && needs.build.result == 'success' && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
+    # macos_only uploads the DMGs from the build job and skips Cosign. A full
+    # publish=false run still Cosigns; it just does not create a GitHub Release.
+    if: ${{ always() && needs.build.result == 'success' && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') && !(github.event_name == 'workflow_dispatch' && inputs.macos_only) }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -878,7 +1162,8 @@ jobs:
     # sign may depend on a *skipped* optional sign-windows job. GitHub treats a
     # skipped job in the needs chain as non-success for the default success()
     # gate, so we must re-check needs.sign.result explicitly or publish never runs.
-    if: ${{ always() && needs.sign.result == 'success' }}
+    # macos_only and publish=false never create a GitHub Release.
+    if: ${{ always() && needs.sign.result == 'success' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true && inputs.macos_only != true)) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -903,6 +1188,10 @@ jobs:
 
       - name: Build release notes from CHANGELOG
         shell: bash
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           VERSION="${RELEASE_TAG#v}"
@@ -935,14 +1224,26 @@ jobs:
             echo "gh attestation verify <ARTIFACT_FILE> -R derek-rein/exr-converter"
             echo '```'
             echo
-            echo "### macOS note"
-            echo
-            echo "These builds use an **ad-hoc** code signature (not Apple notarized)."
-            echo "On first launch, right-click the app and select **Open**, or run:"
-            echo
-            echo '```bash'
-            echo 'xattr -cr "/Applications/EXR Converter.app"'
-            echo '```'
+            if [ -n "${MACOS_CERT_P12_BASE64:-}" ] && [ -n "${MACOS_CERT_PASSWORD:-}" ] && [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
+              echo "### macOS"
+              echo
+              echo "These DMGs are signed with a Developer ID Application certificate, notarized by Apple, and stapled."
+              echo "Gatekeeper should open them without an unidentified-developer warning."
+              echo
+              echo '```bash'
+              echo "spctl -a -t open --context context:primary-signature -vv <DMG>"
+              echo "codesign --verify --deep --strict --verbose=2 <DMG>"
+              echo '```'
+            else
+              echo "### macOS note"
+              echo
+              echo "These builds use an **ad-hoc** code signature (Developer ID certificate secrets were not set for this release)."
+              echo "On first launch, right-click the app and select **Open**, or run:"
+              echo
+              echo '```bash'
+              echo 'xattr -cr "/Applications/EXR Converter.app"'
+              echo '```'
+            fi
             echo
             echo "### Windows note"
             echo

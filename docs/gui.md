@@ -303,7 +303,8 @@ Site links stay in **About** only (not on the Help menu).
 
 ## macOS notes
 
-- Release builds use an **ad-hoc** signature (not Apple notarized). After install:
+- Release DMGs built with the Developer ID secrets are notarized and stapled. Gatekeeper opens them normally.
+- Builds without those secrets stay ad-hoc signed. After install:
 
   ```bash
   xattr -cr "/Applications/EXR Converter.app"

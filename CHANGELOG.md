@@ -13,6 +13,20 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- macOS release DMGs (Apple Silicon and Intel) are signed with a Developer ID
+  Application certificate, notarized, and stapled when the Apple signing
+  secrets are set. Gatekeeper can open those DMGs without the
+  unidentified-developer warning.
+
+### Changed
+
+- The macOS app bundle identifier is `com.vfxtools.exrconverter` (the on-disk
+  name stays **EXR Converter**) so Apple notarization accepts the bundle.
+- macOS builds made without the Developer ID certificate secrets keep the
+  ad-hoc signature and skip notarization.
+
 ---
 
 ## [0.10.2] — 2026-10-08

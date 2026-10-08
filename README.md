@@ -35,13 +35,15 @@ for `cosign verify-blob` and `gh attestation verify` commands.
 
 ### Running on macOS
 
-These builds use an **ad-hoc code signature** and are **not Apple-notarized** (like most open-source apps distributed outside the App Store). Because of that, Gatekeeper quarantines the download. After dragging **EXR Converter.app** into `/Applications`, clear the quarantine flag once from Terminal:
+Release DMGs built with the Developer ID signing secrets are signed, notarized, and stapled. Gatekeeper opens those DMGs normally: drag **EXR Converter.app** to `/Applications` and launch it.
+
+Builds made without those secrets, including releases from before notarization was configured, are ad-hoc signed. Gatekeeper quarantines them. After copying the app into `/Applications`, clear the quarantine flag once:
 
 ```bash
 xattr -cr "/Applications/EXR Converter.app"
 ```
 
-Then open it normally (double-click, or right-click → **Open**). If macOS still says the app "is damaged" or "can't be opened," that is the quarantine flag — the `xattr -cr` command above resolves it. This is the [standard macOS prompt](https://support.apple.com/en-us/102445) for apps without a paid Apple Developer signature; it does not indicate a problem with the build.
+Then open it (double-click, or right-click → **Open**). If macOS says the app "is damaged" or "can't be opened," that is the quarantine flag. The `xattr -cr` command above clears it.
 
 ## Tech stack
 

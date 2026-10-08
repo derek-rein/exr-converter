@@ -45,6 +45,28 @@ CHANGELOG section for that version plus verify commands. Optional SignPath
 Authenticode for Windows is off until repository vars/secrets are set (see
 AGENTS.md).
 
+**macOS notarization:** when the Developer ID secrets are set, the build job
+signs each DMG with **Developer ID Application: Medeu Global LLC (83546T4BT8)**
+(team `83546T4BT8`, G2 cert, expires 2031-09-17), notarizes it, and staples it
+before Cosign. The p12 secret is an OpenSSL 3 `pkcs12 -export -legacy` export.
+Without those secrets the DMG stays ad-hoc and notarization is skipped. Secret
+names and the entitlements are in
+[AGENTS.md](../AGENTS.md#apple-developer-id-macos-notarization).
+
+To test signing without publishing a GitHub Release:
+
+```bash
+gh workflow run Release --ref <branch> -f macos_only=true -f publish=false
+```
+
+The run uploads `exr_converter-macos-arm64-signed` and
+`exr_converter-macos-x86_64-signed`. On a downloaded DMG:
+
+```bash
+spctl -a -t open --context context:primary-signature -vv exr_converter-macos-arm64.dmg
+codesign --verify --deep --strict --verbose=2 exr_converter-macos-arm64.dmg
+```
+
 **Docs site:** Markdown under `docs/` is built with Hugo (`site/`) and published
 by the **Docs** workflow on push to `main` (path filters under `docs/`, `site/`).
 That is independent of the versioned app **Release** workflow. Preview locally

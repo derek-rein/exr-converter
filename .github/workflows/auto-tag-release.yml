@@ -104,6 +104,8 @@ jobs:
           # (unlike events from a GITHUB_TOKEN tag push).
           # Use --ref main so we get the latest Release.yml (with workflow_dispatch
           # + RELEASE_TAG input). The build checks out the tag via inputs.tag.
+          # publish=true and macos_only=false are the workflow defaults.
+          # A signing-only run is a separate dispatch; do not pass macos_only here.
           gh workflow run Release \
             --repo "${GITHUB_REPOSITORY}" \
             --ref main \

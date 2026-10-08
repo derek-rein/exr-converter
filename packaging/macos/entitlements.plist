@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Hardened runtime for a Nuitka/CPython app distributed outside the Mac App Store.
+	     Not sandboxed. These are unrestricted Developer ID entitlements (no provisioning profile).
+	     disable-library-validation: the process dlopens Qt plugins, PyAV, OpenImageIO,
+	     PyOpenColorIO, and optional RED/Blackmagic dylibs via ctypes.CDLL. In-bundle
+	     Mach-Os are re-signed with this identity, but those SDKs and Qt also load
+	     helpers (Metal, plugin directories) that are not all signed by this team.
+	     allow-unsigned-executable-memory: CPython/libffi on Intel makes closures with
+	     mprotect(PROT_EXEC). This app uses ctypes for the R3D and BRAW bridges and
+	     the OpenGL preview path.
+	     allow-jit: the arm64 build. libffi allocates MAP_JIT closures under the
+	     hardened runtime; without this entitlement those calls fail on Apple Silicon.
+	     allow-dyld-environment-variables is intentionally absent. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+</dict>
+</plist>
