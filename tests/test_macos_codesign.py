@@ -156,7 +156,7 @@ def test_release_workflow_notarizes_with_adhoc_fallback() -> None:
     assert text.count("xcrun notarytool submit") == 1
     assert "--timeout 30m" not in text
     assert 'NOTARY_WAIT="2h"' in text
-    assert "--timeout \"$NOTARY_WAIT\"" in text
+    assert '--timeout "$NOTARY_WAIT"' in text
     assert "xcrun notarytool info" in text
     assert "polling notarytool info (not resubmitting)." in text
     assert "xcrun notarytool log" in text
