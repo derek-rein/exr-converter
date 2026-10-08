@@ -7,55 +7,144 @@ The file `aces-studio-v4.ocio` in this directory starts from the official
 from that file is unchanged.
 
 EXR Converter adds the input transforms below. They are **specification**
-transforms: the manufacturer's published curve, then the published primaries
-into ACES2065-1. They are not Academy spectral camera IDTs.
+transforms: a curve, then primaries into ACES2065-1. They are not Academy
+spectral camera IDTs, and they are not the vendor's Rec.709 viewing LUT.
+A Rec.709 `.cube` usually bakes in tone mapping and highlight rolloff. Matching
+that cube would mean baking the look into the scene-linear input. Those cubes
+are measured below and then left out of the config.
 
-Rec.2020 and Rec.709 matrices are the inverses of this config's existing
-`Linear Rec.2020` and `Linear Rec.709 (sRGB)` transforms (Bradford adaptation,
-same as the rest of the utility spaces). After the curve, N-Log, F-Log,
-F-Log2, and L-Log Rec.2020 match `Linear Rec.2020`. Cinema Gamut uses the
-existing `Linear CinemaGamut D55` matrix. S-Gamut uses the same matrix as
-`Linear S-Gamut3`: Sony publishes the same chromaticities for S-Gamut and
-S-Gamut3, and that stock matrix is the CAT02 primaries conversion.
+Neutral camera grey (equal RGB) maps to equal ACES2065-1 when the matrix rows
+sum to 1, so 18% reflectance lands on linear 0.18. GP-Log2 is the exception:
+the matrix includes the published +1.8 stop, so the sensor value that meters
+as 18% grey (`0.18 / 2^1.8`) lands on 0.18.
 
-Neutral camera grey (equal RGB) maps to equal ACES2065-1, so 18% reflectance
-lands on linear 0.18.
+Code values are full-range floats: 0 is code 0 and 1 is code 1023. Where a
+maker's formula is legal-range inside that word (S-Log, S-Log2, Canon Log),
+the legal offset is part of the curve.
 
-Code values are full-range floats: 0 is code 0 and 1 is code 1023 (or
-4095, and so on). Where a maker's formula is legal-range inside that code
-word (S-Log, S-Log2, Canon Log), the legal offset is part of the curve, same
-convention as the stock S-Log3 spaces treating full-range code values.
+`scripts/measure_camera_lut_error.py` prints max and mean absolute error for
+every added curve. Analytic rows always run. Rows against official files run
+when `VENDOR_LUT_DIR` (or `/tmp/vendor-luts`) points at a local download.
+Those files are not in this repo.
+
+A 33-point cube only defines the lattice. Comparing an analytic curve to a
+cube at those points still mixes in the cube's interpolation and, for a
+viewing LUT, the vendor tone map. The numbers below are that comparison.
+They are not a claim that a formula reproduces a Rec.709 look LUT.
 
 ## Added colorspaces
 
-| Colorspace | Gamut | Source | License / redistribution |
+| Colorspace | Origin | Source | License / redistribution |
 | --- | --- | --- | --- |
-| `N-Log N-Gamut` | Rec.2020 (N-Gamut) | Nikon, *N-Log Specification Document* v1.0.0, 1 September 2018. Decode: `code < 452` → `(code/650)^3 - 0.0075`, else `exp((code-619)/150)`, code = value × 1023. | Equations only. Nikon's cube LUTs (download center sw/258, older Z 6/Z 7 cubes at sw/140) are **not** in the repo; those downloads do not grant a clear right to redistribute the files. The 1D LUT `luts/nlog_to_lin.spi1d` is generated from the equation by `scripts/build_nlog_spi1d.py`. |
-| `F-Log F-Gamut` | Rec.2020 (F-Gamut) | Fujifilm, *F-Log Data Sheet* Ver.1.0 / Ver.1.1. `a=0.555556`, `b=0.009468`, `c=0.344676`, `d=0.790453`, `e=8.735631`, `f=0.092864`, `cut1=0.00089`. 18% grey is code 470/1023. | Equations only. Fujifilm viewing LUTs are not bundled. |
-| `F-Log2 F-Gamut` | Rec.2020 | Fujifilm, *F-Log2 Data Sheet* Ver.1.0. `a=5.555556`, `b=0.064829`, `c=0.245281`, `d=0.384316`, `e=8.799461`, `f=0.092864`, `cut1=0.000889`. 18% grey is code 400/1023. | Equations only. |
-| `L-Log Rec.2020` | Rec.2020 | Leica Camera AG, *L-Log Reference Manual* (current SL2 / SL2-S / SL3 / Q3 and later). `out = 0.27·log10(1.3·in + 0.0115) + 0.6` above reflectance 0.006, else `8·in + 0.09`. | Equations only. Leica's downloadable viewing LUTs are not bundled. |
-| `L-Log Rec.709` | Rec.709 | Same curve. The manual assigns Rec.709 to the SL (Typ 601) only; later bodies are Rec.2020. | Same as above. |
-| `S-Log S-Gamut` | S-Gamut | Sony, *S-Log White Paper*. `y = 0.432699·log10(t + 0.037584) + 0.616596 + 0.03` with `t` the 0–10 sensor exposure (reflection / 0.9), then legal-range 10-bit scaling. 18% grey is code 394/1023. | Published formula and chromaticities. |
-| `S-Log2 S-Gamut` | S-Gamut | Sony, *S-Log2 Technical Paper*. S-Log of `(155/219)·sensor`, same legal-range scaling. 18% grey is code 347/1023. | Published formula and chromaticities. |
-| `CanonLog CinemaGamut D55` | Cinema Gamut (daylight) | Canon Log as in Larry Thorpe, *Canon-Log Transfer Characteristic* (2012) and Canon's later Input Transform packages. The 2012 IRE formula and the later legal-range constants are the same curve: 0% → code 128/1023, 18% → 351/1023. OCIO has no Canon Log 1 builtin; this config uses that curve. Cinema Gamut uses the stock matrix. | Curve constants match the public Canon papers. OCIO Canon Log 2 / Log 3 builtins are BSD-3-Clause (OpenColorIO). |
-| `CanonLog Rec.2020` | Rec.2020 | Same Canon Log curve. | Same. |
-| `CanonLog Rec.709` | Rec.709 | Same Canon Log curve. | Same. |
-| `CanonLog2 Rec.2020` | Rec.2020 | OCIO builtin `CURVE - CANON_CLOG2_to_LINEAR` (Canon Input Transform v1.2 constants) plus this config's Rec.2020 matrix. Stock `CanonLog2 CinemaGamut D55` is unchanged. | OCIO builtin, BSD-3-Clause. |
-| `CanonLog2 Rec.709` | Rec.709 | Same curve, Rec.709 matrix. | OCIO builtin, BSD-3-Clause. |
-| `CanonLog3 Rec.2020` | Rec.2020 | OCIO builtin `CURVE - CANON_CLOG3_to_LINEAR` plus the Rec.2020 matrix. Stock `CanonLog3 CinemaGamut D55` is unchanged. | OCIO builtin, BSD-3-Clause. |
-| `CanonLog3 Rec.709` | Rec.709 | Same curve, Rec.709 matrix. | OCIO builtin, BSD-3-Clause. |
+| `N-Log N-Gamut` | Published equation | Nikon, *N-Log Specification Document* v1.0.0, 1 September 2018. `code < 452` → `(code/650)^3 - 0.0075`, else `exp((code-619)/150)`, code = value × 1023. Gamut is Rec.2020. | Equations only. Nikon cubes (download center sw/258, older per-camera cubes at sw/254 and sw/140) are not redistributed. `luts/nlog_to_lin.spi1d` is generated by `scripts/build_nlog_spi1d.py`. |
+| `F-Log F-Gamut` | Published equation + official IDT matrix | Fujifilm *F-Log Data Sheet* and IDT CTL v1.00. Curve `a=0.555556`, `b=0.009468`, `c=0.344676`, `d=0.790453`, `e=8.735631`, `f=0.092864`, `cut=0.00089`. The matrix is the CTL matrix, not a generic Rec.2020 matrix. 18% grey is code 470/1023. | Equations and the published 3×3. Fujifilm viewing cubes are not bundled. |
+| `F-Log2 F-Gamut` | Published CLF | Fujifilm IDT CLF v1.10 (`F-Log2 to ACES2065-1`) and *F-Log2 Data Sheet* Ver.1.1. Log segment matches the data sheet. The toe omits the data-sheet linear slope so OCIO's continuous join matches the CLF. 18% grey is code 400/1023. | CLF parameters copied into the config. The CLF file is not bundled. |
+| `F-Log2C F-Gamut C` | Published CLF | Fujifilm IDT CLF v1.10 and *F-Log2C Data Sheet* Ver.1.0. Same curve as F-Log2. Matrix is the CLF's F-Gamut C → ACES2065-1 matrix (primaries R 0.73470 0.26530, G 0.02630 0.97370, B 0.11730 −0.02240, D65). | Same as F-Log2. The CLF file is not bundled. |
+| `L-Log Rec.2020` | Published equation | Leica Camera AG, *L-Log Reference Manual*. `0.27·log10(1.3·in + 0.0115) + 0.6` at or above reflectance 0.006, else `8·in + 0.09`. Gamut Rec.2020. | Equations only. Leica viewing LUTs are not bundled. |
+| `L-Log Rec.709` | Published equation | Same curve. The manual assigns Rec.709 to the SL (Typ 601) only. | Same. |
+| `S-Log S-Gamut` | Published equation | Sony *S-Log White Paper*. Legal-range scaling of `0.432699·log10(t + 0.037584) + 0.646596`, `t` = reflection / 0.9. The log is used through code 0 (the log offset stays positive). 18% grey is code 394/1023. S-Gamut uses the stock S-Gamut3 matrix (Sony publishes the same chromaticities). | Published formula and chromaticities. |
+| `S-Log2 S-Gamut` | Published equation | Sony *S-Log2 Technical Paper*. S-Log of `(155/219)·sensor`, same legal-range scaling. 18% grey is code 347/1023. | Published formula and chromaticities. |
+| `CanonLog CinemaGamut D55` | Published equation | Canon Log as in Larry Thorpe, *Canon-Log Transfer Characteristic* (2012). 0% → 128/1023, 18% → 351/1023. The log is used below black as well. Cinema Gamut uses the stock matrix. | Curve constants from the public paper. |
+| `CanonLog Rec.2020`, `CanonLog Rec.709` | Published equation | Same Canon Log curve, this config's Rec.2020 or Rec.709 matrix. | Same. |
+| `CanonLog2 Rec.2020`, `CanonLog2 Rec.709` | OCIO builtin | `CURVE - CANON_CLOG2_to_LINEAR` (Canon Input Transform v1.2) plus the Rec.2020 or Rec.709 matrix. Stock `CanonLog2 CinemaGamut D55` is unchanged. | OCIO builtin, BSD-3-Clause. |
+| `CanonLog3 Rec.2020`, `CanonLog3 Rec.709` | OCIO builtin | `CURVE - CANON_CLOG3_to_LINEAR` plus the same matrices. Stock `CanonLog3 CinemaGamut D55` is unchanged. | OCIO builtin, BSD-3-Clause. |
+| `KineLOG3 Wide Gamut` | Published equation | Kinefinity, [KineLOG3 technical specifications](https://kinefinity.com/kinelog3-technical-specifications). `a=66.64`, `b=0.296`, `c=0.907136`, `d=0.092864`, `cut=-0.008239`, `s=0.017178`. Matrix is their published 4-decimal Wide Gamut → BT.2020 composed with this config's Rec.2020 → ACES matrix. | Equations and the published 3×3. No official cube was shipped by Kinefinity for this page. The 4-decimal BT.2020 matrix is the source precision (~1e-4). |
+| `Protune Rec.709` | Published equation | GoPro, [GP-Log2 & Logarithmic Exposure](https://gopro.github.io/labs/log/). Protune is log base 113: `(113^v - 1) / 112`. Rec.709 primaries. No exposure gain (the +1.8 stop is documented for GP-Log2 metering, not Protune). | Published formula. GoPro has not published a wider Protune native gamut; Rec.709 is the documented encoding primaries. |
+| `GP-Log Rec.709` | Published equation | Same GoPro note. Log base 400 (HERO12). Rec.709, no +1.8 gain. | Same. |
+| `GP-Log2 Rec.2020` | Published equation | Same page. Log base 600, Rec.2020 primaries, then × `2^1.8` so a normally metered 18% grey lands on ACES 0.18. The curve named transform is the decode **before** that gain. | Published formula. GoPro monitoring cubes add rolloff or a creative look; those are viewing LUTs and are not the IDT. |
+| `BMD Broadcast Film WideGamut Gen4` | Fitted | No Blackmagic curve equation is published. Coefficients were fitted to the Resolve-exported 1D LUT in Nathan Vegdahl's *Blackmagic Design Transfer Function LUTs* (2022-04-23). Gamut is the stock Wide Gamut Gen 5 matrix: Gen 4 and Gen 5 Wide Gamut chromaticities match. | Fitted parameters only. The spi1d / cube files are not redistributed. |
+| `BMD Pocket 4K Film Gen4` | Fitted | Same source, Pocket 4K Film Gen 4 transfer LUT. Same Wide Gamut matrix. | Same. The linear and log pieces in the source LUT do not meet; a single LogCamera keeps that kink. |
+| `BMD Pocket 6K Film Gen4` | Fitted | Same source, Pocket 6K Film Gen 4 transfer LUT. Pocket 6K-specific primaries were not published separately, so this uses the same Wide Gamut matrix as Gen 4/5. | Same, including the toe kink. |
 
 Curve-only named transforms (no gamut matrix): `N-Log - Curve`, `F-Log - Curve`,
-`F-Log2 - Curve`, `L-Log - Curve`, `S-Log - Curve`, `S-Log2 - Curve`,
-`Canon Log - Curve`.
+`F-Log2 - Curve`, `F-Log2C - Curve`, `L-Log - Curve`, `S-Log - Curve`,
+`S-Log2 - Curve`, `Canon Log - Curve`, `KineLOG3 - Curve`, `Protune - Curve`,
+`GP-Log - Curve`, `GP-Log2 - Curve` (before the +1.8 stop), `BMD Broadcast Film
+Gen4 - Curve`, `BMD Pocket 4K Film Gen4 - Curve`, `BMD Pocket 6K Film Gen4 - Curve`.
 
-## Left out on purpose
+## Measured error
+
+Absolute error is in scene-linear (or in the cube's output units, for a
+viewing LUT). "Float32" means the max sits at code 1, where linear is tens
+of times mid-grey and a float32 ulp is about 1e-5 to 1e-4.
+
+### Equations and official IDTs
+
+| Comparison | Max | Mean | How to read it |
+| --- | --- | --- | --- |
+| N-Log spi1d sample vs Nikon spec (4096 knots) | 4.8e-7 | 4.6e-8 | The committed 1D LUT is the equation. |
+| N-Log linear interpolation between those samples | 1.5e-4 | 7.9e-7 | 4096-point LUT interpolation, mostly in the steep highlights. |
+| F-Log curve vs Fujifilm CTL v1.00 | 1.8e-5 | 2.9e-6 | Published curve. |
+| F-Log colorspace vs CTL curve and matrix, 17³ RGB | 1.4e-5 | 2.6e-6 | Official IDT, not generic Rec.2020. |
+| F-Log2 / F-Log2 C log segment vs CLF formula | 1.9e-4 | 1.2e-5 | Max is float32 at code 1 (linear ~58, relative ~3e-6). |
+| F-Log2 and F-Log2 C colorspaces vs Fujifilm CLF v1.10, 17³ RGB | 0 | 0 | Same LogCamera parameters and the CLF matrix. |
+| F-Log2 toe vs the data-sheet linear slope | 4.3e-4 | 2.1e-4 | Worst at code 0. The CLF joins the toe continuously; the data sheet's slope does not match Fujifilm's own CLF. The config follows the CLF. |
+| L-Log log piece (reflectance ≥ 0.006) | 6.1e-5 | 5.3e-6 | Float32 near code 1 (linear ~23). |
+| L-Log linear toe | 1.1e-4 | 1.1e-4 | The manual's two pieces miss each other by ~0.0009 code. OCIO joins them. The gap is constant across the toe. |
+| S-Log, full 0–1 | 2.3e-5 | 2.6e-6 | White-paper log, including below the old lin-break at 0. |
+| S-Log2, full 0–1 | 3.1e-5 | 3.6e-6 | Same. |
+| Canon Log, full 0–1 | 2.0e-5 | 2.5e-6 | Includes codes below 128/1023. |
+| Canon Log 2 builtin vs v1.2 highlight formula (code ≥ 0.2) | 3.8e-5 | 3.3e-6 | 18% grey is in this segment. The builtin toe is not that one-line formula. |
+| Canon Log 3 builtin vs v1.2 highlight formula (code ≥ 0.2) | 5.0e-6 | 5.0e-7 | Same. |
+| KineLOG3, codes 0–1 | 8.8e-5 | 6.7e-6 | Float32 near linear ~30. Code 0 matches the published cut to ~1e-8. |
+| Protune base 113 | 2.4e-6 | 3.4e-7 | Published log. No official 1D curve file was compared. |
+| GP-Log base 400 | 3.0e-6 | 2.8e-7 | Same. |
+| GP-Log2 base 600, before the +1.8 stop | 2.5e-6 | 2.5e-7 | Same. |
+| GP-Log2 neutral grey after × 2^1.8 | 8.8e-6 | 8.7e-7 | Rec.2020 row sums are 1, so the gain is the whole matrix scale. |
+| Broadcast / Pocket Gen 4 OCIO vs the fitted LogCamera parameters | ≤ 2.6e-5 | ≤ 2.8e-6 | Checks that the config implements the fit. The spi1d residual is the next table. |
+
+### Fitted Blackmagic curves vs the Resolve 1D LUTs
+
+Every sample of the 4096-point spi1d. These files are Resolve exports, not a
+Blackmagic paper. Stock `BMDFilm WideGamut Gen5` was not edited; it differs
+from that same export by max 6.6e-4 (mean 3.3e-5), which is why Gen 5 was
+left on the Academy builtin.
+
+| Curve | Max abs | Mean abs | Max relative above linear 1e-3 |
+| --- | --- | --- | --- |
+| Broadcast Film Gen 4 | 1.2e-5 | 1.4e-6 | 7.0e-5 |
+| Pocket 4K Film Gen 4 | 1.3e-4 | 4.6e-5 | 6.5e-3 at the toe kink (absolute error there is 3.3e-5; the 1.3e-4 max is at linear ~3.7) |
+| Pocket 6K Film Gen 4 | 1.5e-4 | 5.1e-5 | 5.9e-3, same kink |
+
+### Viewing LUTs (not the input transform)
+
+| File | What was compared | Max | Mean |
+| --- | --- | --- | --- |
+| Nikon `N-Log_BT2020_to_REC709_BT1886_size_33.cube` (sw/258). Header: REC709, BT.1886, tonemap MEDIUM_CONTRAST, Highlight Rolloff 2 | Full 33³ vs N-Log → ACES → gamma 2.4 Rec.709, no tonemap | 10.4 | 0.98 |
+| Same v2 cube | Grey axis where scene linear is in (0, 1.2) | 0.23 | 0.073 |
+| Same v2 cube | Lattice code 0.375 (scene ~0.20, near 18%) | 0.032 (cube 0.477, BT.1886 0.509) | |
+| Nikon Z 6 full-to-full 33³ (v1.07) | Same IDT + BT.1886, grey in (0, 1.2) | 0.17 | 0.082 |
+| Nikon Z 9 V02 full-to-full 33³ | Same IDT + BT.1886, grey in (0, 1.2) | 0.093 | 0.044 |
+| Fujifilm `XH2S_FLog_FGamut_to_FLog_BT.709` 33³ | Grey axis vs identity | 5.9e-5 | 2.9e-5 |
+| Same X-H2S cube | Full lattice after the IDT matrix and an F-Log re-encode | 57 | 2.8 |
+| Same X-H2S cube | Samples whose Rec.709 linear is non-negative | 0.57 | 0.043 |
+| Fujifilm ETERNA film-sim cube | Grey axis vs identity | 0.21 | 0.099 |
+
+The Nikon equation was not refit to these cubes. The residual is the
+published tonemap and rolloff: scene linear at code 1 is far above 1, and the
+cube is already rolled off into 0–1. The Fujifilm "F-Log to F-Log BT.709"
+cube keeps neutrals but its chromatic samples are not the CTL/CLF 3×3.
+ETERNA / ETERNA-BB / WDR cubes are looks.
+
+DJI D-Log M was measured and not added. The Mavic 3 cube and the generic
+`DLog-M to Rec709` cube disagree by max 0.87 (mean 0.097) on the full 33³
+lattice. Both map code 1 to display 1, so inverting a gamma recovers a
+display-referred 0–1 with no scene headroom. DJI has not published a
+scene-linear D-Log M equation (the D-Log / D-Gamut white paper is a different
+curve, already in the stock config). Fitting an IDT to either cube would
+encode one product's viewing look.
+
+GoPro's MISSION GP-Log2 downloads (`…_Rolloff`, `…_Cinematic`,
+`…_CreativeStart`) are the same kind of viewing LUT. The IDT is the published
+base-600 equation, not those cubes. Protune and GP-Log had no official 1D
+linearisation file to compare; the error column is against the published
+equation only.
+
+## Not shipped
 
 | Candidate | Why it is not in the config |
 | --- | --- |
-| Nikon `.cube` LUTs | No clear redistribution grant. The spec equation is shipped instead. |
-| Fujifilm F-Log2C / F-Gamut C | F-Log2C uses the F-Log2 curve, but the F-Log2 data sheet does not publish F-Gamut C primaries. `F-Log2 F-Gamut` is Rec.2020 only. |
-| Blackmagic Film Gen 4 | No public curve equation. Gen 5 is already in the stock config. |
-| DJI D-Log M / D-Log2 | DJI's published white paper is D-Log / D-Gamut, already in the stock config. D-Log M constants are not in that paper. |
-| GoPro Protune / GP-Log | The ACES 1.0.3 community Protune matrix is marked experimental. GoPro has not published Protune Native or GP-Log primaries as a spec we can implement exactly. |
-| Samsung Log, Z CAM Z-Log2, Kinefinity KineLog | No stable official curve-and-primaries pair with a license we could ship. |
+| Nikon `.cube` LUTs | No clear redistribution grant, and they are tonemapped Rec.709 viewing LUTs. The spec equation is shipped instead. |
+| DJI D-Log M / D-Log2 | No published scene-linear equation. Official Rec.709 cubes disagree with each other and clip code 1 to display white. Stock `D-Log D-Gamut` remains the white-paper D-Log, which is a different curve. |
+| Samsung Log | Samsung's developer page lists a white paper, a Log-to-linear 1D LUT, and a Log-to-Rec.709 3D LUT. Those downloads require a Samsung account and were not retrieved. BT.2020 primaries are stated publicly; the curve equation was not. No formula was invented. |
+| Z CAM Z-Log2 | No published equation. Z CAM's LUT pages did not return a cube from this environment. The community DCTL references a vendor `zlog2_to_linear` cube rather than a formula, and that cube was not available to fit. |

@@ -16,11 +16,17 @@ rolling the `[Unreleased]` section into a versioned heading.
 ### Added
 
 - Bundled ACES Studio config adds **Nikon N-Log** (N-Gamut / Rec.2020),
-  **Fujifilm F-Log** and **F-Log2**, **Leica L-Log** (Rec.2020, and Rec.709 for
-  the SL Typ 601), **Sony S-Log** and **S-Log2** (S-Gamut), **Canon Log**
-  (Cinema Gamut, Rec.2020, Rec.709), and **Canon Log 2 / Log 3** in Rec.2020
-  and Rec.709. Existing colorspace names are unchanged. N-Log is the published
-  curve (a generated 1D LUT), not Nikon's downloadable cube.
+  **Fujifilm F-Log**, **F-Log2**, and **F-Log2 C**, **Leica L-Log** (Rec.2020,
+  and Rec.709 for the SL Typ 601), **Sony S-Log** and **S-Log2** (S-Gamut),
+  **Canon Log** (Cinema Gamut, Rec.2020, Rec.709), **Canon Log 2 / Log 3** in
+  Rec.2020 and Rec.709, **KineLOG3**, **GoPro Protune / GP-Log / GP-Log2**, and
+  **Blackmagic Film Gen 4** (Broadcast, Pocket 4K, Pocket 6K). Existing
+  colorspace names are unchanged. N-Log is the published curve (a generated
+  1D LUT), not Nikon's downloadable cube. Sources, licenses, and measured
+  error versus official equations and LUTs are in `resources/ocio/CAMERAS.md`.
+  Rec.709 camera cubes that bake in a vendor tone map are not used as the
+  scene-linear transform. DJI D-Log M, Samsung Log, and Z CAM Z-Log2 are not
+  included: no scene-linear equation was available to match.
 
 ### Changed
 

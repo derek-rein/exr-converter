@@ -153,9 +153,10 @@ long (text elides; width follows the layout).
 ## Color (OCIO)
 
 - Config picker: bundled **ACES Studio Config v4** (recommended default; stock
-  spaces plus Nikon N-Log, Fujifilm F-Log / F-Log2, Leica L-Log, Sony S-Log /
-  S-Log2, and Canon Log in Rec.709 and Rec.2020 — see
-  `resources/ocio/CAMERAS.md`), other built-ins, `$OCIO`, or a custom file.
+  spaces plus Nikon N-Log, Fujifilm F-Log / F-Log2 / F-Log2 C, Leica L-Log,
+  Sony S-Log / S-Log2, Canon Log in Rec.709 and Rec.2020, KineLOG3, GoPro
+  Protune / GP-Log / GP-Log2, and Blackmagic Film Gen 4 — sources and measured
+  error in `resources/ocio/CAMERAS.md`), other built-ins, `$OCIO`, or a custom file.
   Incompatible Nuke/library configs may appear **greyed out** with a tooltip
   when the linked OpenColorIO cannot load them.
 - Source / destination spaces follow the **active (user) config**; aliases are

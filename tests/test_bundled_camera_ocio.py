@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -45,6 +47,14 @@ _ADDED = (
     "CanonLog2 Rec.709",
     "CanonLog3 Rec.2020",
     "CanonLog3 Rec.709",
+    "F-Log2C F-Gamut C",
+    "BMD Broadcast Film WideGamut Gen4",
+    "BMD Pocket 4K Film Gen4",
+    "BMD Pocket 6K Film Gen4",
+    "KineLOG3 Wide Gamut",
+    "Protune Rec.709",
+    "GP-Log Rec.709",
+    "GP-Log2 Rec.2020",
 )
 
 
@@ -107,6 +117,16 @@ def _canon_log2_code(reflectance: float) -> float:
     """Canon Log 2 v1.2, matching OCIO ``CURVE - CANON_CLOG2_to_LINEAR``."""
     sensor = reflectance / 0.9
     return 0.24136077 * math.log10(sensor * 87.09937546 + 1.0) + 0.092864125
+
+
+def _kinelog3_code(reflectance: float) -> float:
+    """Kinefinity KineLOG3 technical specification."""
+    return math.log10(66.64 * reflectance + 1.0) * 0.296 * 0.907136 + 0.092864
+
+
+def _log_base_code(reflectance: float, base: float) -> float:
+    """GoPro-style ``log(reflectance * (base - 1) + 1) / log(base)``."""
+    return math.log(reflectance * (base - 1.0) + 1.0) / math.log(base)
 
 
 def _canon_log3_code(reflectance: float) -> float:
@@ -188,6 +208,11 @@ def test_nlog_lut_matches_spec() -> None:
         ("CanonLog2 Rec.709", _canon_log2_code(0.18)),
         ("CanonLog3 Rec.2020", _canon_log3_code(0.18)),
         ("CanonLog3 Rec.709", _canon_log3_code(0.18)),
+        ("F-Log2C F-Gamut C", _flog_code(0.18, flog2=True)),
+        ("KineLOG3 Wide Gamut", _kinelog3_code(0.18)),
+        ("Protune Rec.709", _log_base_code(0.18, 113.0)),
+        ("GP-Log Rec.709", _log_base_code(0.18, 400.0)),
+        ("GP-Log2 Rec.2020", _log_base_code(0.18 / (2.0**1.8), 600.0)),
     ],
 )
 def test_mid_grey_lands_near_018(bundled: OCIO.Config, space: str, code: float) -> None:
@@ -230,3 +255,59 @@ def test_nlog_alias(bundled: OCIO.Config) -> None:
     assert cs is not None
     assert cs.getName() == "N-Log N-Gamut"
     assert cs.getFamily() == "Input/Nikon"
+
+
+def _load_measure():
+    path = _ROOT / "scripts" / "measure_camera_lut_error.py"
+    spec = importlib.util.spec_from_file_location("measure_camera_lut_error", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["measure_camera_lut_error"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_measure = _load_measure()
+
+
+def test_formula_error_within_tolerance(bundled: OCIO.Config) -> None:
+    """Max and mean error of every added curve against its published equation."""
+    rows = _measure.measure_formulas(bundled)
+    report = _measure.format_report(rows)
+    over = [row for row in rows if row.tolerance is not None and row.max_abs > row.tolerance]
+    assert over == [], report
+    names = {row.name for row in rows}
+    for curve in (
+        "N-Log - Curve",
+        "F-Log - Curve",
+        "F-Log2 - Curve",
+        "F-Log2C - Curve",
+        "L-Log - Curve",
+        "S-Log - Curve",
+        "S-Log2 - Curve",
+        "Canon Log - Curve",
+        "KineLOG3 - Curve",
+        "Protune - Curve",
+        "GP-Log - Curve",
+        "GP-Log2 - Curve",
+        "BMD Broadcast Film Gen4 - Curve",
+        "BMD Pocket 4K Film Gen4 - Curve",
+        "BMD Pocket 6K Film Gen4 - Curve",
+    ):
+        assert curve in names
+
+
+@pytest.mark.skipif(
+    _measure.vendor_root() is None,
+    reason="official camera LUTs are downloaded outside the repo",
+)
+def test_vendor_lut_error_within_tolerance(bundled: OCIO.Config) -> None:
+    """Lattice / 1D comparison when VENDOR_LUT_DIR or /tmp/vendor-luts is present."""
+    root = _measure.vendor_root()
+    assert root is not None
+    rows = _measure.measure_vendor(bundled, root)
+    report = _measure.format_report(rows)
+    over = [row for row in rows if row.tolerance is not None and row.max_abs > row.tolerance]
+    assert over == [], report
+    # Viewing-LUT rows are reported and are not required to be near zero.
+    assert any(row.tolerance is None for row in rows)
