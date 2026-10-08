@@ -153,8 +153,15 @@ def test_release_workflow_notarizes_with_adhoc_fallback() -> None:
     assert "83546T4BT8" in text
     assert "openssl pkcs12 -export -legacy" in text
     assert "xcrun notarytool submit" in text
+    assert text.count("xcrun notarytool submit") == 1
+    assert "--timeout 30m" not in text
+    assert 'NOTARY_WAIT="2h"' in text
+    assert "--timeout \"$NOTARY_WAIT\"" in text
+    assert "xcrun notarytool info" in text
+    assert "polling notarytool info (not resubmitting)." in text
     assert "xcrun notarytool log" in text
     assert "xcrun stapler staple" in text
+    assert "contains(matrix.os, 'macos') && 360 || 180" in text
     assert "codesign --verify --deep --strict --verbose=2" in text
     assert "spctl -a -t open --context context:primary-signature -vv" in text
     assert "codesign --force --deep" not in text

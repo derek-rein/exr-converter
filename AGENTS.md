@@ -401,6 +401,14 @@ Ad-hoc signing does not. Directory names that contain `.` and still hold
 Mach-O binaries are renamed with `__dot__` and symlinked back. Runtime lookup
 follows the symlinks (`runtime_exe_dirs()` also searches `Contents/Resources`).
 
+`notarytool submit --wait` uses a **2 hour** timeout. If Apple is still
+`In Progress` when that expires, the job polls `notarytool info` on the same
+submission id for up to another 2 hours and does not upload the DMG again.
+`Invalid` / `Rejected` prints `notarytool log`. macOS build jobs use the
+6-hour GitHub-hosted limit so that wait fits after Nuitka; other OS stay at
+3 hours. Without the certificate secrets the build still ad-hoc signs and
+skips notarization.
+
 **Signing test without publishing a release** (after this workflow is on the
 ref you pass):
 

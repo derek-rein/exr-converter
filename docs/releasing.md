@@ -50,6 +50,8 @@ signs each DMG with **Developer ID Application: Medeu Global LLC (83546T4BT8)**
 (team `83546T4BT8`, G2 cert, expires 2031-09-17), notarizes it, and staples it
 before Cosign. The p12 secret is an OpenSSL 3 `pkcs12 -export -legacy` export.
 Without those secrets the DMG stays ad-hoc and notarization is skipped.
+The notary wait is 2 hours; a timeout keeps polling that same Apple submission
+instead of uploading the DMG again.
 Non-code files Nuitka drops under `Contents/MacOS` are moved to
 `Contents/Resources` (with symlinks left behind) before that signature, because
 a Developer ID seal rejects them as unsigned nested code. Secret names and the
