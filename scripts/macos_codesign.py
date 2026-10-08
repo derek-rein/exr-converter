@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import os
 import plistlib
+import posixpath
 import shutil
 import stat
 import subprocess
@@ -624,9 +625,13 @@ def _is_macho_file(path: Path) -> bool:
     return False
 
 
-def _resources_link_target(rel: Path) -> Path:
-    """Relative symlink from a ``Contents/MacOS/<rel>`` path to ``Contents/Resources``."""
-    return Path(*([".."] * len(rel.parts))) / "Resources" / rel
+def _resources_link_target(rel: Path) -> str:
+    """POSIX relative symlink from ``Contents/MacOS/<rel>`` to ``Contents/Resources``.
+
+    ``pathlib.Path`` joins with the host separator, so on Windows the stored
+    target would be ``..\\Resources\\...``. A macOS bundle always uses ``/``.
+    """
+    return posixpath.join(*([".."] * len(rel.parts)), "Resources", *rel.parts)
 
 
 def _walk_macos(macos: Path) -> tuple[list[Path], list[Path]]:

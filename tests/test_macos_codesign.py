@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from macos_codesign import (  # noqa: E402
     MACOS_BUNDLE_ID,
+    _resources_link_target,
     assert_notarization_bundle_id,
     default_entitlements_path,
     plan_adhoc_verify,
@@ -182,19 +183,19 @@ def _macho(path: Path, payload: bytes = b"\xfe\xed\xfa\xcf" + b"\x00" * 16) -> N
     path.write_bytes(payload)
 
 
-def _symlink_ok(tmp_path: Path) -> bool:
-    link = tmp_path / "symlink-probe"
-    try:
-        link.symlink_to("target")
-    except OSError:
-        return False
-    link.unlink()
-    return True
+def test_resources_link_target_is_posix() -> None:
+    assert _resources_link_target(Path("pyproject.toml")) == "../Resources/pyproject.toml"
+    nested = Path("PyOpenColorIO") / "bin" / "pyocioamf" / "config-aces-reference.yaml"
+    target = _resources_link_target(nested)
+    assert target == "../../../../Resources/PyOpenColorIO/bin/pyocioamf/config-aces-reference.yaml"
+    assert "\\" not in target
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="creating symlinks needs extra privileges on Windows",
+)
 def test_relocate_macos_data_moves_non_macho_and_keeps_binaries(tmp_path: Path) -> None:
-    if not _symlink_ok(tmp_path):
-        pytest.skip("symlinks are not available")
     app = tmp_path / "EXR Converter.app"
     macos = app / "Contents" / "MacOS"
     _macho(macos / "exr_converter")
