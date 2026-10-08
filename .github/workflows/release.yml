@@ -606,6 +606,12 @@ jobs:
           # scripts/macos_codesign.py signs Mach-Os deepest-first, then
           # each .framework without that flag, then the outer .app.
           # Developer ID verification (later) uses --verify --deep --strict.
+          #
+          # That script also moves non-Mach-O files (yaml, pyproject.toml,
+          # OCIO configs, package data) from Contents/MacOS to
+          # Contents/Resources and leaves relative symlinks. A real Developer
+          # ID signature treats those files as unsigned nested code; ad-hoc
+          # signing does not. The symlinks keep runtime lookups working.
           if find "$APP/Contents/MacOS" -name '*.framework' | grep -q .; then
             echo "ERROR: .framework under Contents/MacOS" >&2
             find "$APP/Contents/MacOS" -name '*.framework'

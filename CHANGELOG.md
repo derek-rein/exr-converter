@@ -20,6 +20,13 @@ rolling the `[Unreleased]` section into a versioned heading.
   secrets are set. Gatekeeper can open those DMGs without the
   unidentified-developer warning.
 
+### Fixed
+
+- Developer ID signing of the macOS app no longer stops on data files that
+  Nuitka places under `Contents/MacOS` (OCIO configs, `pyproject.toml`,
+  package data). Those files move to `Contents/Resources`, with relative
+  symlinks left in place so the app still finds them.
+
 ### Changed
 
 - The macOS app bundle identifier is `com.vfxtools.exrconverter` (the on-disk

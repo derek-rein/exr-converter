@@ -199,12 +199,14 @@ The **Release** workflow (Nuitka multi-OS):
    `BlackmagicRawAPI.framework` is not nested under `Contents/MacOS`).
 4. Refuse the build if headers / `.a` / `.lib` appear under that folder, or
    if a `.framework` remains under `Contents/MacOS`.
-5. Re-sign with `scripts/macos_codesign.py`: Mach-Os deepest-first, then
-   each `.framework` **without** `--deep`, then the outer `.app`
-   (also without `--deep`). Developer ID signing uses the hardened runtime
-   and a secure timestamp; verification of that signature uses
-   `codesign --verify --deep --strict`. Without the certificate secrets the
-   same script ad-hoc signs and notarization is skipped. Refuse a
+5. Re-sign with `scripts/macos_codesign.py`: move non-Mach-O files from
+   `Contents/MacOS` to `Contents/Resources` (relative symlinks stay so OCIO
+   configs, `pyproject.toml`, and package data still resolve), then sign
+   Mach-Os deepest-first, then each `.framework` **without** `--deep`, then
+   the outer `.app` (also without `--deep`). Developer ID signing uses the
+   hardened runtime and a secure timestamp; verification of that signature
+   uses `codesign --verify --deep --strict`. Without the certificate secrets
+   the same script ad-hoc signs and notarization is skipped. Refuse a
    `.framework` under `Contents/MacOS`.
 
 If the secret is missing, Release still publishes the app **without** BRAW

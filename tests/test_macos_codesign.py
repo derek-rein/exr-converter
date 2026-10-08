@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import plistlib
 import sys
 from pathlib import Path
@@ -21,6 +22,7 @@ from macos_codesign import (  # noqa: E402
     plan_resign,
     plan_signature_verify,
     plan_verify,
+    relocate_macos_data,
     validate_identity,
 )
 
@@ -173,6 +175,114 @@ def test_release_workflow_notarizes_with_adhoc_fallback() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert f"MACOS_BUNDLE_ID := {MACOS_BUNDLE_ID}" in makefile
     assert "--macos-signed-app-name=$(MACOS_BUNDLE_ID)" in makefile
+
+
+def _macho(path: Path, payload: bytes = b"\xfe\xed\xfa\xcf" + b"\x00" * 16) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+
+
+def _symlink_ok(tmp_path: Path) -> bool:
+    link = tmp_path / "symlink-probe"
+    try:
+        link.symlink_to("target")
+    except OSError:
+        return False
+    link.unlink()
+    return True
+
+
+def test_relocate_macos_data_moves_non_macho_and_keeps_binaries(tmp_path: Path) -> None:
+    if not _symlink_ok(tmp_path):
+        pytest.skip("symlinks are not available")
+    app = tmp_path / "EXR Converter.app"
+    macos = app / "Contents" / "MacOS"
+    _macho(macos / "exr_converter")
+    _macho(macos / "libfoo.dylib")
+    _macho(macos / "PySide6" / "Qt" / "lib" / "QtCore")
+    _macho(macos / "PyOpenColorIO" / "PyOpenColorIO.so")
+    yaml = macos / "PyOpenColorIO" / "bin" / "pyocioamf" / "config-aces-reference.yaml"
+    yaml.parent.mkdir(parents=True, exist_ok=True)
+    yaml.write_text("ocio: reference\n", encoding="utf-8")
+    readme = macos / "PyOpenColorIO" / "README.md"
+    readme.write_text("readme\n", encoding="utf-8")
+    (macos / "pyproject.toml").write_text("[project]\nversion = '0.0.0'\n", encoding="utf-8")
+    ocio = macos / "resources" / "ocio"
+    ocio.mkdir(parents=True)
+    (ocio / "aces-studio-v4.ocio").write_text("ocio: studio\n", encoding="utf-8")
+    lut = ocio / "luts"
+    lut.mkdir()
+    (lut / "nlog_to_lin.spi1d").write_text("lut\n", encoding="utf-8")
+    dist_info = macos / "PyOpenColorIO-2.5.0.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text("Metadata-Version: 2.1\n", encoding="utf-8")
+    # Mixed dotted directory: Mach-O must stay reachable under the original name.
+    qml = macos / "PySide6" / "Qt" / "qml" / "QtQuick.2"
+    _macho(qml / "libqtquick2plugin.dylib")
+    (qml / "qmldir").write_text("module QtQuick\n", encoding="utf-8")
+
+    relocate_macos_data(app)
+
+    resources = app / "Contents" / "Resources"
+    assert (macos / "exr_converter").is_file() and not (macos / "exr_converter").is_symlink()
+    assert (macos / "libfoo.dylib").is_file() and not (macos / "libfoo.dylib").is_symlink()
+    qtcore = macos / "PySide6" / "Qt" / "lib" / "QtCore"
+    assert qtcore.is_file() and not qtcore.is_symlink()
+
+    bin_link = macos / "PyOpenColorIO" / "bin"
+    assert bin_link.is_symlink()
+    assert os.readlink(bin_link) == "../../Resources/PyOpenColorIO/bin"
+    assert (bin_link / "pyocioamf" / "config-aces-reference.yaml").read_text(
+        encoding="utf-8"
+    ) == "ocio: reference\n"
+    assert (
+        resources / "PyOpenColorIO" / "bin" / "pyocioamf" / "config-aces-reference.yaml"
+    ).is_file()
+
+    readme_link = macos / "PyOpenColorIO" / "README.md"
+    assert readme_link.is_symlink()
+    assert os.readlink(readme_link) == "../../Resources/PyOpenColorIO/README.md"
+    assert readme_link.read_text(encoding="utf-8") == "readme\n"
+
+    project = macos / "pyproject.toml"
+    assert project.is_symlink()
+    assert os.readlink(project) == "../Resources/pyproject.toml"
+    assert project.read_text(encoding="utf-8").startswith("[project]")
+
+    ocio_link = macos / "resources"
+    assert ocio_link.is_symlink()
+    assert os.readlink(ocio_link) == "../Resources/resources"
+    cfg = ocio_link / "ocio" / "aces-studio-v4.ocio"
+    assert cfg.is_file()
+    assert (cfg.parent / "luts" / "nlog_to_lin.spi1d").read_text(encoding="utf-8") == "lut\n"
+
+    info = macos / "PyOpenColorIO-2.5.0.dist-info"
+    assert info.is_symlink()
+    assert (info / "METADATA").read_text(encoding="utf-8").startswith("Metadata-Version")
+
+    quick = macos / "PySide6" / "Qt" / "qml" / "QtQuick.2"
+    assert quick.is_symlink()
+    assert os.readlink(quick) == "QtQuick__dot__2"
+    plugin = quick / "libqtquick2plugin.dylib"
+    assert plugin.is_file() and not plugin.is_symlink()
+    assert (quick / "qmldir").is_symlink()
+    assert (quick / "qmldir").read_text(encoding="utf-8") == "module QtQuick\n"
+    real_dir = macos / "PySide6" / "Qt" / "qml" / "QtQuick__dot__2"
+    assert real_dir.is_dir() and not real_dir.is_symlink()
+
+    relocate_macos_data(app)
+    assert os.readlink(project) == "../Resources/pyproject.toml"
+    assert os.readlink(quick) == "QtQuick__dot__2"
+    assert list(resources.rglob("aces-studio-v4.ocio")) == [
+        resources / "resources" / "ocio" / "aces-studio-v4.ocio"
+    ]
+
+    cmds = plan_resign(app, identity=_IDENTITY, entitlements=tmp_path / "entitlements.plist")
+    signed = [cmd[-1] for cmd in cmds]
+    assert not any(path.endswith((".yaml", ".toml", ".md", "qmldir")) for path in signed)
+    assert any(path.endswith("libfoo.dylib") for path in signed)
+    assert any(path.endswith("libqtquick2plugin.dylib") for path in signed)
+    assert any(path.endswith("exr_converter") for path in signed)
 
 
 def test_release_workflow_can_notarize_without_publishing() -> None:

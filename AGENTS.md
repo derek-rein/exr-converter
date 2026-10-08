@@ -393,6 +393,14 @@ RED/Blackmagic dylibs), `allow-unsigned-executable-memory` (libffi on Intel),
 and `allow-jit` (libffi `MAP_JIT` on Apple Silicon). The bundle id is
 `com.vfxtools.exrconverter`.
 
+Before that seal, the script moves non-Mach-O files out of `Contents/MacOS`
+into `Contents/Resources` and leaves relative symlinks. A Developer ID
+signature treats every file next to the main executable as nested code, so a
+yaml or `pyproject.toml` there fails with `code object is not signed at all`.
+Ad-hoc signing does not. Directory names that contain `.` and still hold
+Mach-O binaries are renamed with `__dot__` and symlinked back. Runtime lookup
+follows the symlinks (`runtime_exe_dirs()` also searches `Contents/Resources`).
+
 **Signing test without publishing a release** (after this workflow is on the
 ref you pass):
 
