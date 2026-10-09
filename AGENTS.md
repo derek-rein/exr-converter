@@ -484,14 +484,8 @@ gh attestation verify <ARTIFACT_FILE> -R derek-rein/exr-converter
 
 ### macOS Gatekeeper
 
-When the Developer ID secrets above are set, release DMGs are notarized and
-stapled. Gatekeeper opens them without the unidentified-developer warning.
-
-Builds without those secrets stay ad-hoc signed. Users clear quarantine:
-
-```bash
-xattr -cr "/Applications/EXR Converter.app"
-```
+The macOS build is signed and notarized, so it opens normally. First launch
+may still show the standard "downloaded from the internet" prompt.
 
 ## CI
 

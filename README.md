@@ -35,15 +35,7 @@ for `cosign verify-blob` and `gh attestation verify` commands.
 
 ### Running on macOS
 
-Release DMGs built with the Developer ID signing secrets are signed, notarized, and stapled. Gatekeeper opens those DMGs normally: drag **EXR Converter.app** to `/Applications` and launch it.
-
-Builds made without those secrets, including releases from before notarization was configured, are ad-hoc signed. Gatekeeper quarantines them. After copying the app into `/Applications`, clear the quarantine flag once:
-
-```bash
-xattr -cr "/Applications/EXR Converter.app"
-```
-
-Then open it (double-click, or right-click → **Open**). If macOS says the app "is damaged" or "can't be opened," that is the quarantine flag. The `xattr -cr` command above clears it.
+The macOS build is signed and notarized, so it opens normally. First launch may still show the standard "downloaded from the internet" prompt.
 
 ## Tech stack
 
