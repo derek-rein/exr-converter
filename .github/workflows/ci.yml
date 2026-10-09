@@ -39,6 +39,9 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check src/ main.py tests/
 
+      - name: Typecheck (basedpyright)
+        run: uv run basedpyright src/ main.py
+
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
