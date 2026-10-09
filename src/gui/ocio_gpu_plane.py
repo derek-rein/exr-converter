@@ -1029,7 +1029,7 @@ class OcioGpuImagePlane(QOpenGLWidget):
         for tex_info in self._shader_desc.get3DTextures():
             tex_data = np.ascontiguousarray(tex_info.getValues(), dtype=np.float32)
             tex = int(GL.glGenTextures(1))
-            GL.glActiveTexture(GL.GL_TEXTURE0 + tex_index)
+            GL.glActiveTexture(int(GL.GL_TEXTURE0) + tex_index)
             GL.glBindTexture(GL.GL_TEXTURE_3D, tex)
             self._set_tex_params(GL.GL_TEXTURE_3D, tex_info.interpolation == OCIO.INTERP_NEAREST)
             edge = int(tex_info.edgeLen)
@@ -1055,7 +1055,7 @@ class OcioGpuImagePlane(QOpenGLWidget):
             fmt = GL.GL_RED if channels == 1 else GL.GL_RGB
             nearest = tex_info.interpolation == OCIO.INTERP_NEAREST
             tex = int(GL.glGenTextures(1))
-            GL.glActiveTexture(GL.GL_TEXTURE0 + tex_index)
+            GL.glActiveTexture(int(GL.GL_TEXTURE0) + tex_index)
             width = int(tex_info.width)
             height = (
                 int(tex_info.height) if tex_info.dimensions == self._shader_desc.TEXTURE_2D else 1
@@ -1072,7 +1072,7 @@ class OcioGpuImagePlane(QOpenGLWidget):
         from OpenGL import GL
 
         for tex, sampler, tex_type, tex_index in self._ocio_tex_ids:
-            GL.glActiveTexture(GL.GL_TEXTURE0 + tex_index)
+            GL.glActiveTexture(int(GL.GL_TEXTURE0) + tex_index)
             GL.glBindTexture(tex_type, tex)
             if self._program:
                 loc = GL.glGetUniformLocation(self._program, sampler)

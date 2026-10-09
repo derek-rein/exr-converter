@@ -196,7 +196,8 @@ Nuitka standalone builds still run `scripts/fix_bundle_ocio.py` so
 - Prefer small, focused diffs. Do not drive-by-refactor unrelated modules.
 - Tests: add unit tests next to behavior when practical; use
   `@pytest.mark.integration` only for real/synthetic media round-trips.
-- After TypeScript-less Python work: `make lint` and relevant `make test-unit`
+- After TypeScript-less Python work: `make lint`, `make typecheck` (CI fails on
+  errors; warnings are tolerated) and relevant `make test-unit`
   or targeted `uv run pytest path/to/test.py`.
 - Do not commit secrets, large binary fixtures, or local venv paths.
 
@@ -491,7 +492,7 @@ may still show the standard "downloaded from the internet" prompt.
 
 | Workflow | Trigger | Gate |
 |----------|---------|------|
-| [CI](.github/workflows/ci.yml) | push / PR to `main` | Ruff + full pytest on 3 OS; job **`ci-ok`** requires all green |
+| [CI](.github/workflows/ci.yml) | push / PR to `main` | Ruff + basedpyright (`src/`, `main.py`) + full pytest on 3 OS; job **`ci-ok`** requires all green |
 | [Docs](.github/workflows/docs.yml) | push / PR paths under `docs/`, `site/` | Hugo build; deploy to Pages on `main` only |
 | [Auto-tag release](.github/workflows/auto-tag-release.yml) | push to `main` | CHANGELOG gate; if no `vX.Y.Z` tag → push tag; if no GitHub Release and no active run → `workflow_dispatch` Release |
 | [Release](.github/workflows/release.yml) | tag `v*` **or** `workflow_dispatch` | Tag/CHANGELOG validate + lint + tests via **`gate`** before Nuitka / Cosign / publish. `macos_only` dispatch notarizes the DMGs as artifacts and does not publish |
