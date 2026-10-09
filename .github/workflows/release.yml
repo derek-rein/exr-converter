@@ -1328,8 +1328,8 @@ jobs:
             if [ -n "${MACOS_CERT_P12_BASE64:-}" ] && [ -n "${MACOS_CERT_PASSWORD:-}" ] && [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
               echo "### macOS"
               echo
-              echo "These DMGs are signed with a Developer ID Application certificate, notarized by Apple, and stapled."
-              echo "Gatekeeper should open them without an unidentified-developer warning."
+              echo "These DMGs are signed with a Developer ID Application certificate for Medeu Global LLC, notarized by Apple, and stapled."
+              echo "The app opens normally. First launch may still show the standard downloaded-from-the-internet prompt."
               echo
               echo '```bash'
               echo "spctl -a -vvv -t install <DMG>"
@@ -1338,12 +1338,7 @@ jobs:
             else
               echo "### macOS note"
               echo
-              echo "These builds use an **ad-hoc** code signature (Developer ID certificate secrets were not set for this release)."
-              echo "On first launch, right-click the app and select **Open**, or run:"
-              echo
-              echo '```bash'
-              echo 'xattr -cr "/Applications/EXR Converter.app"'
-              echo '```'
+              echo "Developer ID certificate secrets were not set for this release, so this DMG was not notarized."
             fi
             echo
             echo "### Windows note"

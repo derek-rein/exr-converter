@@ -303,13 +303,7 @@ Site links stay in **About** only (not on the Help menu).
 
 ## macOS notes
 
-- Release DMGs built with the Developer ID secrets are notarized and stapled. Gatekeeper opens them normally.
-- Builds without those secrets stay ad-hoc signed. After install:
-
-  ```bash
-  xattr -cr "/Applications/EXR Converter.app"
-  ```
-
+- The macOS build is signed and notarized, so it opens normally. First launch may still show the standard "downloaded from the internet" prompt.
 - The running Dock icon uses the bundle `.icns` (not a sharp PNG override).
 
 ---

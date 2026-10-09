@@ -13,12 +13,17 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.11.0] - 2026-10-09
+
 ### Added
 
 - macOS release DMGs (Apple Silicon and Intel) are signed with a Developer ID
-  Application certificate, notarized, and stapled when the Apple signing
-  secrets are set. Gatekeeper can open those DMGs without the
-  unidentified-developer warning.
+  Application certificate for Medeu Global LLC, then notarized and stapled by
+  Apple when the Apple signing secrets are set. The app opens normally, so the
+  `xattr -cr` quarantine workaround is no longer needed. First launch may still
+  show the standard "downloaded from the internet" prompt.
 
 ### Fixed
 
@@ -871,7 +876,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.10.2...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/derek-rein/exr-converter/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/derek-rein/exr-converter/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/derek-rein/exr-converter/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/derek-rein/exr-converter/compare/v0.9.13...v0.10.0
