@@ -13,6 +13,30 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- macOS release DMGs (Apple Silicon and Intel) are signed with a Developer ID
+  Application certificate, notarized, and stapled when the Apple signing
+  secrets are set. Gatekeeper can open those DMGs without the
+  unidentified-developer warning.
+
+### Fixed
+
+- macOS notarization records the Apple submission id as soon as the upload
+  finishes, then checks that same submission for up to five hours. A rejection
+  still prints the notary log. The build does not upload the DMG again.
+- Developer ID signing of the macOS app no longer stops on data files that
+  Nuitka places under `Contents/MacOS` (OCIO configs, `pyproject.toml`,
+  package data). Those files move to `Contents/Resources`, with relative
+  symlinks left in place so the app still finds them.
+
+### Changed
+
+- The macOS app bundle identifier is `com.vfxtools.exrconverter` (the on-disk
+  name stays **EXR Converter**) so Apple notarization accepts the bundle.
+- macOS builds made without the Developer ID certificate secrets keep the
+  ad-hoc signature and skip notarization.
+
 ---
 
 ## [0.10.2] — 2026-10-08

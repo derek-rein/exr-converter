@@ -13,6 +13,10 @@
 
 APP_NAME := exr_converter
 MACOS_BUNDLE_NAME := EXR Converter
+# Reverse-DNS bundle id. A display name with a space is rejected by notarization.
+# Keep in sync with macos_codesign.MACOS_BUNDLE_ID and release.yml.
+MACOS_BUNDLE_ID := com.vfxtools.exrconverter
+APP_VERSION := $(shell python3 scripts/bump_app_version.py show | sed -n 's/^VERSION="\(.*\)"/\1/p')
 ENTRY    := main.py
 # Drop any inherited VIRTUAL_ENV (e.g. from another activated project) so uv
 # silently uses this project's .venv instead of warning about the mismatch.
@@ -148,6 +152,8 @@ bundle: resources
 		--enable-plugin=pyside6 \
 		--macos-create-app-bundle \
 		--macos-app-name="EXR Converter" \
+		--macos-signed-app-name=$(MACOS_BUNDLE_ID) \
+		--macos-app-version=$(APP_VERSION) \
 		--macos-app-icon=$(ICON) \
 		--nofollow-import-to=tkinter \
 		--nofollow-import-to=unittest \

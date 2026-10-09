@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import PyOpenColorIO as OCIO
 
+from .app_paths import runtime_exe_dirs
 from .constants import (
     BUNDLED_ACES_STUDIO_KEY,
     OCIO_SOURCE_BUNDLED,
@@ -70,7 +71,15 @@ def get_bundled_aces_studio_path() -> Path | None:
             break
         here = here.parent
 
-    # 3. Frozen / Nuitka / PyInstaller style bundles
+    # 3. Beside the executable. Nuitka standalone often does not set sys.frozen.
+    #    Developer ID signing moves this tree to Contents/Resources and leaves a
+    #    relative symlink under Contents/MacOS; either location resolves here.
+    for exe_dir in runtime_exe_dirs():
+        cand = exe_dir / rel_path
+        if cand.is_file():
+            return cand
+
+    # 4. Frozen / Nuitka / PyInstaller style bundles
     is_frozen = getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS")
     if is_frozen:
         # Nuitka typically sets sys.executable to the launcher inside the bundle
@@ -101,7 +110,7 @@ def get_bundled_aces_studio_path() -> Path | None:
             if p.is_file():
                 return p
 
-    # 4. Package data fallback (rare for this layout)
+    # 5. Package data fallback (rare for this layout)
     try:
         import importlib.resources as ir
 

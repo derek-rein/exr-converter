@@ -334,10 +334,10 @@ gh pr checks
 | `lint` | Tag↔pyproject + CHANGELOG gate, then Ruff check + format |
 | `test` | Full pytest on ubuntu / macos / windows |
 | `gate` | Aborts release if lint or any OS test failed |
-| `build` | Nuitka → AppImage / DMG / Windows setup (180m timeout; LTO + Qt strip aligned with `make bundle`) |
+| `build` | Nuitka → AppImage / DMG / Windows setup (3h timeout, 6h on macOS so notarization can finish; LTO + Qt strip aligned with `make bundle`). macOS DMGs are Developer ID-signed, notarized, and stapled here, before upload, when the Apple secrets below are set |
 | `sign-windows` | Optional SignPath Authenticode (skipped unless vars configured; runs **before** Cosign) |
-| `sign` | Assemble final bits → Cosign keyless + `actions/attest-build-provenance` |
-| `release` | CHANGELOG section + verify notes → single GitHub Release upload |
+| `sign` | Assemble final bits → Cosign keyless + `actions/attest-build-provenance` (skipped for a `macos_only` signing test; those DMGs are already the build artifacts) |
+| `release` | CHANGELOG section + verify notes → single GitHub Release upload. Skipped when `publish` is false or `macos_only` is true |
 
 Local package only: `make bundle` (no GitHub Release). Shared Nuitka strip/LTO
 flags match CI; packaging (DMG/AppImage/Inno) is CI-only.
@@ -365,6 +365,72 @@ configuration in the SignPath dashboard. When `SIGNPATH_PROJECT_SLUG` is empty,
 `sign-windows` is skipped and the unsigned Inno setup is published (Cosign still
 applies).
 
+### Apple Developer ID (macOS notarization)
+
+Release DMGs are signed with a **Developer ID Application** certificate,
+submitted with `notarytool`, and stapled, before Cosign hashes them. The
+certificate in use is the G2 cert **Developer ID Application: Medeu Global LLC
+(83546T4BT8)**, team **83546T4BT8**, expiring **2031-09-17**.
+
+| Kind | Name |
+|------|------|
+| secret | `MACOS_CERT_P12_BASE64` — base64 of a PKCS#12 exported with OpenSSL 3 `openssl pkcs12 -export -legacy` (certificate + private key). OpenSSL 3's default AES-256 p12 fails `security import` |
+| secret | `MACOS_CERT_PASSWORD` — password for that p12 |
+| secret | `MACOS_SIGNING_IDENTITY` — exactly `Developer ID Application: Medeu Global LLC (83546T4BT8)` |
+| secret | `ASC_API_KEY_P8` — App Store Connect API key (`.p8` PEM contents, not base64) |
+| secret | `ASC_KEY_ID` — key id for that API key |
+| secret | `ASC_ISSUER_ID` — issuer UUID |
+| secret | `APPLE_TEAM_ID` — `83546T4BT8` |
+
+If the three certificate secrets are unset (forks, or a repo that has not
+configured them), the build keeps the ad-hoc signature and skips notarization.
+A partial set fails the build. Signing uses `scripts/macos_codesign.py`:
+Mach-Os deepest-first, **without** `codesign --deep` (the BRAW framework
+layout), with hardened runtime, a secure timestamp, and
+`packaging/macos/entitlements.plist` on the main executable. Those
+entitlements are `disable-library-validation` (Qt, PyAV, OIIO, OCIO, and the
+RED/Blackmagic dylibs), `allow-unsigned-executable-memory` (libffi on Intel),
+and `allow-jit` (libffi `MAP_JIT` on Apple Silicon). The bundle id is
+`com.vfxtools.exrconverter`.
+
+Before that seal, the script moves non-Mach-O files out of `Contents/MacOS`
+into `Contents/Resources` and leaves relative symlinks. A Developer ID
+signature treats every file next to the main executable as nested code, so a
+yaml or `pyproject.toml` there fails with `code object is not signed at all`.
+Ad-hoc signing does not. Directory names that contain `.` and still hold
+Mach-O binaries are renamed with `__dot__` and symlinked back. Runtime lookup
+follows the symlinks (`runtime_exe_dirs()` also searches `Contents/Resources`).
+
+`notarytool submit` returns the submission id immediately. The job then polls
+`notarytool info` on that id about once a minute for up to five hours and does
+not upload the DMG again. Each info call has a two-minute timeout and is
+retried when Apple or the network fails transiently. `Invalid` / `Rejected`
+prints `notarytool log`. macOS build jobs use the 6-hour GitHub-hosted limit
+so that poll fits after Nuitka; other OS stay at 3 hours. Without the
+certificate secrets the build still ad-hoc signs and skips notarization.
+
+**Signing test without publishing a release** (after this workflow is on the
+ref you pass):
+
+```bash
+gh workflow run Release --ref <branch> -f macos_only=true -f publish=false
+gh run watch
+```
+
+That still runs the lint/test gate, then builds only the two macOS DMGs,
+notarizes them, and uploads Actions artifacts
+`exr_converter-macos-arm64-signed` and `exr_converter-macos-x86_64-signed`.
+It does not create a GitHub Release. `macos_only` forces publish off even if
+`publish=true` is also set. Download the DMG from the run and check:
+
+```bash
+spctl -a -vvv -t install exr_converter-macos-arm64.dmg
+codesign --verify --deep --strict --verbose=2 exr_converter-macos-arm64.dmg
+```
+
+`source=Notarized Developer ID` means Gatekeeper will open the DMG without
+the unidentified-developer warning.
+
 ### Checklist before shipping
 
 - [ ] Feature work tested (`make test` / PR CI)
@@ -390,6 +456,8 @@ applies).
 | PyOpenColorIO not 2.5+ / Nuitka linkage | `scripts/ensure_ocio.py` / `make ensure-ocio`; bundles: `scripts/fix_bundle_ocio.py` |
 | `Unable to reserve cache` (setup-uv) | Benign race if two writers share a key; CI/Release use `cache-suffix` + lint `save-cache: false` |
 | Two Release runs for one tag | Concurrency group `release-vX.Y.Z` queues; avoid double-trigger (tag push + dispatch) |
+| notarytool / `security import` failed | Build log prints the notary log. The p12 must be `openssl pkcs12 -export -legacy` (cert + key). Identity must be `Developer ID Application: Medeu Global LLC (83546T4BT8)`. Renew that G2 cert before 2031-09-17 |
+| `codesign --verify --deep` bundle format is ambiguous | BRAW framework was not normalized. Signing itself never passes `--deep`; deep verify is the notarization check and fails closed |
 
 ### Artifact verification (users)
 
@@ -416,7 +484,10 @@ gh attestation verify <ARTIFACT_FILE> -R derek-rein/exr-converter
 
 ### macOS Gatekeeper
 
-Builds use **ad-hoc** signature (not Apple notarized). Users clear quarantine:
+When the Developer ID secrets above are set, release DMGs are notarized and
+stapled. Gatekeeper opens them without the unidentified-developer warning.
+
+Builds without those secrets stay ad-hoc signed. Users clear quarantine:
 
 ```bash
 xattr -cr "/Applications/EXR Converter.app"
@@ -429,7 +500,7 @@ xattr -cr "/Applications/EXR Converter.app"
 | [CI](.github/workflows/ci.yml) | push / PR to `main` | Ruff + full pytest on 3 OS; job **`ci-ok`** requires all green |
 | [Docs](.github/workflows/docs.yml) | push / PR paths under `docs/`, `site/` | Hugo build; deploy to Pages on `main` only |
 | [Auto-tag release](.github/workflows/auto-tag-release.yml) | push to `main` | CHANGELOG gate; if no `vX.Y.Z` tag → push tag; if no GitHub Release and no active run → `workflow_dispatch` Release |
-| [Release](.github/workflows/release.yml) | tag `v*` **or** `workflow_dispatch` | Tag/CHANGELOG validate + lint + tests via **`gate`** before Nuitka / Cosign / publish |
+| [Release](.github/workflows/release.yml) | tag `v*` **or** `workflow_dispatch` | Tag/CHANGELOG validate + lint + tests via **`gate`** before Nuitka / Cosign / publish. `macos_only` dispatch notarizes the DMGs as artifacts and does not publish |
 
 Branch protection on `main` should require `ci-ok`.
 
