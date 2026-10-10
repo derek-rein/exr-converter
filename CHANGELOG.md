@@ -13,6 +13,21 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- **Video → Proxy** tab for making editing proxies, modelled on DaVinci
+  Resolve's proxy generation. Queue clips or whole folders, pick a proxy codec
+  (ProRes 422 Proxy by default, also ProRes LT, VideoToolbox ProRes on macOS,
+  DNxHR LB / SQ, H.264, HEVC) and size (half by default, down to one-eighth or
+  fit to 1080p / 720p / 540p). Proxies go to a `Proxy` folder next to each
+  clip with the same name so editors can relink, and keep the source look,
+  timecode, and audio.
+- Watch folder on the proxy tab: new clips are converted automatically once
+  they finish copying, with options for subfolders and for clips already in
+  the folder.
+- `proxy` CLI subcommand for batch proxies, and `proxy --watch DIR` to run the
+  watch folder headless until Ctrl-C. GUI `--mode proxy` opens the new tab.
+
 ---
 
 ## [0.11.0] - 2026-10-09

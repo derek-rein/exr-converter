@@ -62,6 +62,7 @@ usage modes
   (no subcommand)     Launch the GUI
   video2exr           Video → OCIO → EXR sequence (CLI convert)
   exr2video           EXR sequence → OCIO → video (CLI convert)
+  proxy               Video → small editing proxies (batch or --watch folder daemon)
 
 GUI launch (no subcommand)
   %(prog)s
@@ -78,6 +79,11 @@ CLI convert examples
 
   %(prog)s video2exr -i plate.mov -o /tmp/out --frame-range 1-100
   %(prog)s exr2video -i ./plate -o review.mp4 --codec h264 --fps 24
+
+  %(prog)s proxy -i ./A001_card
+      → ./A001_card/Proxy/<clip>.mov  (ProRes 422 Proxy, half resolution)
+  %(prog)s proxy --watch /Volumes/Ingest
+      → keeps running; proxies every new clip once it finishes copying
 
 Color / OCIO
   Defaults: probe + OCIO-aware equivalents for --src/--dst when omitted.
@@ -112,6 +118,21 @@ examples:
 Input: OpenEXR sequences (primary), DPX, or PNG / JPEG / WebP.
 Omit -o to write <parent>/<dirname>.mov (extension follows codec).
 See docs/cli.md for codecs and bit-depth notes.
+"""
+
+
+_PROXY_EPILOG = """\
+examples:
+  %(prog)s -i A001C003.mov
+  %(prog)s -i ./A001_card --resolution quarter --codec h264
+  %(prog)s -i ./day1 --recursive -o /proxies
+  %(prog)s --watch /Volumes/Ingest
+  %(prog)s --watch /Volumes/Ingest --recursive --existing --codec dnxhr_lb
+
+Omit -o to write <source_dir>/Proxy/<clip>.<ext> (same name as the source, so
+editors such as DaVinci Resolve can relink). Existing proxies are skipped
+unless --overwrite. --watch runs until Ctrl-C.
+See docs/cli.md for the full option list.
 """
 
 
@@ -185,9 +206,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--mode",
-        choices=["auto", "video2exr", "exr2video"],
+        choices=["auto", "video2exr", "exr2video", "proxy"],
         default="auto",
-        help="GUI: which tab to show (default: auto from --open).",
+        help="GUI: which tab to show (default: auto from --open). proxy = Video → Proxy tab.",
     )
     sub = p.add_subparsers(dest="command")
 
@@ -352,7 +373,182 @@ def build_parser() -> argparse.ArgumentParser:
         help="Parallel workers (0=auto, 1=serial). Overrides global --workers.",
     )
 
+    from .core.proxy import (
+        DEFAULT_PROXY_CODEC,
+        DEFAULT_PROXY_RESOLUTION,
+        PROXY_RESOLUTIONS,
+        available_proxy_codecs,
+    )
+    from .core.watch_folder import DEFAULT_POLL_SECONDS, DEFAULT_SETTLE_SECONDS
+
+    px = sub.add_parser(
+        "proxy",
+        help="Video → editing proxies (batch, or watch a folder for new clips).",
+        description=(
+            "Transcode camera clips into lightweight editing proxies. No color "
+            "transform: proxies keep the source look, timecode and audio."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_PROXY_EPILOG,
+    )
+    px.add_argument(
+        "-i",
+        "--input",
+        nargs="+",
+        default=[],
+        help="Video files and/or folders of clips",
+    )
+    px.add_argument(
+        "--watch",
+        metavar="DIR",
+        action="append",
+        default=[],
+        help="Watch folder: proxy each new clip once it stops growing (repeatable)",
+    )
+    px.add_argument(
+        "-o",
+        "--output-dir",
+        default=None,
+        help="Folder for all proxies (default: a Proxy folder next to each clip)",
+    )
+    px.add_argument(
+        "--codec",
+        default=DEFAULT_PROXY_CODEC,
+        choices=[spec.key for spec in available_proxy_codecs()],
+        help=f"Proxy codec (default: {DEFAULT_PROXY_CODEC})",
+    )
+    px.add_argument(
+        "--resolution",
+        default=DEFAULT_PROXY_RESOLUTION,
+        choices=[r.key for r in PROXY_RESOLUTIONS],
+        help=f"Proxy size (default: {DEFAULT_PROXY_RESOLUTION}). Never upscales.",
+    )
+    px.add_argument("--suffix", default="", help="Text added to proxy filenames (default: none)")
+    px.add_argument("--no-audio", action="store_true", help="Drop audio from proxies")
+    px.add_argument("--overwrite", action="store_true", help="Re-make proxies that already exist")
+    px.add_argument(
+        "--recursive", action="store_true", help="Include subfolders of input / watch folders"
+    )
+    px.add_argument(
+        "--existing",
+        action="store_true",
+        help="--watch: also proxy clips already in the folder when watching starts",
+    )
+    px.add_argument(
+        "--interval",
+        type=float,
+        default=DEFAULT_POLL_SECONDS,
+        help=f"--watch: seconds between folder scans (default: {DEFAULT_POLL_SECONDS:g})",
+    )
+    px.add_argument(
+        "--settle",
+        type=float,
+        default=DEFAULT_SETTLE_SECONDS,
+        help=(
+            "--watch: seconds a file must stop changing before it is converted "
+            f"(default: {DEFAULT_SETTLE_SECONDS:g})"
+        ),
+    )
+
     return p
+
+
+def run_proxy_cli(args: argparse.Namespace) -> int:
+    """``proxy`` subcommand: batch transcode, then optionally watch folders."""
+    from .core.proxy import (
+        check_watch_output,
+        collect_proxy_sources,
+        default_proxy_output,
+        run_video_to_proxy,
+    )
+    from .core.watch_folder import WatchFolder
+
+    def _log(msg: str) -> None:
+        print(msg, file=sys.stderr)
+
+    def _progress(cur: int, total: int) -> None:
+        pct = int(100 * cur / total) if total else 0
+        print(f"\r[{pct:3d}%] {cur}/{total}", end="", file=sys.stderr, flush=True)
+
+    if not args.input and not args.watch:
+        print("Error: give -i clips/folders and/or --watch DIR.", file=sys.stderr)
+        return 2
+    for w in args.watch:
+        if not Path(w).expanduser().is_dir():
+            print(f"Error: watch folder not found: {w}", file=sys.stderr)
+            return 2
+        try:
+            check_watch_output(Path(w).expanduser(), args.output_dir)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+
+    _cli_cancel.clear()
+    _install_cli_sigint()
+    failures = 0
+
+    def _convert(src: Path) -> None:
+        nonlocal failures
+        out = default_proxy_output(src, args.codec, output_dir=args.output_dir, suffix=args.suffix)
+        if out.exists() and not args.overwrite:
+            _log(f"Skip (proxy exists): {out}")
+            return
+        try:
+            run_video_to_proxy(
+                src,
+                out,
+                codec_key=args.codec,
+                resolution=args.resolution,
+                audio=not args.no_audio,
+                progress=_progress,
+                cancel_check=_cli_cancel.is_set,
+                log=_log,
+            )
+            print(file=sys.stderr)
+        except ConversionCancelled:
+            raise
+        except Exception as e:
+            failures += 1
+            print(f"\nError: {src.name}: {e}", file=sys.stderr)
+
+    try:
+        sources = collect_proxy_sources(args.input, recursive=args.recursive)
+        if args.input and not sources:
+            _log("No video clips found in the given input.")
+        for i, src in enumerate(sources, 1):
+            if _cli_cancel.is_set():
+                raise ConversionCancelled()
+            _log(f"[{i}/{len(sources)}] {src}")
+            _convert(src)
+
+        if args.watch:
+            excl = (args.output_dir,) if args.output_dir else ()
+            watchers = [
+                WatchFolder(
+                    Path(w).expanduser(),
+                    recursive=args.recursive,
+                    include_existing=args.existing,
+                    settle_seconds=args.settle,
+                    exclude_dirs=excl,
+                )
+                for w in args.watch
+            ]
+            _log("Watching " + ", ".join(str(w.folder) for w in watchers) + " (Ctrl-C to stop)")
+            while not _cli_cancel.is_set():
+                for watcher in watchers:
+                    for src in watcher.poll():
+                        if _cli_cancel.is_set():
+                            break
+                        _log(f"New clip: {src}")
+                        _convert(src)
+                _cli_cancel.wait(max(0.2, float(args.interval)))
+            _log("Stopped watching.")
+            return 0
+    except (ConversionCancelled, KeyboardInterrupt):
+        _cli_cancel.set()
+        print("\nCancelled.", file=sys.stderr)
+        return 130
+    return 1 if failures else 0
 
 
 def _exr_opts_from_args(args: argparse.Namespace) -> dict[str, str] | None:
@@ -583,6 +779,9 @@ def resolve_e2v_spaces(cfg, args: argparse.Namespace, log) -> tuple[str, str]:
 
 
 def run_cli(args: argparse.Namespace) -> int:
+    if args.command == "proxy":
+        return run_proxy_cli(args)
+
     def _progress(cur: int, total: int) -> None:
         pct = int(100 * cur / total) if total else 0
         print(f"\r[{pct:3d}%] {cur}/{total}", end="", file=sys.stderr, flush=True)

@@ -72,6 +72,8 @@
 | Overlays | Ingest only. Slate, burn-in, and watermark stay on the other tab | Slate, burn-in, and watermark in one pass |
 | Color | OCIO into a scene space (default toward `ACEScg` / `scene_linear`) | OCIO out to a display (default toward `Output - Rec.709`) |
 
+**Video to proxy:** a third tab (and the `proxy` CLI) makes Resolve-style editing proxies (ProRes 422 Proxy at half size by default) in a `Proxy` folder next to each clip, keeping source look, timecode, and audio. A **watch folder** converts new clips automatically once they finish copying. See [docs/gui.md](docs/gui.md#video--proxy).
+
 **Optional RED R3D / N-RAW:** when built with the official RED R3D SDK bridge, **Video to EXR** can decode `.r3d` and `.nev` (IPP2 primary to Log3G10 REDWideGamutRGB for OCIO), including browser thumbnails, sequence-player preview, and camera/timecode metadata on written EXRs. Release binaries may ship only RED's allowed Redistributable libraries in a private app folder. See [docs/r3d.md](docs/r3d.md) and **Help → About** for the redistributable notice.
 
 **Optional Blackmagic RAW:** when built with the official Blackmagic RAW SDK bridge, **Video to EXR** can decode `.braw` (Linear + ACES AP0 / `ACES2065-1` for OCIO). Without the SDK the extension is recognized but conversion fails with a clear missing-SDK message. Public Release binaries ship the runtime libraries in a private app folder when secret `BRAW_SDK_READ_TOKEN` is configured. See [docs/braw.md](docs/braw.md).
@@ -251,8 +253,8 @@ Guides live under [`docs/`](docs/) (Markdown source of truth). The public site i
 
 | Guide | |
 | --- | --- |
-| [CLI](docs/cli.md) | `video2exr` / `exr2video` / GUI launch flags |
-| [GUI](docs/gui.md) | Tabs, overlays, preferences, post-convert, codec picker |
+| [CLI](docs/cli.md) | `video2exr` / `exr2video` / `proxy` / GUI launch flags |
+| [GUI](docs/gui.md) | Tabs, Video → Proxy and watch folder, overlays, preferences, post-convert, codec picker |
 | [ProRes and VideoToolbox](docs/prores.md) | Software vs Apple VideoToolbox vs oxideav; honest bit depths |
 | [R3D / N-RAW](docs/r3d.md) | Optional RED SDK (license, build, CI, preview) |
 | [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship when `BRAW_SDK_READ_TOKEN` is set) |
@@ -268,7 +270,7 @@ make docs-build   # write site/public/
 
 **Full reference:** [docs/cli.md](docs/cli.md) · **GUI:** [docs/gui.md](docs/gui.md) · **Nuke:** [docs/nuke.md](docs/nuke.md)
 
-Use the `video2exr` or `exr2video` subcommand to convert, or run with **no** subcommand to open the GUI (optionally with `--open` / `--gui-ocio`).
+Use the `video2exr`, `exr2video`, or `proxy` subcommand to convert, or run with **no** subcommand to open the GUI (optionally with `--open` / `--gui-ocio`).
 
 ### Codecs
 
@@ -311,6 +313,13 @@ uv run python main.py exr2video -i ./plate/plate.1001.exr -o review.mov --fps 24
 # PNG, JPEG, and DPX sequences work the same way:
 uv run python main.py exr2video -i ./png_seq -o review.mp4 --codec h264 --fps 24
 uv run python main.py exr2video -i ./dpx_seq -o review.mov --fps 24
+```
+
+##### Video to editing proxies
+
+```bash
+uv run python main.py proxy -i ./A001_card          # → ./A001_card/Proxy/*.mov
+uv run python main.py proxy --watch /Volumes/Ingest # watch folder, Ctrl-C to stop
 ```
 
 ##### GUI with a path pre-loaded
