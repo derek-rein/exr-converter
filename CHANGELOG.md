@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.12.0] - 2026-10-10
+
 ### Added
 
 - **Video → Proxy** tab for making editing proxies, modelled on DaVinci
@@ -891,7 +895,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/derek-rein/exr-converter/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/derek-rein/exr-converter/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/derek-rein/exr-converter/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/derek-rein/exr-converter/compare/v0.10.0...v0.10.1
