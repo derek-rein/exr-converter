@@ -15,7 +15,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
-- The docs site moved to https://exr-converter.derekvfx.ca/ (hosted on Vercel).
+- The docs site moved to https://exr-converter.derekvfx.ca/ (hosted on Vercel) and
+  is now built with Astro instead of Hugo; `make docs-serve` / `make docs-build` need Node 22.12+.
   Old `derek-rein.github.io/exr-converter` links redirect to the same page there.
 
 ---

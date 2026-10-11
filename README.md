@@ -247,7 +247,7 @@ Camera names on the bundled config are listed under [Cameras and formats](#camer
 
 ## Documentation
 
-Guides live under [`docs/`](docs/) (Markdown source of truth). The public site is built with Hugo from [`site/`](site/) and published on Vercel:
+Guides live under [`docs/`](docs/) (Markdown source of truth). The public site is built with Astro from [`site/`](site/) and published on Vercel:
 
 **[https://exr-converter.derekvfx.ca/](https://exr-converter.derekvfx.ca/)**
 

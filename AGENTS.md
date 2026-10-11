@@ -37,7 +37,7 @@ Agents: if you implement a feature or fix and forget the changelog, treat that a
 
 ## Documentation (required)
 
-**User-facing docs live in [`docs/`](./docs/)** (Markdown source of truth). Hugo
+**User-facing docs live in [`docs/`](./docs/)** (Markdown source of truth). Astro
 builds them from [`site/`](./site/) and Vercel publishes them (config in
 [`vercel.json`](./vercel.json)): https://exr-converter.derekvfx.ca/
 
@@ -46,8 +46,8 @@ builds them from [`site/`](./site/) and Vercel publishes them (config in
 | When | Any change that affects how users run or integrate the app: CLI flags, GUI behavior, codecs, OCIO/defaults, install/packaging users notice, Nuke/helpers, post-convert prefs, launch flags |
 | Where | Update the matching file under `docs/` in the **same PR / commit set** as the code (and [CHANGELOG.md](./CHANGELOG.md) when user-visible) |
 | Map | [docs/cli.md](./docs/cli.md) CLI + GUI launch · [docs/gui.md](./docs/gui.md) GUI / prefs / overlays · [docs/prores.md](./docs/prores.md) VideoToolbox / software / oxideav · [docs/nuke.md](./docs/nuke.md) Nuke menu · [docs/releasing.md](./docs/releasing.md) short release pointer · design notes only when the design changes |
-| Local | `make docs-serve` (preview) · `make docs-build` (static `site/public/`) |
-| Do not | Leave docs describing old flags/defaults/codecs. Do not hand-edit generated `site/public/`. Do not put the only copy of user docs solely in chat or PR text. |
+| Local | `make docs-serve` (preview) · `make docs-build` (static `site/dist/`); needs Node 22.12+ |
+| Do not | Leave docs describing old flags/defaults/codecs. Do not hand-edit generated `site/dist/`. Do not put the only copy of user docs solely in chat or PR text. |
 
 Agents: **before finishing work**, check whether `docs/` still matches the
 behavior you shipped. If you changed CLI/GUI/integration surface area and
@@ -78,8 +78,8 @@ native/
 resources/              # icons, style.qss, OCIO config, screenshots
 scripts/                # bump_app_version.py, ensure_ocio.py, build_oxideav_prores.py
 tests/                  # pytest; integration + fixtures under tests/fixtures/
-docs/                   # user-facing Markdown (Hugo content source of truth)
-site/                   # Hugo config + theme; mounts docs/ → Vercel
+docs/                   # user-facing Markdown (Astro content source of truth)
+site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 .github/workflows/      # ci.yml, docs.yml, release.yml, auto-tag-release.yml
 ```
 
@@ -118,8 +118,8 @@ make resources     # regenerate src/rc_resources.py after resources.qrc / icons 
 make oxideav-prores # build optional PyO3 12-bit ProRes extension (needs Rust)
 make braw-sdk-fetch # download private BRAW SDK (needs BRAW_SDK_READ_TOKEN / gh)
 make braw-bridge   # optional Blackmagic RAW bridge (needs BRAW_SDK_ROOT)
-make docs-serve    # Hugo local preview of docs/ (http://127.0.0.1:1313/)
-make docs-build    # Hugo static build → site/public/
+make docs-serve    # Astro local preview of docs/ (http://localhost:4321/)
+make docs-build    # Astro static build → site/dist/
 make bundle        # local Nuitka standalone (does not publish a GitHub Release)
 make clean
 ```
@@ -493,7 +493,7 @@ may still show the standard "downloaded from the internet" prompt.
 | Workflow | Trigger | Gate |
 |----------|---------|------|
 | [CI](.github/workflows/ci.yml) | push / PR to `main` | Ruff + full pytest on 3 OS; job **`ci-ok`** requires all green |
-| [Docs](.github/workflows/docs.yml) | push / PR paths under `docs/`, `site/` | Hugo build check; on `main`, deploys a redirect from the old GitHub Pages URL to the Vercel site |
+| [Docs](.github/workflows/docs.yml) | push / PR paths under `docs/`, `site/` | Astro build check; on `main`, deploys a redirect from the old GitHub Pages URL to the Vercel site |
 | [Auto-tag release](.github/workflows/auto-tag-release.yml) | push to `main` | CHANGELOG gate; if no `vX.Y.Z` tag → push tag; if no GitHub Release and no active run → `workflow_dispatch` Release |
 | [Release](.github/workflows/release.yml) | tag `v*` **or** `workflow_dispatch` | Tag/CHANGELOG validate + lint + tests via **`gate`** before Nuitka / Cosign / publish. `macos_only` dispatch notarizes the DMGs as artifacts and does not publish |
 
@@ -507,7 +507,7 @@ Branch protection on `main` should require `ci-ok`.
 | [CHANGELOG.md](./CHANGELOG.md) | User-facing history (**must update**) |
 | [README.md](./README.md) | Product overview, install, short CLI |
 | [docs/](./docs/) | User-facing Markdown (**must update** when behavior changes) |
-| [site/](./site/) | Hugo config + theme; mounts `docs/` → Vercel (`vercel.json`) |
+| [site/](./site/) | Astro site; loads `docs/` → Vercel (`vercel.json`) |
 | [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`) + GUI launch flags |
 | [docs/gui.md](./docs/gui.md) | GUI tabs, overlays, preferences, post-convert |
 | [docs/prores.md](./docs/prores.md) | Software vs VideoToolbox vs oxideav ProRes |
@@ -518,8 +518,8 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/releasing.md](./docs/releasing.md) | Short pointer here + docs-site note |
 | [integrations/nuke/](./integrations/nuke/) | Nuke `menu.py` + helpers |
 
-Public site: `make docs-serve` / `make docs-build`; Vercel builds `vercel.json`
-(`hugo -s site` → `site/public`) and serves `https://exr-converter.derekvfx.ca/`. The old
+Public site: `make docs-serve` / `make docs-build`; Vercel builds per `vercel.json`
+(`npm run build --prefix site` → `site/dist`) and serves `https://exr-converter.derekvfx.ca/`. The old
 `https://derek-rein.github.io/exr-converter/` URL redirects there (workflow **Docs**).
 
 ## What not to do

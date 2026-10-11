@@ -1,12 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "hugo",
-  "buildCommand": "hugo --minify --gc -s site",
-  "outputDirectory": "site/public",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- docs site resources/screenshots resources/icons vercel.json",
-  "build": {
-    "env": {
-      "HUGO_VERSION": "0.164.0"
-    }
-  }
+  "framework": "astro",
+  "installCommand": "npm ci --prefix site",
+  "buildCommand": "npm run build --prefix site",
+  "outputDirectory": "site/dist",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- docs site resources/screenshots resources/icons vercel.json"
 }
