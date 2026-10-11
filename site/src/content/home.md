@@ -6,6 +6,62 @@ Desktop app and CLI for **video and OpenEXR** with **OpenColorIO**, slate / burn
 
 The app writes a **video file** or an **OpenEXR sequence**. PNG, JPEG, WebP, and DPX can be **inputs** on the EXR to video path. They are not outputs.
 
+## Downloads
+
+<div class="download-links">
+  <a href="https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe">
+    <span class="dl-platform">Windows x64</span>
+    <span class="dl-file">Installer (.exe)</span>
+  </a>
+  <a href="https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-arm64.dmg">
+    <span class="dl-platform">macOS Apple Silicon</span>
+    <span class="dl-file">DMG</span>
+  </a>
+  <a href="https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-x86_64.dmg">
+    <span class="dl-platform">macOS Intel</span>
+    <span class="dl-file">DMG</span>
+  </a>
+  <a href="https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage">
+    <span class="dl-platform">Linux x86_64</span>
+    <span class="dl-file">AppImage</span>
+  </a>
+</div>
+
+All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) and carry [GitHub build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The [releases page](https://github.com/derek-rein/exr-converter/releases) has the `cosign verify-blob` and `gh attestation verify` commands.
+
+### Running on macOS
+
+The macOS build is signed and notarized, so it opens normally. First launch may still show the standard "downloaded from the internet" prompt.
+
+Release DMGs are signed with a Developer ID Application certificate for **Medeu Global LLC**, then notarized and stapled.
+
+### Install by platform
+
+**macOS** (Apple Silicon and Intel). Open the DMG and drag **EXR Converter** to Applications. The app is `EXR Converter.app`.
+
+| Mac | Download |
+| --- | --- |
+| Apple Silicon | [exr_converter-macos-arm64.dmg](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-arm64.dmg) |
+| Intel | [exr_converter-macos-x86_64.dmg](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-x86_64.dmg) |
+
+```bash
+open -a "EXR Converter"
+"/Applications/EXR Converter.app/Contents/MacOS/exr_converter" --help
+```
+
+**Windows** (x64 installer). Download [exr_converter-windows-x86_64-setup.exe](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe) and run it.
+
+The installer adds a Start menu shortcut and can add a desktop shortcut. The program is `exr_converter.exe`.
+
+**Linux** (x86_64 AppImage). Download [exr_converter-linux-x86_64.AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage).
+
+```bash
+chmod +x exr_converter-linux-x86_64.AppImage
+./exr_converter-linux-x86_64.AppImage
+```
+
+From a source checkout (Python 3.13 and [uv](https://docs.astral.sh/uv/)): `uv run python main.py`.
+
 ## Features
 
 | Feature | What it does |
@@ -17,39 +73,6 @@ The app writes a **video file** or an **OpenEXR sequence**. PNG, JPEG, WebP, and
 | **ProRes** | Software ProRes is 10-bit on every profile, including 4444 and XQ (default **422 HQ**). macOS VideoToolbox is the hardware encoder; 422 stays 10-bit, and 4444 / XQ are about 12-bit class. Experimental oxideav **4444 and XQ are true 12-bit**. oxideav 422 profiles are 12-bit inside the encoder and **10-bit** to FFmpeg, Resolve, and QuickTime. |
 | **Browsers and player** | Sequence and video browsers with list, grid, and preview. GPU OCIO on the playback path. Built-in player for review, with a RAM cache and frame-accurate video scrub. |
 | **Platforms** | Linux x86_64 AppImage, macOS Apple Silicon and Intel DMGs, and a Windows x64 installer. macOS release DMGs are signed with a Developer ID Application certificate for **Medeu Global LLC**, then notarized and stapled. The app opens normally. First launch may still show the standard "downloaded from the internet" prompt. |
-
-## Downloads
-
-Get the latest builds from [GitHub Releases](https://github.com/derek-rein/exr-converter/releases/latest).
-
-| Platform | Download |
-|---|---|
-| Windows x64 | [Installer (.exe)](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe) |
-| macOS Apple Silicon | [DMG](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-arm64.dmg) |
-| macOS Intel | [DMG](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-x86_64.dmg) |
-| Linux x86_64 | [AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage) |
-
-Release artifacts are signed with [Sigstore Cosign](https://docs.sigstore.dev/) and carry [GitHub build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The release page has the `cosign verify-blob` and `gh attestation verify` commands.
-
-### Install
-
-**macOS** (Apple Silicon and Intel). Open the DMG and drag **EXR Converter** to Applications. The app is `EXR Converter.app`. It is signed and notarized under Medeu Global LLC, so it opens normally.
-
-```bash
-open -a "EXR Converter"
-"/Applications/EXR Converter.app/Contents/MacOS/exr_converter" --help
-```
-
-**Windows.** Run the installer. It adds a Start menu shortcut and can add a desktop shortcut. The program is `exr_converter.exe`.
-
-**Linux.**
-
-```bash
-chmod +x exr_converter-linux-x86_64.AppImage
-./exr_converter-linux-x86_64.AppImage
-```
-
-From a source checkout (Python 3.13 and [uv](https://docs.astral.sh/uv/)): `uv run python main.py`.
 
 ## CLI
 

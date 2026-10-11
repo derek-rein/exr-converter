@@ -23,6 +23,8 @@ rolling the `[Unreleased]` section into a versioned heading.
   expanded camera logs, and ProRes bit depths. Install, platform, and CLI pages
   follow `video2exr`, `exr2video`, and `proxy --help`. Output is described as
   video or EXR only.
+- The docs home page has direct downloads for the latest release: Windows x64
+  installer, macOS Apple Silicon and Intel DMGs, and the Linux x86_64 AppImage.
 
 ---
 
