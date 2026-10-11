@@ -1,7 +1,7 @@
 # Check that the Astro docs (docs/ + site/) build. The public site is hosted on
-# Vercel (vercel.json) at https://exr-converter.derekvfx.ca/. On main, GitHub
-# Pages serves only a redirect so old derek-rein.github.io/exr-converter/ links
-# land on the same page there.
+# Vercel at https://exr-converter.derekvfx.ca/ (Root Directory = site, config in
+# site/vercel.json). On main, GitHub Pages serves only a redirect so old
+# derek-rein.github.io/exr-converter/ links land on the same page there.
 
 name: Docs
 

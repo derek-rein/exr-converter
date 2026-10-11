@@ -74,7 +74,7 @@ codesign --verify --deep --strict --verbose=2 exr_converter-macos-arm64.dmg
 ```
 
 **Docs site:** Markdown under `docs/` is built with Astro (`site/`) and published
-by Vercel on push to `main` (config in `vercel.json`).
+by Vercel on push to `main` (config in `site/vercel.json`).
 That is independent of the versioned app **Release** workflow. Preview locally
 with `make docs-serve`. Public URL:
 [exr-converter.derekvfx.ca](https://exr-converter.derekvfx.ca/).

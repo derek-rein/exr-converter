@@ -187,7 +187,7 @@ bundle: resources
 	# Optional BRAW runtime (bridge + Blackmagic Libraries only) into private app dir.
 	-$(PYTHON) scripts/install_braw_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
 
-# ── Docs site (Astro → Vercel, see vercel.json) ──────────────────────────────
+# ── Docs site (Astro → Vercel, see site/vercel.json) ─────────────────────────
 # Source of truth: docs/*.md  ·  site config/theme: site/  ·  preview: http://localhost:4321/
 
 site/node_modules: site/package-lock.json

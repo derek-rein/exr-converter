@@ -39,7 +39,7 @@ Agents: if you implement a feature or fix and forget the changelog, treat that a
 
 **User-facing docs live in [`docs/`](./docs/)** (Markdown source of truth). Astro
 builds them from [`site/`](./site/) and Vercel publishes them (config in
-[`vercel.json`](./vercel.json)): https://exr-converter.derekvfx.ca/
+[`site/vercel.json`](./site/vercel.json), Root Directory `site`): https://exr-converter.derekvfx.ca/
 
 | Rule | Detail |
 |------|--------|
@@ -507,7 +507,7 @@ Branch protection on `main` should require `ci-ok`.
 | [CHANGELOG.md](./CHANGELOG.md) | User-facing history (**must update**) |
 | [README.md](./README.md) | Product overview, install, short CLI |
 | [docs/](./docs/) | User-facing Markdown (**must update** when behavior changes) |
-| [site/](./site/) | Astro site; loads `docs/` → Vercel (`vercel.json`) |
+| [site/](./site/) | Astro site; loads `docs/` → Vercel (`site/vercel.json`) |
 | [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`) + GUI launch flags |
 | [docs/gui.md](./docs/gui.md) | GUI tabs, overlays, preferences, post-convert |
 | [docs/prores.md](./docs/prores.md) | Software vs VideoToolbox vs oxideav ProRes |
@@ -518,8 +518,8 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/releasing.md](./docs/releasing.md) | Short pointer here + docs-site note |
 | [integrations/nuke/](./integrations/nuke/) | Nuke `menu.py` + helpers |
 
-Public site: `make docs-serve` / `make docs-build`; Vercel builds per `vercel.json`
-(`npm run build --prefix site` → `site/dist`) and serves `https://exr-converter.derekvfx.ca/`. The old
+Public site: `make docs-serve` / `make docs-build`. Vercel (Root Directory `site`)
+builds per `site/vercel.json` (`npm run build` → `site/dist`) and serves `https://exr-converter.derekvfx.ca/`. The old
 `https://derek-rein.github.io/exr-converter/` URL redirects there (workflow **Docs**).
 
 ## What not to do
