@@ -1,5 +1,7 @@
-# Build Hugo docs from docs/ + site/ and publish to GitHub Pages.
-# Repo Settings → Pages → Source must be "GitHub Actions" (one-time).
+# Check that the Hugo docs (docs/ + site/) build. The public site is hosted on
+# Vercel (vercel.json) at https://exr-converter.derekvfx.ca/. On main, GitHub
+# Pages serves only a redirect so old derek-rein.github.io/exr-converter/ links
+# land on the same page there.
 
 name: Docs
 
@@ -44,11 +46,29 @@ jobs:
       - name: Build
         run: hugo --minify --gc -s site
 
+      - name: Write redirect to the Vercel site
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p pages-redirect
+          cat > pages-redirect/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>EXR Converter docs have moved</title>
+          <link rel="canonical" href="https://exr-converter.derekvfx.ca/">
+          <meta http-equiv="refresh" content="0; url=https://exr-converter.derekvfx.ca/">
+          <script>
+            var p = location.pathname.replace(/^\/exr-converter(?=\/|$)/, "") || "/";
+            location.replace("https://exr-converter.derekvfx.ca" + p + location.search + location.hash);
+          </script>
+          <p>The docs moved to <a href="https://exr-converter.derekvfx.ca/">exr-converter.derekvfx.ca</a>.</p>
+          HTML
+          cp pages-redirect/index.html pages-redirect/404.html
+
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: site/public
+          path: pages-redirect
 
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

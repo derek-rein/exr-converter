@@ -247,9 +247,9 @@ Camera names on the bundled config are listed under [Cameras and formats](#camer
 
 ## Documentation
 
-Guides live under [`docs/`](docs/) (Markdown source of truth). The public site is built with Hugo from [`site/`](site/) and published to GitHub Pages:
+Guides live under [`docs/`](docs/) (Markdown source of truth). The public site is built with Hugo from [`site/`](site/) and published on Vercel:
 
-**[https://derek-rein.github.io/exr-converter/](https://derek-rein.github.io/exr-converter/)**
+**[https://exr-converter.derekvfx.ca/](https://exr-converter.derekvfx.ca/)**
 
 | Guide | |
 | --- | --- |

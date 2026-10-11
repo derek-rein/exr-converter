@@ -13,6 +13,11 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Changed
+
+- The docs site moved to https://exr-converter.derekvfx.ca/ (hosted on Vercel).
+  Old `derek-rein.github.io/exr-converter` links redirect to the same page there.
+
 ---
 
 ## [0.12.0] - 2026-10-10

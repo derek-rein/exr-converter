@@ -3,7 +3,7 @@
 # Build:  make docs-build   (or: hugo -s site)
 # Serve:  make docs-serve
 
-baseURL = "https://derek-rein.github.io/exr-converter/"
+baseURL = "https://exr-converter.derekvfx.ca/"
 title = "EXR Converter"
 enableRobotsTXT = true
 enableGitInfo = false

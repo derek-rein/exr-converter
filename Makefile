@@ -56,7 +56,7 @@ help:
 	@echo "  make release PART=… PUSH=0             # preferred: bump+commit+tag on release/* branch"
 	@echo "  make release PART=…                    # also pushes (fails if main is protected)"
 	@echo ""
-	@echo "  Docs: docs/*.md → Hugo site/ → GitHub Pages (workflow Docs)"
+	@echo "  Docs: docs/*.md → Hugo site/ → Vercel (exr-converter.derekvfx.ca)"
 	@echo "        AGENTS.md          (release/deploy + agent context; main is protected)"
 	@echo "        CHANGELOG.md       (user-facing history — update every release)"
 	@echo "Current tags: git tag -l 'v*' --sort=-v:refname | head"
@@ -187,7 +187,7 @@ bundle: resources
 	# Optional BRAW runtime (bridge + Blackmagic Libraries only) into private app dir.
 	-$(PYTHON) scripts/install_braw_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
 
-# ── Docs site (Hugo → GitHub Pages) ──────────────────────────────────────────
+# ── Docs site (Hugo → Vercel, see vercel.json) ───────────────────────────────
 # Source of truth: docs/*.md  ·  site config/theme: site/  ·  preview: http://127.0.0.1:1313/
 
 docs-serve:
