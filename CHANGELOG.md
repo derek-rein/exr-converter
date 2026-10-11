@@ -15,6 +15,54 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ---
 
+## [0.12.0] - 2026-10-10
+
+### Added
+
+- **Video → Proxy** tab for making editing proxies, modelled on DaVinci
+  Resolve's proxy generation. Queue clips or whole folders, pick a proxy codec
+  (ProRes 422 Proxy by default, also ProRes LT, VideoToolbox ProRes on macOS,
+  DNxHR LB / SQ, H.264, HEVC) and size (half by default, down to one-eighth or
+  fit to 1080p / 720p / 540p). Proxies go to a `Proxy` folder next to each
+  clip with the same name so editors can relink, and keep the source look,
+  timecode, and audio.
+- Watch folder on the proxy tab: new clips are converted automatically once
+  they finish copying, with options for subfolders and for clips already in
+  the folder.
+- `proxy` CLI subcommand for batch proxies, and `proxy --watch DIR` to run the
+  watch folder headless until Ctrl-C. GUI `--mode proxy` opens the new tab.
+
+---
+
+## [0.11.0] - 2026-10-09
+
+### Added
+
+- macOS release DMGs (Apple Silicon and Intel) are signed with a Developer ID
+  Application certificate for Medeu Global LLC, then notarized and stapled by
+  Apple when the Apple signing secrets are set. The app opens normally, so the
+  `xattr -cr` quarantine workaround is no longer needed. First launch may still
+  show the standard "downloaded from the internet" prompt.
+
+### Fixed
+
+- macOS notarization records the Apple submission id as soon as the upload
+  finishes, then checks that same submission for up to five hours. A rejection
+  still prints the notary log. The build does not upload the DMG again.
+- Developer ID signing of the macOS app no longer stops on data files that
+  Nuitka places under `Contents/MacOS` (OCIO configs, `pyproject.toml`,
+  package data). Those files move to `Contents/Resources`, with relative
+  symlinks left in place so the app still finds them.
+
+### Changed
+
+- The macOS app bundle identifier is `com.vfxtools.exrconverter` (the on-disk
+  name stays **EXR Converter**) so Apple notarization accepts the bundle.
+- macOS builds made without the Developer ID certificate secrets keep the
+  ad-hoc signature and skip notarization.
+
+---
+
 ## [0.10.2] — 2026-10-08
 
 ### Added
@@ -847,7 +895,9 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.10.2...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/derek-rein/exr-converter/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/derek-rein/exr-converter/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/derek-rein/exr-converter/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/derek-rein/exr-converter/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/derek-rein/exr-converter/compare/v0.9.13...v0.10.0

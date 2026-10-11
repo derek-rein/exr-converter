@@ -26,13 +26,14 @@ from a Read — see [nuke.md](./nuke.md).
 |-----|-----------|--------|
 | **Video → EXR** | Decode video → OCIO → EXR sequence | **Ingest only** — never slate / burn-in / watermark. Output field uses ``name.####.exr``; that basename is written (not forced to the video stem). Accepts common video containers plus optional **`.r3d` / `.nev`** when the [R3D SDK bridge](./r3d.md) is available (browser thumbs + player preview use low-res R3D decode; convert is full quality — **Metal GPU** on macOS, **CUDA / OpenCL** on Windows and Linux; camera/timecode metadata lands on EXRs) and optional **`.braw`** when the [Blackmagic RAW bridge](./braw.md) is available (Linear ACES AP0 / `ACES2065-1`; **Metal** on macOS, **CUDA / OpenCL** on Windows and Linux, CPU fallback). |
 | **EXR → Video** | Image sequence → OCIO → video | OpenEXR primary; also DPX, PNG, JPEG, WebP. Slate / burn-in / watermark via that tab’s controls. Sequences may use ``name.####.ext`` or ``name_####.ext`` pads. |
+| **Video → Proxy** | Video → smaller video (no OCIO) | Batch editing proxies plus a **watch folder**, modelled on DaVinci Resolve proxy generation. See [Video → Proxy](#video--proxy). |
 
 Dragging the **Log** splitter up does not squash Input / Output / Options
 fields — those controls keep a fixed readable height, and the convert form
 scrolls if the pane is short. **Convert** and **Cancel** share that height;
 the progress bar matches the input rows.
 
-Mode can be forced with `--mode video2exr|exr2video`, or inferred from `--open`
+Mode can be forced with `--mode video2exr|exr2video|proxy`, or inferred from `--open`
 (`auto`: image-sequence paths open **EXR → Video**, common video extensions open
 **Video → EXR**).
 
@@ -238,9 +239,57 @@ and QuickTime. Full key list:
 
 ---
 
+## Video → Proxy
+
+Makes lightweight editing proxies from camera clips, the way DaVinci Resolve's
+**Generate Proxy Media** and proxy watch folders do. There is **no color
+transform**: a proxy keeps the source look (log stays log), the source
+**timecode**, and the source **audio**, so an editor can relink it to the
+original.
+
+| Section | Control | Default | Notes |
+|---------|---------|---------|-------|
+| **Source clips** | Add Clips… / Add Folder… / Remove / Clear | empty | Drop videos or folders on the window while this tab is open to add them. RAW (`.r3d`, `.nev`, `.braw`, ARRIRAW) is not offered here. |
+| **Output** | Location | **Proxy folder next to each clip** | Writes `<clip folder>/Proxy/<clip name>.<ext>`, the layout Resolve relinks. **Custom folder** puts every proxy in one folder. |
+| | Name suffix | none | Added to the proxy filename. Leave empty to keep the source name, which relinks best. |
+| | Skip clips that already have a proxy | on | Off re-makes them. |
+| **Options** | Codec | **Apple ProRes 422 Proxy** | Also ProRes 422 LT, VideoToolbox ProRes Proxy / LT (macOS), DNxHR LB / SQ, H.264, and 8-bit HEVC. H.264 / HEVC write `.mp4`; the rest write `.mov`. |
+| | Resolution | **Half** | Quarter, One-eighth, Original, or fit to 1080p / 720p / 540p height. Never upscales. |
+| | Audio | on | PCM in `.mov`, AAC in `.mp4`. |
+
+Press **Convert** to queue every listed clip. Proxies are made one at a time
+in the background. You can keep adding clips (Convert again queues the new
+ones), and **Cancel** stops the running proxy and clears the queue. A proxy
+is written to a hidden `.name.partial.ext` file and renamed when it is
+complete, so a half-made proxy never sits under the final name. Finished clips
+get a ✓ in the list.
+
+### Watch folder
+
+Pick a folder and press **Start Watching**. Every new clip that appears there
+is proxied with the settings above, joining the same queue as a batch.
+
+- A clip is picked up once its size has stayed the same for a few seconds, so
+  clips still copying from a card or a network share are left alone until the
+  copy finishes.
+- **Include subfolders** also watches nested folders (and makes **Add
+  Folder…** recurse). `Proxy` folders and the custom output folder are never
+  watched, so proxies are not re-proxied.
+- **Also convert clips already there** proxies what is already in the folder
+  when you start. Off, only clips that arrive afterwards are converted.
+- The status line under the button shows clips still copying, queued, done,
+  and failed.
+- The custom output folder cannot be the watched folder itself.
+
+For a headless watch folder (a render box or ingest station), use
+[`main.py proxy --watch`](./cli.md#proxy--video--editing-proxies).
+
+---
+
 ## After convert
 
-Checkboxes under the convert actions (persisted in `QSettings`):
+Checkboxes under the convert actions (persisted in `QSettings`). They are
+hidden on the **Video → Proxy** tab, which runs batches:
 
 | Toggle | Default | Action |
 |--------|---------|--------|
@@ -303,12 +352,7 @@ Site links stay in **About** only (not on the Help menu).
 
 ## macOS notes
 
-- Release builds use an **ad-hoc** signature (not Apple notarized). After install:
-
-  ```bash
-  xattr -cr "/Applications/EXR Converter.app"
-  ```
-
+- The macOS build is signed and notarized, so it opens normally. First launch may still show the standard "downloaded from the internet" prompt.
 - The running Dock icon uses the bundle `.icns` (not a sharp PNG override).
 
 ---

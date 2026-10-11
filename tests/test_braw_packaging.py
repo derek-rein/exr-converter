@@ -353,8 +353,8 @@ def test_install_normalizes_flattened_macos_framework(tmp_path: Path) -> None:
     assert not list((app / "Contents" / "MacOS").rglob("*.framework"))
 
 
-def test_release_workflow_does_not_codesign_deep() -> None:
+def test_release_workflow_signs_without_deep() -> None:
     text = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     assert "scripts/macos_codesign.py" in text
     assert "codesign --force --deep" not in text
-    assert "codesign --verify --deep" not in text
+    assert "codesign --verify --deep --strict" in text

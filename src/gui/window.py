@@ -54,12 +54,15 @@ from .preferences import (
     player_mode,
     reveal_in_file_manager,
 )
+from .proxy_tab import ProxyTab
 from .size_grip import SizeGrip
 from .widgets import ConvertTab, OcioConfigPanel, _select_video_codec_combo_key
 
 # Floor so the log splitter cannot hide the convert form or the log entirely.
 # ConvertTab scrolls internally if the tab page is shorter than the form.
 CONVERT_TABS_MIN_HEIGHT = 200
+# Tab order: Video → EXR, EXR → Video, Video → Proxy.
+PROXY_TAB_INDEX = 2
 LOG_PANE_MIN_HEIGHT = 72
 
 
@@ -265,7 +268,9 @@ class MainWindow(QMainWindow):
         self._v2e_tab = ConvertTab("video2exr", self._settings)
         self._e2v_tab = ConvertTab("exr2video", self._settings)
         self._tabs.addTab(self._v2e_tab, "Video \u2192 EXR")
+        self._proxy_tab = ProxyTab(self._settings)
         self._tabs.addTab(self._e2v_tab, "EXR \u2192 Video")
+        self._tabs.addTab(self._proxy_tab, "Video \u2192 Proxy")
         saved_tab = int(self._settings.value("ui/tab", 0))
         if 0 <= saved_tab < self._tabs.count():
             self._tabs.setCurrentIndex(saved_tab)
@@ -292,8 +297,9 @@ class MainWindow(QMainWindow):
         prog_row.addWidget(self._cancel_btn)
         top_layout.addLayout(prog_row)
 
-        # Post-convert actions (persisted).
-        after_row = QHBoxLayout()
+        # Post-convert actions (persisted). Hidden on the proxy tab (batch jobs).
+        self._after_row_widget = QWidget()
+        after_row = QHBoxLayout(self._after_row_widget)
         after_row.setContentsMargins(0, 0, 0, 0)
         after_row.setSpacing(14)
         after_lbl = QLabel("When done:")
@@ -331,7 +337,7 @@ class MainWindow(QMainWindow):
         )
         after_row.addWidget(self._show_folder_cb)
         after_row.addStretch()
-        top_layout.addLayout(after_row)
+        top_layout.addWidget(self._after_row_widget)
 
         splitter.addWidget(top)
 
@@ -370,11 +376,17 @@ class MainWindow(QMainWindow):
         self._clear_log.clicked.connect(self._log.clear)
         self._tabs.currentChanged.connect(lambda i: self._settings.setValue("ui/tab", i))
         self._tabs.currentChanged.connect(lambda _: self._update_go_state())
+        self._tabs.currentChanged.connect(lambda _: self._sync_proxy_tab_chrome())
         self._v2e_tab.log_message.connect(self._append_log)
         self._e2v_tab.log_message.connect(self._append_log)
         self._v2e_tab.readiness_changed.connect(lambda _: self._update_go_state())
         self._e2v_tab.readiness_changed.connect(lambda _: self._update_go_state())
-        self._go.setEnabled(self._active_tab().is_ready())
+        self._proxy_tab.log_message.connect(self._append_log)
+        self._proxy_tab.readiness_changed.connect(lambda _: self._update_go_state())
+        self._proxy_tab.progress.connect(self._on_proxy_progress)
+        self._proxy_tab.busy_changed.connect(self._on_proxy_busy_changed)
+        self._update_go_state()
+        self._sync_proxy_tab_chrome()
 
         self._reload_ocio()
 
@@ -406,6 +418,8 @@ class MainWindow(QMainWindow):
             self._tabs.setCurrentIndex(0)
         elif mode_norm in ("exr2video", "e2v", "exr"):
             self._tabs.setCurrentIndex(1)
+        elif mode_norm in ("proxy", "video2proxy"):
+            self._tabs.setCurrentIndex(PROXY_TAB_INDEX)
         elif open_path:
             # Prefer extension over filesystem existence (Nuke may pass paths
             # that are not yet fully visible, or sequence tokens).
@@ -424,6 +438,9 @@ class MainWindow(QMainWindow):
             open_name = Path(open_path.split()[0]).name
             if is_ignored_media_filename(open_name):
                 self._append_log(f"Ignored OS metadata path on launch (not media): {open_name}")
+            elif self._is_proxy_tab():
+                self._proxy_tab.add_paths([open_path])
+                self._append_log(f"Opened (launch): {open_path}")
             else:
                 # Prevent deferred QSettings restore from overwriting --open / Nuke.
                 self._v2e_tab.suppress_saved_input_restore()
@@ -618,14 +635,57 @@ class MainWindow(QMainWindow):
     # -- Convert --
 
     def _active_tab(self) -> ConvertTab:
+        """Active OCIO convert tab (the proxy tab falls back to EXR → Video)."""
         return self._v2e_tab if self._tabs.currentIndex() == 0 else self._e2v_tab
 
+    def _is_proxy_tab(self) -> bool:
+        return self._tabs.currentIndex() == PROXY_TAB_INDEX
+
     def _update_go_state(self) -> None:
-        """Enable Convert only when idle and the active tab is ready."""
-        busy = self._is_convert_running() or self._busy is not None
-        self._go.setEnabled(not busy and self._active_tab().is_ready())
+        """Enable Convert only when idle and the active tab is ready.
+
+        The proxy tab queues jobs, so Convert stays enabled while proxies run.
+        """
+        if self._is_proxy_tab():
+            self._go.setEnabled(self._proxy_tab.is_ready())
+        else:
+            busy = self._is_convert_running() or self._busy is not None
+            self._go.setEnabled(not busy and self._active_tab().is_ready())
+        self._update_cancel_state()
+
+    def _update_cancel_state(self) -> None:
+        if self._is_proxy_tab():
+            self._cancel_btn.setEnabled(self._proxy_tab.is_busy())
+        else:
+            self._cancel_btn.setEnabled(self._is_convert_running() or self._busy == "convert")
+
+    def _sync_proxy_tab_chrome(self) -> None:
+        """Post-convert actions apply to single convert jobs, not proxy batches."""
+        self._after_row_widget.setVisible(not self._is_proxy_tab())
+
+    def _on_proxy_progress(self, cur: int, total: int) -> None:
+        if self._busy is not None:
+            return
+        if total > 0:
+            self._progress.setValue(int(100 * cur / total))
+        pending = self._proxy_tab.queue.pending()
+        more = f" \u00b7 {pending - 1} more queued" if pending > 1 else ""
+        self._statusbar.showMessage(f"Proxy frame {cur} / {total}{more}")
+
+    def _on_proxy_busy_changed(self, busy: bool) -> None:
+        if not busy and self._busy is None:
+            self._progress.setValue(0)
+            q = self._proxy_tab.queue
+            self._statusbar.showMessage(
+                f"Proxies done ({q.completed} made, {q.failed} failed).", 6000
+            )
+        self._update_go_state()
 
     def _start(self) -> None:
+        if self._is_proxy_tab():
+            self._proxy_tab.start_batch()
+            self._update_go_state()
+            return
         if self._is_convert_running():
             self._append_log("Conversion already running — ignore start.")
             return
@@ -834,7 +894,6 @@ class MainWindow(QMainWindow):
         self._statusbar.showMessage("Conversion failed.")
         QMessageBox.critical(self, "Error", msg)
         self._update_go_state()
-        self._cancel_btn.setEnabled(False)
 
     def _on_cancelled(self) -> None:
         """User hit Cancel — quiet UI, no error dialog."""
@@ -842,13 +901,11 @@ class MainWindow(QMainWindow):
         self._progress.setValue(0)
         self._statusbar.showMessage("Cancelled.", 4000)
         self._update_go_state()
-        self._cancel_btn.setEnabled(False)
 
     def _on_done(self) -> None:
         self._busy = None
         self._progress.setValue(100)
         self._update_go_state()
-        self._cancel_btn.setEnabled(False)
 
         notes: list[str] = []
         clip = getattr(self, "_output_clipboard", "") or ""
@@ -902,7 +959,6 @@ class MainWindow(QMainWindow):
         self._thread = None
         if self._busy == "convert":
             self._busy = None
-        self._cancel_btn.setEnabled(False)
         self._update_go_state()
 
     def _resolve_v2e_open_path(self, fallback: str) -> str:
@@ -1071,6 +1127,11 @@ class MainWindow(QMainWindow):
         self._result_player_win = None
 
     def _cancel_run(self) -> None:
+        if self._is_proxy_tab():
+            if self._proxy_tab.is_busy():
+                self._proxy_tab.cancel()
+                self._append_log("Proxy cancellation requested\u2026")
+            return
         if self._worker:
             self._worker.cancel()
             self._append_log("Cancellation requested\u2026")
@@ -1355,6 +1416,11 @@ class MainWindow(QMainWindow):
         mime = event.mimeData()
         if mime is None or not mime.hasUrls():
             return
+        if self._is_proxy_tab():
+            paths = [url.toLocalFile() for url in mime.urls() if url.isLocalFile()]
+            if self._proxy_tab.add_paths(paths):
+                event.acceptProposedAction()
+            return
         for url in mime.urls():
             if not url.isLocalFile():
                 continue
@@ -1394,6 +1460,7 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 pass
         # Stop background work so QApplication tear-down does not race threads.
+        self._proxy_tab.shutdown()
         if self._worker is not None:
             self._worker.cancel()
         if self._thread is not None and self._thread.isRunning():

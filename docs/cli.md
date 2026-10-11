@@ -32,6 +32,7 @@ Related: [GUI](./gui.md) · [ProRes and VideoToolbox](./prores.md) · [Nuke inte
 | `main.py` *(no subcommand)* | Open the GUI |
 | `main.py video2exr …` | CLI: video → OCIO → EXR sequence |
 | `main.py exr2video …` | CLI: image sequence (EXR / PNG / JPG / …) → OCIO → video |
+| `main.py proxy …` | CLI: video → editing proxies, as a batch or a `--watch` folder daemon |
 
 Global flags (before the subcommand; convert flags may also appear after it):
 
@@ -42,7 +43,7 @@ Global flags (before the subcommand; convert flags may also appear after it):
 | `--smoke-test` | CI: launch GUI briefly, verify OCIO/ssl, exit |
 | `--open PATH` | **GUI only:** open this media on launch |
 | `--gui-ocio PATH` | **GUI only:** load this OCIO config on launch |
-| `--mode auto\|video2exr\|exr2video` | **GUI only:** which tab (`auto` from `--open`) |
+| `--mode auto\|video2exr\|exr2video\|proxy` | **GUI only:** which tab (`auto` from `--open`; `proxy` = Video → Proxy, and `--open` adds that path to the clip list) |
 
 **Interrupt:** during CLI convert, **Ctrl-C** sets a cancel flag so the
 pipeline stops cooperatively (pool work is cancelled) and the process exits
@@ -238,20 +239,64 @@ otherwise.
 
 ---
 
+## `proxy` — video → editing proxies
+
+Lightweight proxies for editing, like DaVinci Resolve's proxy generation. No
+OCIO step: proxies keep the source look, timecode, and audio. Same engine as
+the GUI's **Video → Proxy** tab.
+
+```bash
+# One clip → ./Proxy/A001C003.mov (ProRes 422 Proxy, half resolution)
+uv run python main.py proxy -i A001C003.mov
+
+# Every clip in a card folder, quarter-res H.264
+uv run python main.py proxy -i ./A001_card --resolution quarter --codec h264
+
+# Whole shoot day into one folder
+uv run python main.py proxy -i ./day1 --recursive -o /proxies
+
+# Watch folder daemon: proxy each new clip once it finishes copying (Ctrl-C stops)
+uv run python main.py proxy --watch /Volumes/Ingest
+uv run python main.py proxy --watch /Volumes/Ingest --recursive --existing --codec dnxhr_lb
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `-i`, `--input PATH …` | — | Clips and/or folders of clips |
+| `--watch DIR` | — | Watch folder (repeatable). Runs after any `-i` batch, until Ctrl-C |
+| `-o`, `--output-dir DIR` | `Proxy` folder next to each clip | One folder for all proxies. Cannot be a watched folder itself |
+| `--codec KEY` | `prores_proxy` | `prores_proxy`, `prores_lt`, `prores_vt_proxy` / `prores_vt_lt` (macOS), `dnxhr_lb`, `dnxhr_sq`, `h264`, `hevc_8` |
+| `--resolution KEY` | `half` | `half`, `quarter`, `eighth`, `original`, `1080`, `720`, `540` (fit height). Never upscales |
+| `--suffix TEXT` | none | Added to proxy filenames. Empty keeps the source name for relinking |
+| `--no-audio` | off | Drop audio (otherwise PCM in `.mov`, AAC in `.mp4`) |
+| `--overwrite` | off | Re-make proxies that already exist (default: skip them) |
+| `--recursive` | off | Include subfolders of `-i` folders and watch folders. `Proxy` folders are skipped |
+| `--existing` | off | `--watch`: also proxy clips already in the folder at start |
+| `--interval SECONDS` | `2` | `--watch`: time between folder scans |
+| `--settle SECONDS` | `3` | `--watch`: how long a file's size must stay the same before it is converted |
+
+The watch folder polls instead of relying on OS file events, so it works on
+network shares and removable volumes. Proxies are written to a hidden
+`.name.partial.ext` file and renamed when complete. RAW clips (`.r3d`, `.nev`,
+`.braw`, ARRIRAW) are not supported by `proxy`.
+
+---
+
 ## Exit codes
 
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | Convert / argument / codec error |
-| `2` | Smoke test: OCIO runtime &lt; 2.5 |
+| `1` | Convert / argument / codec error (`proxy`: at least one clip failed) |
+| `2` | `proxy`: no `-i` / `--watch`, or a bad watch folder |
+| `2` | Smoke test: OCIO runtime &lt; 2.5 (GUI `--smoke-test`) |
 | `3` | Smoke test: bundled config failed to load |
 
 ---
 
 ## See also
 
-- `main.py --help`, `video2exr --help`, `exr2video --help` (always current)
+- `main.py --help`, `video2exr --help`, `exr2video --help`, `proxy --help` (always current)
 - [GUI](./gui.md)
 - [Nuke integration](./nuke.md)
 - [Releasing](./releasing.md)
