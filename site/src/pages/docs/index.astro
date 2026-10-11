@@ -1,0 +1,35 @@
+---
+import { getCollection, getEntry, render } from "astro:content";
+import Base from "../../layouts/Base.astro";
+
+// docs/_index.md is the section intro; every other file is a guide page.
+const intro = await getEntry("docs", "_index");
+if (!intro) throw new Error("docs/_index.md is missing");
+const { Content } = await render(intro);
+const pages = (await getCollection("docs"))
+  .filter((p) => p.id !== "_index")
+  .sort((a, b) => a.data.weight - b.data.weight || a.data.title.localeCompare(b.data.title));
+---
+
+<Base title={intro.data.title} description={intro.data.description}>
+  <article class="doc">
+    <header class="doc-header">
+      <h1>{intro.data.title}</h1>
+    </header>
+    <div class="content">
+      <Content />
+      <ul class="page-list">
+        {
+          pages.map((p) => (
+            <li>
+              <a href={`/docs/${p.id}/`}>
+                <strong>{p.data.title}</strong>
+              </a>
+              {p.data.description && <span class="muted"> — {p.data.description}</span>}
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </article>
+</Base>

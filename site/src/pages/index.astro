@@ -1,0 +1,23 @@
+---
+import Base from "../layouts/Base.astro";
+import { Content, frontmatter } from "../content/home.md";
+import screenshot from "../../../resources/screenshots/exr_converter_screenshot.png?url";
+---
+
+<Base>
+  <section class="hero">
+    <h1>{frontmatter.title}</h1>
+    <div class="content">
+      <Content />
+    </div>
+    <figure class="hero-shot">
+      <img
+        src={screenshot}
+        alt="EXR Converter — EXR to Video tab"
+        width="1200"
+        height="750"
+        loading="eager"
+      />
+    </figure>
+  </section>
+</Base>

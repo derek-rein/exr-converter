@@ -73,11 +73,11 @@ spctl -a -vvv -t install exr_converter-macos-arm64.dmg
 codesign --verify --deep --strict --verbose=2 exr_converter-macos-arm64.dmg
 ```
 
-**Docs site:** Markdown under `docs/` is built with Hugo (`site/`) and published
-by the **Docs** workflow on push to `main` (path filters under `docs/`, `site/`).
+**Docs site:** Markdown under `docs/` is built with Astro (`site/`) and published
+by Vercel on push to `main` (config in `site/vercel.json`).
 That is independent of the versioned app **Release** workflow. Preview locally
 with `make docs-serve`. Public URL:
-[derek-rein.github.io/exr-converter](https://derek-rein.github.io/exr-converter/).
+[exr-converter.derekvfx.ca](https://exr-converter.derekvfx.ca/).
 
 User-facing ProRes / VideoToolbox guide: [prores.md](./prores.md).
 Related design notes (not release machinery):
