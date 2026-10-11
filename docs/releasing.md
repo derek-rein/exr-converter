@@ -7,7 +7,7 @@ description: Tagging, Auto-tag, and the Release workflow
 The full release and deployment process (protected `main`, Makefile, GitHub
 Actions, `gh` CLI, checklist, troubleshooting) lives in:
 
-**[AGENTS.md — Releasing and deployment](../AGENTS.md#releasing-and-deployment)**
+**[AGENTS.md: Releasing and deployment](../AGENTS.md#releasing-and-deployment)**
 
 User-facing history (required on every release):
 
@@ -21,7 +21,7 @@ User-facing history (required on every release):
 
 You do **not** need a manual tag push after merge (that was what skipped 0.5.0
 until fixed). After merge, do **not** also push a local `vX.Y.Z` unless Auto-tag
-failed — dual triggers race and waste runner minutes.
+failed. Dual triggers race and waste runner minutes.
 
 **Hard gates (automated):** Auto-tag and Release refuse to ship if
 `CHANGELOG.md` lacks `## [X.Y.Z]` / the bottom compare link, or if the tag does

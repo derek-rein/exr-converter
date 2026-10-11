@@ -43,7 +43,7 @@ transcode with DaVinci Resolve / the official sample `-m` path instead.
 The Blackmagic RAW SDK is **proprietary** (Blackmagic Design). It is **free to
 download** from the [developer site](https://www.blackmagicdesign.com/developer/products/braw)
 after accepting their license. Terms live in the **Developer License** that
-ships with the SDK package — always verify the copy you downloaded.
+ships with the SDK package. Always verify the copy you downloaded.
 
 Summary of constraints that affect this project (not a substitute for the legal text):
 
@@ -178,7 +178,7 @@ release signing secrets are set, otherwise ad-hoc). GPU decoder binaries stay
 inside the framework / `braw/` folder.
 
 Only runtime dynamic libraries from the SDK `Libraries/` folder plus our
-bridge — including GPU decoder libs (`libDecoderCUDA` / `libDecoderOpenCL` /
+bridge, including GPU decoder libs (`libDecoderCUDA` / `libDecoderOpenCL` /
 `DecoderMetal`). Never headers, samples, `profile.braw`, or SDK documentation.
 
 ---
@@ -210,7 +210,7 @@ The **Release** workflow (Nuitka multi-OS):
    `.framework` under `Contents/MacOS`.
 
 If the secret is missing, Release still publishes the app **without** BRAW
-support (`.braw` convert reports SDK missing — same as R3D).
+support (`.braw` convert reports SDK missing, same as R3D).
 
 The bridge must match each SDK ABI: Linux `Variant` / `const char*`, macOS
 `CFUUIDBytes` + `CFStringRef`, Windows COM `VARIANT` / `BSTR` / `BOOL` plus
@@ -240,8 +240,8 @@ set or after `make braw-sdk-fetch`.
 | `Blackmagic RAW runtime libraries not found` | Set `EXR_CONVERTER_BRAW_LIBS` to the SDK `Libraries` folder |
 | CI skips BRAW | Secret `BRAW_SDK_READ_TOKEN` not set or cannot read private release |
 | `CreateBlackmagicRawFactoryInstanceFromPath failed` | Wrong folder (must contain `libBlackmagicRawAPI.so` / `.dylib` / `.dll`) |
-| Wrong colors | Use ACES2065-1 source — decode is Linear AP0, not BMD Film |
-| `._….braw` in browser | macOS AppleDouble metadata — hidden from the video browser |
+| Wrong colors | Use ACES2065-1 source. Decode is Linear AP0, not BMD Film |
+| `._….braw` in browser | macOS AppleDouble metadata, hidden from the video browser |
 | Convert log says `CPU` on a GPU machine | GPU init failed (Metal / CUDA / OpenCL). Rebuild `make braw-bridge`. CUDA needs an NVIDIA driver + `libDecoderCUDA`; OpenCL needs a GPU ICD + `libDecoderOpenCL`; macOS needs `DecoderMetal` in the framework. Force CPU with `EXR_CONVERTER_BRAW_CPU=1` to compare. |
 
 Official sample clip (from the SDK package, not this repo): `profile.braw`.

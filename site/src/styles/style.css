@@ -315,7 +315,7 @@ a:hover {
   color: var(--muted);
 }
 
-/* Shiki (Astro highlight) — use the site's code background */
+/* Shiki (Astro highlight): use the site's code background */
 .astro-code {
   background-color: var(--code-bg) !important;
 }

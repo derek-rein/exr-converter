@@ -21,7 +21,7 @@ Related: [CLI](./cli.md) · [GUI](./gui.md) · [AGENTS.md](../AGENTS.md)
 | Decode | R3D SDK IPP2 **Primary Development** → **REDWideGamutRGB + Log3G10** |
 | OCIO | Auto-detect source space prefers Log3G10 / RWG names on the active config |
 | Output | Same video→EXR pipeline (EXR compression, scale ladder, frame range, workers) |
-| GPU | **macOS Metal** (`GpuDecoder` + REDMetal) for classic R3D GPU decompress. **Windows / Linux:** SDK `R3DDecoder` — CUDA if an NVIDIA device is present, otherwise OpenCL. CPU fallback when no GPU init, or for clips Metal cannot GPU-decompress (N-RAW / R3D NE / RED ONE on macOS). Force CPU with `EXR_CONVERTER_R3D_CPU=1`. |
+| GPU | **macOS Metal** (`GpuDecoder` + REDMetal) for classic R3D GPU decompress. **Windows / Linux:** SDK `R3DDecoder`, CUDA if an NVIDIA device is present, otherwise OpenCL. CPU fallback when no GPU init, or for clips Metal cannot GPU-decompress (N-RAW / R3D NE / RED ONE on macOS). Force CPU with `EXR_CONVERTER_R3D_CPU=1`. |
 | Preview | Sequence player + video browser (half-res decode for scrub) |
 | Thumbnails | Grid thumbs via sixteenth-res decode (fast ID, not full premium) |
 | Inspect | Video-browser Inspect reads clip metadata through the SDK, not PyAV |
@@ -41,7 +41,7 @@ compile-time CUDA/OpenCL SDK is required to build the bridge.
 ## License (read this)
 
 The R3D SDK is **proprietary** (RED.COM / Nikon). Terms live in the
-**SDK License Agreement** shipped with the SDK package — always verify the
+**SDK License Agreement** shipped with the SDK package. Always verify the
 copy you downloaded.
 
 Summary of constraints that affect this project (not a substitute for the legal text):
@@ -162,10 +162,10 @@ Windows:<dist>/r3d/
 | `RED Redistributable libraries not found` | Set `EXR_CONVERTER_R3D_LIBS` or rebuild bridge (copies redistributables) |
 | `InitializeSdk failed` | Wrong folder (must contain `REDR3D.*`); SDK version mismatch |
 | CI skips R3D | Secret `R3D_SDK_READ_TOKEN` not set or cannot read private release |
-| Wrong colors | Use Log3G10 / RWG source (auto-detect) — primary pipeline is not display Rec.709 |
+| Wrong colors | Use Log3G10 / RWG source (auto-detect). The primary pipeline is not display Rec.709 |
 | Multi-part classic R3D | Point at any part (e.g. `…_001.R3D`); the SDK loads siblings |
-| `._….R3D` in browser | macOS AppleDouble metadata next to the real clip — hidden from the video browser (not media) |
-| `.RMD` next to clip | RED metadata recipe sidecar — not listed as video (open the `.R3D`) |
+| `._….R3D` in browser | macOS AppleDouble metadata next to the real clip, hidden from the video browser (not media) |
+| `.RMD` next to clip | RED metadata recipe sidecar, not listed as video (open the `.R3D`) |
 | Convert log says `CPU` on a KOMODO `.R3D` | GPU init failed (Metal / CUDA / OpenCL). Rebuild `make r3d-bridge`. CUDA needs a NVIDIA driver + `cudart` next to the RED libs; OpenCL needs a GPU ICD. Force CPU with `EXR_CONVERTER_R3D_CPU=1` to compare. |
 
 Sample clips (from RED / Nikon, not this repo):
