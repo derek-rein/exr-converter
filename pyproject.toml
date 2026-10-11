@@ -3,7 +3,7 @@ name = "exr-converter"
 version = "0.12.0"
 description = "A cross-platform GUI tool for converting and transcoding EXR and video files."
 authors = [
-    {name = "Derek Rein", email = "derek@derekvfx.ca"},
+    {name = "DerekVFX", email = "derek@derekvfx.ca"},
 ]
 dependencies = [
     "av>=17.0.0",
