@@ -7,11 +7,13 @@ from collections.abc import Iterator
 
 import pytest
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 import src.rc_resources  # noqa: F401 — register :/style.qss
 from src.core.proxy import PROXY_SUBFOLDER
-from src.gui.proxy_tab import LOCATION_CUSTOM, ProxyTab
+from src.gui.convert_tab import ConvertTab
+from src.gui.proxy_tab import LOCATION_BESIDE, LOCATION_CUSTOM, ProxyTab
+from src.gui.style import load_stylesheet
 from src.gui.window import PROXY_TAB_INDEX, MainWindow
 from src.services.app_settings import make_ini_settings, set_app_settings
 from tests.support.integration import write_synthetic_video
@@ -58,6 +60,60 @@ def test_watch_refuses_missing_folder(tab: ProxyTab, tmp_path) -> None:
     tab.watch_btn.setChecked(True)
     assert not tab.is_watching()
     assert not tab.watch_btn.isChecked()
+    # A failed start still opens the section so the path can be corrected.
+    assert tab._watch_section.is_expanded()
+
+
+def test_custom_folder_row_follows_location(tab: ProxyTab, qapp: QApplication) -> None:
+    tab.show()
+    qapp.processEvents()
+    assert tab.output_dir.isHidden()
+    tab.location_combo.setCurrentIndex(tab.location_combo.findData(LOCATION_CUSTOM))
+    qapp.processEvents()
+    assert not tab.output_dir.isHidden()
+    tab.location_combo.setCurrentIndex(tab.location_combo.findData(LOCATION_BESIDE))
+    qapp.processEvents()
+    assert tab.output_dir.isHidden()
+
+
+def test_watch_section_starts_collapsed(tab: ProxyTab, qapp: QApplication) -> None:
+    tab.show()
+    qapp.processEvents()
+    assert not tab._watch_section.is_expanded()
+    assert not tab.watch_dir.isVisible()
+    tab._watch_section.set_expanded(True)
+    qapp.processEvents()
+    assert tab.watch_dir.isVisible()
+    assert tab.existing_cb.isVisible()
+
+
+def test_proxy_form_matches_convert_tab_height(qapp: QApplication, settings) -> None:
+    """Default proxy content stays within a row of the other convert tabs."""
+    sheet = load_stylesheet()
+    made: list[QWidget] = []
+    heights: list[int] = []
+    try:
+        for widget in (
+            ConvertTab("video2exr", settings),
+            ConvertTab("exr2video", settings),
+            ProxyTab(settings),
+        ):
+            made.append(widget)
+            widget.setStyleSheet(sheet)
+            widget.show()
+            qapp.processEvents()
+            body = widget.findChild(QWidget, "convertTabBody")
+            assert body is not None
+            heights.append(body.sizeHint().height())
+        video2exr, exr2video, proxy = heights
+        assert video2exr == exr2video
+        assert proxy <= video2exr + 24
+    finally:
+        for widget in made:
+            if isinstance(widget, ProxyTab):
+                widget.shutdown()
+            widget.close()
+            widget.deleteLater()
 
 
 def test_window_has_proxy_tab(qapp: QApplication, tmp_path) -> None:
