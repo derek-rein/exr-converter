@@ -1,7 +1,7 @@
 ---
 title: GUI
 weight: 15
-description: Tabs, overlays, preferences, and post-convert actions
+description: Tabs, Video to Proxy, browsers, player, overlays, and preferences
 ---
 
 Desktop UI for **video ↔ OpenEXR** with **OpenColorIO**. Launch with no
@@ -15,8 +15,8 @@ exr_converter
 ```
 
 Optional launch flags (`--open`, `--gui-ocio`, `--mode`) are documented in
-[CLI — GUI launch](./cli.md#gui-launch-for-shells--nuke). Nuke can fill them in
-from a Read — see [nuke.md](./nuke.md).
+[CLI: GUI launch](./cli.md#gui-launch-for-shells--nuke). Nuke can fill them in
+from a Read. See [nuke.md](./nuke.md).
 
 ---
 
@@ -24,12 +24,12 @@ from a Read — see [nuke.md](./nuke.md).
 
 | Tab | Direction | Notes |
 |-----|-----------|--------|
-| **Video → EXR** | Decode video → OCIO → EXR sequence | **Ingest only** — never slate / burn-in / watermark. Output field uses ``name.####.exr``; that basename is written (not forced to the video stem). Accepts common video containers plus optional **`.r3d` / `.nev`** when the [R3D SDK bridge](./r3d.md) is available (browser thumbs + player preview use low-res R3D decode; convert is full quality — **Metal GPU** on macOS, **CUDA / OpenCL** on Windows and Linux; camera/timecode metadata lands on EXRs) and optional **`.braw`** when the [Blackmagic RAW bridge](./braw.md) is available (Linear ACES AP0 / `ACES2065-1`; **Metal** on macOS, **CUDA / OpenCL** on Windows and Linux, CPU fallback). |
-| **EXR → Video** | Image sequence → OCIO → video | OpenEXR primary; also DPX, PNG, JPEG, WebP. Slate / burn-in / watermark via that tab’s controls. Sequences may use ``name.####.ext`` or ``name_####.ext`` pads. |
+| **Video → EXR** | Decode video → OCIO → EXR sequence | **Ingest only.** Slate, burn-in, and watermark are never applied. Output is an EXR sequence, not a video or a still. The output field uses ``name.####.exr``; that basename is written (not forced to the video stem). Accepts common video containers plus optional **`.r3d` / `.nev`** when the [R3D SDK bridge](./r3d.md) is available (browser thumbs and player preview use low-res R3D decode; convert is full quality: **Metal GPU** on macOS, **CUDA / OpenCL** on Windows and Linux; camera and timecode metadata lands on the EXRs) and optional **`.braw`** when the [Blackmagic RAW bridge](./braw.md) is available (Linear ACES AP0 / `ACES2065-1`; **Metal** on macOS, **CUDA / OpenCL** on Windows and Linux, CPU fallback). |
+| **EXR → Video** | Image sequence → OCIO → video | OpenEXR primary; also DPX, PNG, JPEG, and WebP as **inputs**. Output is a video file. Slate, burn-in, and watermark use that tab’s controls. Sequences may use ``name.####.ext`` or ``name_####.ext`` pads. |
 | **Video → Proxy** | Video → smaller video (no OCIO) | Batch editing proxies plus a **watch folder**, modelled on DaVinci Resolve proxy generation. See [Video → Proxy](#video--proxy). |
 
 Dragging the **Log** splitter up does not squash Input / Output / Options
-fields — those controls keep a fixed readable height, and the convert form
+fields. Those controls keep a fixed readable height, and the convert form
 scrolls if the pane is short. **Convert** and **Cancel** share that height;
 the progress bar matches the input rows.
 
@@ -53,7 +53,7 @@ field, **⌘-click** (macOS) or **Ctrl-click** (Windows/Linux) on **Browse…**
 reveals that path in the OS file manager instead.
 
 **Paste paths:** You can paste a Nuke-style sequence path
-(``/show/shot.####.exr`` or ``%04d``) into the convert Input field — the app
+(``/show/shot.####.exr`` or ``%04d``) into the convert Input field. The app
 resolves the sequence on disk, fills the frame range, and auto-detects source
 color space. Pasting a folder, frame file, video, or ``####`` pattern into a
 browser’s **Folder** field navigates there, highlights the matching item, and
@@ -83,10 +83,10 @@ folder). The slate editor reuses the player with live burn-in/watermark overlays
 **Video browser filters:** only real media extensions are listed (``.r3d``,
 ``.nev``, ``.braw``, ``.ari``, ``.arx``, ``.mov``, ``.mp4``, …). macOS **AppleDouble** Finder sidecars
 (``._clip.R3D``) that appear next to clips on network shares or non-HFS
-volumes are hidden — they share the media extension but are resource-fork
+volumes are hidden. They share the media extension but are resource-fork
 metadata, not video. RED **`.RMD`** metadata files are never listed (not a
 video extension). Selecting **`.r3d` / `.nev` / `.braw`** uses the optional
-SDK bridges for listing, **Inspect**, Preview, and grid thumbs — never
+SDK bridges for listing, **Inspect**, Preview, and grid thumbs. Never
 PyAV/FFmpeg (those containers are not libav-safe). Without the SDK, the clip
 still appears; Inspect shows SDK missing. **`.ari` / `.arx`** are listed as
 unsupported camera RAW and are never opened with PyAV.
@@ -95,7 +95,7 @@ unsupported camera RAW and are never opened with PyAV.
 cloud client often contain “online-only” stubs (macOS File Provider dataless
 files, Windows recall-on-open attributes, ``*.partial`` downloads). The
 browsers **list those names** but do **not** open them for sequence headers,
-video probes, or grid thumbnails — that would hang the UI while the client
+video probes, or grid thumbnails. That would hang the UI while the client
 downloads. Online-only videos show **Online-only** in the Codec column.
 Inspect / Preview / convert of a stub still needs the client to hydrate the
 file (open it once in Finder, or pin it locally). Search skips ``.dropbox``
@@ -153,19 +153,36 @@ long (text elides; width follows the layout).
 
 ## Color (OCIO)
 
-- Config picker: bundled **ACES Studio Config v4** (recommended default; stock
-  spaces plus Nikon N-Log, Fujifilm F-Log / F-Log2 / F-Log2 C, Leica L-Log,
-  Sony S-Log / S-Log2, Canon Log in Rec.709 and Rec.2020, KineLOG3, GoPro
-  Protune / GP-Log / GP-Log2, Blackmagic Film Gen 4, OPPO O-Log, and Apple
-  Log 2 — sources, measured error, and which popular cameras are still
-  missing in `resources/ocio/CAMERAS.md`), other built-ins, `$OCIO`, or a custom file.
-  Incompatible Nuke/library configs may appear **greyed out** with a tooltip
-  when the linked OpenColorIO cannot load them.
+- Config picker: bundled **ACES Studio Config v4** (recommended default), other
+  built-ins, `$OCIO`, a custom `.ocio` file, or a local Nuke install config
+  (path reference only). Incompatible Nuke or library configs may appear
+  **greyed out** with a tooltip when the linked OpenColorIO cannot load them.
+- The bundled config keeps every stock ACES Studio v4 name and adds camera
+  logs on top:
+  - **Nikon N-Log** (N-Gamut / Rec.2020). This is the published curve, a
+    generated 1D LUT, not Nikon's downloadable cube.
+  - **Fujifilm F-Log**, **F-Log2**, and **F-Log2 C**
+  - **Leica L-Log** (Rec.2020, and Rec.709 for the SL Typ 601)
+  - **Sony S-Log** and **S-Log2** (S-Gamut)
+  - **Canon Log** (Cinema Gamut, Rec.2020, Rec.709) and **Canon Log 2 / Log 3**
+    in Rec.2020 and Rec.709
+  - **KineLOG3**
+  - **GoPro Protune**, **GP-Log**, and **GP-Log2**
+  - **Blackmagic Film Gen 4** (Broadcast, Pocket 4K, Pocket 6K)
+  - **OPPO O-Log** (Rec.2020; 18% reflectance stays on linear 0.18)
+  - **Apple Log 2** (Apple Wide Gamut, same curve as Apple Log)
+- Stock ACES Studio v4 spaces already include Apple Log, ARRI LogC3 and LogC4,
+  RED Log3G10, Sony S-Log3 / Venice, Canon Log 2/3 Cinema Gamut, Panasonic
+  V-Log, DJI D-Log, and Blackmagic Film Gen 5. DJI D-Log M, Samsung Log, and
+  Z CAM Z-Log2 are not included: no scene-linear equation was available to
+  check. Sources, measured error, and the full camera table (including logs
+  left out) are in
+  [resources/ocio/CAMERAS.md](../resources/ocio/CAMERAS.md).
 - Source / destination spaces follow the **active (user) config**; aliases are
   remapped where possible (`find_equivalent_space`).
 - **EXR → Video destination:** if the dest name is an OCIO **display**
   (``sRGB - Display``, ``Rec.1886 Rec.709 - Display``, …) convert applies that
-  display plus the config’s default **view** for the working space — on ACES
+  display plus the config’s default **view** for the working space. On ACES
   2.0 Studio that is **ACES 2.0 - SDR 100 nits (Rec.709)**, matching Nuke /
   DJV. A colorspace-only hop to a display uses the config
   ``default_view_transform`` (**Un-tone-mapped**) and will lift shadows / clip
@@ -185,7 +202,7 @@ long (text elides; width follows the layout).
 
 ## Presets (`Presets` menu)
 
-Named **convert recipes** (JSON under app data) — color spaces, scale, codec key,
+Named **convert recipes** (JSON under app data): color spaces, scale, codec key,
 EXR compression, OCIO source. **Not** included: input/output paths, window
 geometry, player/cache prefs, or full slate text (slate fields still use last
 session via Preferences / QSettings).
@@ -210,7 +227,7 @@ else `scene_linear`), alpha-composited, then OCIO-transformed to the encode
 display space. Rendering is **QPainter** (no embedded browser).
 
 **Slate thumbnail** (EXR → video): which source frame is used for the slate
-still is set under **File → Preferences…** — first / middle / last of the
+still is set under **File → Preferences…**: first, middle, or last frame of the
 sequence. Extraction uses the known EXR frame list (not a video seek).
 
 ---
@@ -235,7 +252,7 @@ Experimental **oxideav** keys (`prores_ox_proxy` / `lt` / `422` / `hq` /
 10-bit on decode**: RDD 36 422 fourccs are read as 10-bit by FFmpeg, Resolve,
 and QuickTime. Full key list:
 [CLI codecs](./cli.md#codecs-honest-bit-depths) and
-[ProRes — oxideav](./prores.md#experimental-oxideav-cross-platform-rdd-36).
+[ProRes: oxideav](./prores.md#experimental-oxideav-cross-platform-rdd-36).
 
 ---
 
@@ -282,7 +299,7 @@ is proxied with the settings above, joining the same queue as a batch.
 - The custom output folder cannot be the watched folder itself.
 
 For a headless watch folder (a render box or ingest station), use
-[`main.py proxy --watch`](./cli.md#proxy--video--editing-proxies).
+[`main.py proxy --watch`](./cli.md#proxy-video-to-editing-proxies).
 
 ---
 
@@ -331,7 +348,7 @@ Opened from **EXR → Video** when editing slate / burn-in / watermark.
   and OCIO are outside the undo stack.
 - **Video monitoring view:** for video Preview and Video→EXR **Open result**,
   the player asks the OCIO config for a view via viewing rules / video encodings
-  (``getDefaultView(display, videoColorSpace)``) when available — e.g. ACES
+  (``getDefaultView(display, videoColorSpace)``) when available. For example, ACES
   configs often resolve that to a colorimetric video view. If the config has no
   such rule, the config-wide default display/view is kept. Scene-linear camera
   EXR in the slate editor always uses the config default.
@@ -352,8 +369,12 @@ Site links stay in **About** only (not on the Help menu).
 
 ## macOS notes
 
-- The macOS build is signed and notarized, so it opens normally. First launch may still show the standard "downloaded from the internet" prompt.
-- The running Dock icon uses the bundle `.icns` (not a sharp PNG override).
+- Release DMGs (Apple Silicon and Intel) are signed with a **Developer ID
+  Application** certificate for **Medeu Global LLC**, then notarized and
+  stapled. The app opens normally. First launch may still show the standard
+  "downloaded from the internet" prompt.
+- The running Dock icon uses the bundle `.icns`. The bundle identifier is
+  `com.vfxtools.exrconverter`. The name on disk stays **EXR Converter**.
 
 ---
 

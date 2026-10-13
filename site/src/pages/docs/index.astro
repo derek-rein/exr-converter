@@ -25,7 +25,7 @@ const pages = (await getCollection("docs"))
               <a href={`/docs/${p.id}/`}>
                 <strong>{p.data.title}</strong>
               </a>
-              {p.data.description && <span class="muted"> — {p.data.description}</span>}
+              {p.data.description && <span class="muted"> · {p.data.description}</span>}
             </li>
           ))
         }

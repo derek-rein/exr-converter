@@ -1,13 +1,13 @@
 ---
 title: ProRes and VideoToolbox
 weight: 18
-description: Software vs Apple VideoToolbox vs experimental oxideav — bit depths and codec keys
+description: Software vs Apple VideoToolbox vs experimental oxideav, bit depths and codec keys
 ---
 
 **EXR → Video** can write ProRes three different ways. They are **not**
 interchangeable: bit depth, platform, and encoder implementation all differ.
 This page is the user-facing guide; CLI keys are listed in
-[CLI — codecs](./cli.md#codecs-honest-bit-depths).
+[CLI: codecs](./cli.md#codecs-honest-bit-depths).
 
 | Encoder | Where | Bit depth (this app) | When to use |
 |---------|-------|----------------------|-------------|
@@ -15,7 +15,7 @@ This page is the user-facing guide; CLI keys are listed in
 | **VideoToolbox** (`prores_vt_*`) | **macOS only** | 422 family **10-bit**; 4444 / XQ **~12-bit class** | Fast hardware encode; 12-bit-class 4444 on a Mac |
 | **oxideav** (`prores_ox_*`) | All platforms when built | **4444 / XQ: true 12-bit.** 422 family: 12-bit internal, **10-bit** to other apps | Cross-platform 12-bit 4:4:4; experimental |
 
-Default codec is always software **`prores`** (422 HQ, 10-bit) — including on
+Default codec is always software **`prores`** (422 HQ, 10-bit), including on
 macOS. VideoToolbox is opt-in.
 
 Related: [GUI codecs](./gui.md#codecs) · [oxideav design notes](./plan-12bit-prores-oxideav.md)
@@ -57,7 +57,7 @@ What that means in practice:
 | `prores_vt_4444` | 4444 | ~12-bit 4:4:4:4 |
 | `prores_vt_xq` | 4444 XQ | ~12-bit 4:4:4:4 |
 
-GUI: **EXR → Video → Codec → ProRes (VideoToolbox · macOS)** — nested submenu,
+GUI: **EXR → Video → Codec → ProRes (VideoToolbox · macOS)**, a nested submenu,
 macOS only.
 
 CLI (packaged app or source):
@@ -100,7 +100,7 @@ stays 10-bit.
 
 Pure-Rust **SMPTE RDD 36** encode via the optional `exr_prores` PyO3
 extension (`make oxideav-prores`). Release binaries include it. Hidden from
-the codec list when the extension is not built. **Not Apple-certified** — do not
+the codec list when the extension is not built. **Not Apple-certified.** Do not
 call it “Apple ProRes.”
 
 **4444 and XQ are true 12-bit** to FFmpeg, Resolve, and QuickTime (`ap4h` /

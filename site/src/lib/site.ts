@@ -1,6 +1,6 @@
 export const SITE_TITLE = "EXR Converter";
 export const SITE_DESCRIPTION =
-  "Desktop GUI and CLI for converting video ↔ OpenEXR with OpenColorIO.";
+  "Desktop GUI and CLI for video and OpenEXR with OpenColorIO, editing proxies, and signed macOS builds.";
 export const GITHUB = "https://github.com/derek-rein/exr-converter";
 export const RELEASES = `${GITHUB}/releases`;
 

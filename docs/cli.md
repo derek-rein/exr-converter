@@ -1,13 +1,17 @@
 ---
 title: CLI reference
 weight: 10
-description: video2exr, exr2video, and GUI launch flags
+description: video2exr, exr2video, proxy, and GUI launch flags
 ---
 
-Command-line interface for **video ↔ OpenEXR** conversion with **OpenColorIO**.
+Command-line interface for **video and OpenEXR** conversion with **OpenColorIO**.
 The same entry point launches the **GUI** when no convert subcommand is given.
 
-Slate, burn-in, watermark, and post-convert toggles are **GUI-only** — see
+**Outputs:** `video2exr` writes an OpenEXR sequence. `exr2video` and `proxy`
+write a video file. PNG, JPEG, WebP, and DPX are **inputs** for `exr2video`
+(image sequences). The app does not write PNG or other still-image output.
+
+Slate, burn-in, watermark, and post-convert toggles are **GUI-only**. See
 [GUI](./gui.md).
 
 ```bash
@@ -77,16 +81,16 @@ For a one-click Nuke menu that fills these in from a **Read** node, see
 
 ---
 
-## `video2exr` — video → EXR
+## `video2exr`: video to EXR
 
 ```bash
 uv run python main.py video2exr -i plate.mov
 uv run python main.py video2exr -i plate.mov -o /tmp/exr_out --exr-compression zip
 uv run python main.py video2exr -i plate.mov --frame-range 1-100 --workers 4
-# Optional RED R3D / N-RAW (requires local R3D SDK bridge — docs/r3d.md):
+# Optional RED R3D / N-RAW (requires local R3D SDK bridge; see docs/r3d.md):
 uv run python main.py video2exr -i clip.R3D -o /tmp/exr_out \
   --src "Log3G10 REDWideGamutRGB" --dst ACEScg
-# Optional Blackmagic RAW (requires local BRAW SDK bridge — docs/braw.md):
+# Optional Blackmagic RAW (requires local BRAW SDK bridge; see docs/braw.md):
 uv run python main.py video2exr -i clip.braw -o /tmp/exr_out \
   --src ACES2065-1 --dst ACEScg
 ```
@@ -96,7 +100,7 @@ uv run python main.py video2exr -i clip.braw -o /tmp/exr_out \
 | `-i` / `--input` | *(required)* | Input video file (also `.r3d` / `.nev` when R3D support is built; `.braw` when BRAW support is built) |
 | `-o` / `--output-dir` | `<input_dir>/<stem>/` | Directory for EXR frames |
 | `--ocio` | bundled / `$OCIO` | Config file path |
-| `--src` | auto | Stream color tags / codec ranking → **`Output - Rec.709`** (alias-resolved). R3D/N-RAW defaults toward **Log3G10 REDWideGamutRGB**. BRAW defaults toward **ACES2065-1** (Linear ACES AP0). Not an OIIO still probe. |
+| `--src` | auto | Auto-detect from the video (stream color tags and codec ranking), then **`Output - Rec.709`**. `--help` calls that fallback Rec.709-ish. Names are alias-resolved. R3D/N-RAW defaults toward **Log3G10 REDWideGamutRGB**. BRAW defaults toward **ACES2065-1** (Linear ACES AP0). Not an OIIO still probe. |
 | `--dst` | `ACEScg` / scene_linear | Destination scene space (role fallbacks; not media probing) |
 | `--exr-compression` | `dwaa` | `none`, `rle`, `zip`, `zips`, `piz`, `pxr24`, `b44`, `b44a`, `dwaa`, `dwab` |
 | `--dwa-level` | library | DWA level for `dwaa`/`dwab` (`0` = lossless) |
@@ -112,22 +116,22 @@ uv run python main.py video2exr -i clip.braw -o /tmp/exr_out \
 `--padding`). Default directory is `<input_parent>/<stem>/` (same idea as the GUI).
 
 **RED R3D / N-RAW:** optional. Requires building the R3D bridge against the
-official proprietary SDK — see [r3d.md](./r3d.md). Without it, `.r3d` / `.nev`
+official proprietary SDK. See [r3d.md](./r3d.md). Without it, `.r3d` / `.nev`
 inputs error with a clear missing-SDK message.
 
 **Blackmagic RAW:** optional. Requires building the BRAW bridge against the
-official proprietary SDK — see [braw.md](./braw.md). Public Releases ship
+official proprietary SDK. See [braw.md](./braw.md). Public Releases ship
 the bridge when secret `BRAW_SDK_READ_TOKEN` is set. Without it, `.braw`
 inputs error with a clear missing-SDK message. Decode is Linear ACES AP0
 (Metal / CUDA / OpenCL when available, otherwise CPU).
 
 ---
 
-## `exr2video` — image sequence → video
+## `exr2video`: image sequence to video
 
-Primary path is **OpenEXR**. Also accepted: **DPX**, and display stills
+Primary path is **OpenEXR**. Also accepted as input: **DPX**, and display stills
 **PNG**, **JPEG** (`.jpg` / `.jpeg`), **WebP**. Mixed folders prefer EXR,
-then DPX, then display stills.
+then DPX, then display stills. The command always encodes a **video file**.
 
 ```bash
 uv run python main.py exr2video -i ./plate
@@ -146,7 +150,7 @@ uv run python main.py exr2video -i ./plate --codec h264 --crf 18
 | `--src` | format-aware | EXR/DPX: metadata / `scene_linear`. PNG/JPEG/WebP: sRGB-ish display space |
 | `--dst` | `Output - Rec.709` | Display / delivery space. On ACES 2.0 configs that name remaps to **Rec.1886 Rec.709 - Display**; convert then applies the viewing-rule default view (**ACES 2.0 - SDR 100 nits (Rec.709)** for ACEScg), not Un-tone-mapped. Pass a utility encoding (``sRGB Encoded Rec.709 (sRGB)``) for colorimetric-only. |
 | `--scale` | `1.0` | Output scale |
-| `--codec` | `prores` | Codec key — see ladder below (default = ProRes 422 HQ, **10-bit** software) |
+| `--codec` | `prores` | Codec key. See the ladder below (default = ProRes 422 HQ, **10-bit** software) |
 | `--crf` | codec default | H.264 / HEVC quality |
 | `--preset` | codec default | x264 / x265 preset name |
 | `--frame-range` | all | e.g. `1001-1100` |
@@ -168,7 +172,7 @@ Keys match `exr2video --codec`. Software ProRes is **always 10-bit** encode
 (`prores_ks`); do not treat 4444/XQ as true 12-bit on that path.
 
 **VideoToolbox** (`prores_vt_*`) is **Apple’s hardware ProRes encoder** on
-**macOS only** — faster than software, and 4444/XQ keep **~12-bit class**
+**macOS only.** It is faster than software, and 4444/XQ keep **~12-bit class**
 precision that `prores_ks` does not. Experimental **oxideav** 4444/XQ
 (`prores_ox_4444`, `prores_ox_xq`) are true 12-bit on every OS. oxideav
 **422** profiles (`prores_ox_proxy` / `lt` / `422` / `hq`) code 12-bit
@@ -181,7 +185,7 @@ to FFmpeg, Resolve, and QuickTime. Full explanation:
 | `prores_proxy` | 10-bit 4:2:2 | Software ProRes Proxy |
 | `prores_lt` | 10-bit 4:2:2 | Software ProRes LT |
 | `prores_422` | 10-bit 4:2:2 | Software ProRes 422 |
-| `prores` | 10-bit 4:2:2 | **Default** — software ProRes 422 HQ |
+| `prores` | 10-bit 4:2:2 | **Default.** Software ProRes 422 HQ |
 | `prores_4444` | 10-bit 4:4:4:4 | Software; not true 12-bit |
 | `prores_xq` | 10-bit 4:4:4:4 | Software; not true 12-bit |
 | `prores_vt_proxy` | 10-bit 4:2:2 | VideoToolbox 422 Proxy (macOS) |
@@ -208,7 +212,9 @@ to FFmpeg, Resolve, and QuickTime. Full explanation:
 | `ffv1` | 10-bit 4:4:4 | Lossless |
 | `ffv1_12` | 12-bit 4:4:4 | Lossless |
 
-List keys on your build (filters macOS-only codecs on other OSes):
+List keys on your build. `--help` omits macOS-only VideoToolbox codecs on
+other operating systems, and omits `prores_ox_*` when the oxideav extension
+is not built:
 
 ```bash
 uv run python main.py exr2video --help
@@ -232,14 +238,14 @@ otherwise.
   (`ACEScg` / scene_linear for video→EXR; Rec.709 for EXR→video), not media
   probing. Names remap via `find_equivalent_space` when needed. **exr2video**
   dest names that are OCIO **displays** bake the viewing-rule default view
-  (ACES 2.0 SDR Rec.709 on current Studio configs), matching Nuke/DJV — not
+  (ACES 2.0 SDR Rec.709 on current Studio configs), matching Nuke/DJV, not
   Un-tone-mapped.
 - Packaged app needs **OpenColorIO 2.5+** for the bundled ACES Studio v4 config.
   From source: `make ensure-ocio` if the runtime library is older than 2.5.
 
 ---
 
-## `proxy` — video → editing proxies
+## `proxy`: video to editing proxies
 
 Lightweight proxies for editing, like DaVinci Resolve's proxy generation. No
 OCIO step: proxies keep the source look, timecode, and audio. Same engine as
@@ -260,10 +266,14 @@ uv run python main.py proxy --watch /Volumes/Ingest
 uv run python main.py proxy --watch /Volumes/Ingest --recursive --existing --codec dnxhr_lb
 ```
 
+Flags match `proxy --help`. The `--codec` list in that help text is whatever
+this operating system can encode, so `prores_vt_proxy` and `prores_vt_lt`
+appear on macOS only.
+
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `-i`, `--input PATH …` | — | Clips and/or folders of clips |
-| `--watch DIR` | — | Watch folder (repeatable). Runs after any `-i` batch, until Ctrl-C |
+| `-i`, `--input PATH …` | (none) | Clips and/or folders of clips. Give this and/or `--watch` |
+| `--watch DIR` | (none) | Watch folder (repeatable). Runs after any `-i` batch, until Ctrl-C |
 | `-o`, `--output-dir DIR` | `Proxy` folder next to each clip | One folder for all proxies. Cannot be a watched folder itself |
 | `--codec KEY` | `prores_proxy` | `prores_proxy`, `prores_lt`, `prores_vt_proxy` / `prores_vt_lt` (macOS), `dnxhr_lb`, `dnxhr_sq`, `h264`, `hevc_8` |
 | `--resolution KEY` | `half` | `half`, `quarter`, `eighth`, `original`, `1080`, `720`, `540` (fit height). Never upscales |

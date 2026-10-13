@@ -19,6 +19,13 @@ rolling the `[Unreleased]` section into a versioned heading.
 - The docs site moved to https://exr-converter.derekvfx.ca/ (hosted on Vercel) and
   is now built with Astro instead of Hugo; `make docs-serve` / `make docs-build` need Node 22.12+.
   Old `derek-rein.github.io/exr-converter` links redirect to the same page there.
+- Public docs now match the current app: signed and notarized macOS builds
+  (Medeu Global LLC), the Video → Proxy tab, the `proxy` CLI and watch folder,
+  expanded camera logs, and ProRes bit depths. Install, platform, and CLI pages
+  follow `video2exr`, `exr2video`, and `proxy --help`. Output is described as
+  video or EXR only.
+- The docs home page has direct downloads for the latest release: Windows x64
+  installer, macOS Apple Silicon and Intel DMGs, and the Linux x86_64 AppImage.
 
 ---
 
