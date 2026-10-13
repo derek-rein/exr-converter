@@ -27,6 +27,12 @@ rolling the `[Unreleased]` section into a versioned heading.
 - The docs home page has direct downloads for the latest release: Windows x64
   installer, macOS Apple Silicon and Intel DMGs, and the Linux x86_64 AppImage.
 
+### Fixed
+
+- The Windows app, desktop shortcut, and installer icon include 16 px through
+  256 px frames, so the desktop icon stays sharp instead of upscaling a single
+  16×16 image.
+
 ---
 
 ## [0.12.0] - 2026-10-10
