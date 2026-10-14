@@ -15,6 +15,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
+- The **Video → Proxy** tab is about the same height as Video → EXR and EXR → Video. Codec and resolution share a row, the custom output folder appears only when that location is chosen, and the watch-folder path folds into a section under **Start Watching**.
 - The Windows installer and Add/Remove Programs list **DerekVFX** as the publisher and link to https://exr-converter.derekvfx.ca/. The Python package author name is DerekVFX as well.
 - The docs site moved to https://exr-converter.derekvfx.ca/ (hosted on Vercel) and
   is now built with Astro instead of Hugo; `make docs-serve` / `make docs-build` need Node 22.12+.

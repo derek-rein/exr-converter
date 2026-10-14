@@ -267,12 +267,13 @@ original.
 | Section | Control | Default | Notes |
 |---------|---------|---------|-------|
 | **Source clips** | Add Clips… / Add Folder… / Remove / Clear | empty | Drop videos or folders on the window while this tab is open to add them. RAW (`.r3d`, `.nev`, `.braw`, ARRIRAW) is not offered here. |
-| **Output** | Location | **Proxy folder next to each clip** | Writes `<clip folder>/Proxy/<clip name>.<ext>`, the layout Resolve relinks. **Custom folder** puts every proxy in one folder. |
-| | Name suffix | none | Added to the proxy filename. Leave empty to keep the source name, which relinks best. |
-| | Skip clips that already have a proxy | on | Off re-makes them. |
-| **Options** | Codec | **Apple ProRes 422 Proxy** | Also ProRes 422 LT, VideoToolbox ProRes Proxy / LT (macOS), DNxHR LB / SQ, H.264, and 8-bit HEVC. H.264 / HEVC write `.mp4`; the rest write `.mov`. |
+| | Include subfolders | off | **Add Folder…** includes nested folders, and the watch folder follows them too. `Proxy` folders are skipped. |
+| **Output** | Location | **Proxy folder next to each clip** | Writes `<clip folder>/Proxy/<clip name>.<ext>`, the layout Resolve relinks. **Custom folder** reveals a folder field and puts every proxy in that one folder. |
+| | Codec | **Apple ProRes 422 Proxy** | Also ProRes 422 LT, VideoToolbox ProRes Proxy / LT (macOS), DNxHR LB / SQ, H.264, and 8-bit HEVC. H.264 / HEVC write `.mp4`; the rest write `.mov`. Shares a row with Resolution. |
 | | Resolution | **Half** | Quarter, One-eighth, Original, or fit to 1080p / 720p / 540p height. Never upscales. |
-| | Audio | on | PCM in `.mov`, AAC in `.mp4`. |
+| | Audio | on | On the resolution row. PCM in `.mov`, AAC in `.mp4`. |
+| | Name suffix | none | Added to the proxy filename. Leave empty to keep the source name, which relinks best. |
+| | Skip clips that already have a proxy | on | On the suffix row. Off re-makes them. |
 
 Press **Convert** to queue every listed clip. Proxies are made one at a time
 in the background. You can keep adding clips (Convert again queues the new
@@ -283,19 +284,22 @@ get a ✓ in the list.
 
 ### Watch folder
 
+The watch folder is a collapsed section under Output, so the tab stays the
+same height as Video → EXR and EXR → Video. The header always shows the
+status (**Not watching**, or copying / queued / done / failed) and
+**Start Watching**. Open the section for the folder path and the option below.
+
 Pick a folder and press **Start Watching**. Every new clip that appears there
 is proxied with the settings above, joining the same queue as a batch.
 
 - A clip is picked up once its size has stayed the same for a few seconds, so
   clips still copying from a card or a network share are left alone until the
   copy finishes.
-- **Include subfolders** also watches nested folders (and makes **Add
-  Folder…** recurse). `Proxy` folders and the custom output folder are never
-  watched, so proxies are not re-proxied.
+- **Include subfolders** (on the source-clip row) also watches nested folders.
+  `Proxy` folders and the custom output folder are never watched, so proxies
+  are not re-proxied.
 - **Also convert clips already there** proxies what is already in the folder
   when you start. Off, only clips that arrive afterwards are converted.
-- The status line under the button shows clips still copying, queued, done,
-  and failed.
 - The custom output folder cannot be the watched folder itself.
 
 For a headless watch folder (a render box or ingest station), use
