@@ -83,16 +83,6 @@ def test_is_sdk_root_include_at_top(tmp_path: Path) -> None:
     assert _find_sdk_root(tmp_path) == tmp_path
 
 
-
-
-
-
-
-
-
-
-
-
 def test_find_sdk_root_missing(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="BlackmagicRawAPI.h"):
         _find_sdk_root(tmp_path)
