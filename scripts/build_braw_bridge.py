@@ -1,361 +1,54 @@
 #!/usr/bin/env python3
-"""Build the optional Blackmagic RAW C ABI bridge shared library.
+"""Build the optional Blackmagic RAW bridge shared library (wrapper).
 
-Requires a local copy of the official Blackmagic RAW SDK (headers + runtime
-Libraries). The SDK is proprietary — do not commit it.
+The bridge source is confidential and lives in the private repo
+derek-rein/braw-sdk-private (bridge/), not in this MIT repository. This wrapper
+locates it (BRAW_BRIDGE_SRC, ~/code/braw-sdk-private/bridge, or downloads the
+repo tarball at BRAW_BRIDGE_REF using BRAW_SDK_READ_TOKEN / gh auth) and runs
+its build script. Output: build/braw/.
 
 Usage:
-  BRAW_SDK_ROOT=/path/to/slim python3 scripts/build_braw_bridge.py
-  # slim/ layout: Linux/Include/BlackmagicRawAPI.h + Linux/Libraries/*.so
-  # or conventional: /usr/lib64/blackmagic/BlackmagicRAWSDK
-  # or: python3 scripts/fetch_braw_sdk.py && python3 scripts/build_braw_bridge.py
+  BRAW_SDK_ROOT=/path/to/sdk python3 scripts/build_braw_bridge.py [-v] [--sdk PATH] [--out DIR]
+  python3 scripts/build_braw_bridge.py --dry-run   # only locate/fetch the source
 
-Outputs:
-  build/braw/libbraw_bridge.{dylib,so,dll}
-  build/braw/redistributable/   (copied Blackmagic runtime libs)
-
-See docs/braw.md for license and packaging notes.
+See docs/braw.md.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from packaging_util import (  # noqa: E402
-    copytree_preserve_symlinks,
-    is_macos_junk_name,
-    safe_print,
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from private_bridge import ROOT, find_bridge  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "native" / "braw" / "braw_bridge.cpp"
-HDR_DIR = ROOT / "native" / "braw"
-OUT_DIR = ROOT / "build" / "braw"
-
-
-def _header_ok(include: Path) -> bool:
-    """Linux/macOS ship BlackmagicRawAPI.h; Windows ships the IDL + dispatch."""
-    if (include / "BlackmagicRawAPI.h").is_file():
-        return True
-    return (include / "BlackmagicRawAPI.idl").is_file() and (
-        include / "BlackmagicRawAPIDispatch.h"
-    ).is_file()
-
-
-def _find_iid_c(include: Path) -> Path | None:
-    """MIDL IID definitions (``BlackmagicRawAPI_i.c``) — required on Windows."""
-    exact = include / "BlackmagicRawAPI_i.c"
-    if exact.is_file():
-        return exact
-    matches = sorted(include.glob("*_i.c"))
-    return matches[0] if matches else None
-
-
-def _prepare_windows_include(include: Path, out_dir: Path) -> Path:
-    """Stage Win headers and generate BlackmagicRawAPI.h + *_i.c via MIDL.
-
-    The MIDL header only *declares* ``IID_IBlackmagicRaw*``. Definitions live in
-    ``BlackmagicRawAPI_i.c`` (``/iid``). Linking the dispatch obj alone is not
-    enough — those GUID symbols must be compiled in.
-    """
-    idl = include / "BlackmagicRawAPI.idl"
-    if not (include / "BlackmagicRawAPI.h").is_file() and not idl.is_file():
-        raise SystemExit(f"Windows BRAW SDK missing BlackmagicRawAPI.h and .idl under {include}")
-    gen = out_dir / "win_include"
-    gen.mkdir(parents=True, exist_ok=True)
-    for name in (
-        "BlackmagicRawAPIDispatch.h",
-        "BlackmagicRawAPIDispatch.cpp",
-        "BlackmagicRawAPI.idl",
-        "BlackmagicRawAPI.h",
-        "BlackmagicRawAPI_i.c",
-    ):
-        src = include / name
-        if src.is_file() and not (gen / name).is_file():
-            shutil.copy2(src, gen / name)
-    generated = gen / "BlackmagicRawAPI.h"
-    iid_c = _find_iid_c(gen)
-    if not generated.is_file() or iid_c is None:
-        staged_idl = gen / "BlackmagicRawAPI.idl"
-        if not staged_idl.is_file():
-            raise SystemExit(
-                f"Windows BRAW SDK missing BlackmagicRawAPI.idl under {include} "
-                "(needed to generate COM IID source)"
-            )
-        cmd = [
-            "midl.exe",
-            "/nologo",
-            "/W1",
-            "/char",
-            "signed",
-            "/env",
-            "x64",
-            "/Oicf",
-            "/notlb",
-            "/out",
-            str(gen),
-            "/h",
-            "BlackmagicRawAPI.h",
-            "/iid",
-            "BlackmagicRawAPI_i.c",
-            str(staged_idl),
-        ]
-        safe_print(
-            "Generating BlackmagicRawAPI.h + BlackmagicRawAPI_i.c via midl ...",
-            file=sys.stderr,
-        )
-        subprocess.check_call(cmd)
-    if not generated.is_file():
-        raise SystemExit("midl did not produce BlackmagicRawAPI.h")
-    if _find_iid_c(gen) is None:
-        raise SystemExit("midl did not produce BlackmagicRawAPI_i.c (COM IID definitions)")
-    return gen
-
-
-def _find_sdk(explicit: str | None) -> tuple[Path, Path, Path]:
-    """Return (sdk_root, include_dir, libraries_dir)."""
-    candidates: list[Path] = []
-    if explicit:
-        candidates.append(Path(explicit).expanduser().resolve())
-    env = os.environ.get("BRAW_SDK_ROOT", "").strip()
-    if env:
-        candidates.append(Path(env).expanduser().resolve())
-
-    candidates.extend(
-        [
-            (Path.home() / ".braw-sdk" / "slim").resolve(),
-            (Path.home() / ".braw-sdk").resolve(),
-            (ROOT / ".braw-sdk" / "slim").resolve(),
-            (ROOT / ".braw-sdk").resolve(),
-            Path("/usr/lib64/blackmagic/BlackmagicRAWSDK").resolve(),
-            Path("/usr/lib/blackmagic/BlackmagicRAWSDK").resolve(),
-            Path("/opt/blackmagic/BlackmagicRAWSDK").resolve(),
-            (Path.home() / "sdk" / "BlackmagicRAWSDK").resolve(),
-            (Path.home() / "code" / "BlackmagicRAWSDK").resolve(),
-            (ROOT / "BlackmagicRAWSDK").resolve(),
-            (ROOT / "slim").resolve(),
-        ]
-    )
-
-    system = platform.system()
-    plat_dirs = {
-        "Linux": ("Linux",),
-        "Darwin": ("Mac", "macOS", "MacOS"),
-        "Windows": ("Win", "Windows"),
-    }.get(system, ("Linux",))
-
-    for c in candidates:
-        if not c.is_dir():
-            continue
-        include_opts = [c / "Include"]
-        lib_opts = [c / "Libraries"]
-        for plat in plat_dirs:
-            include_opts.append(c / plat / "Include")
-            lib_opts.append(c / plat / "Libraries")
-        include_opts.append(c)
-        for inc in include_opts:
-            if not _header_ok(inc):
-                continue
-            for lib in lib_opts:
-                if lib.is_dir() and (
-                    any(lib.glob("libBlackmagicRawAPI*")) or any(lib.glob("BlackmagicRawAPI*"))
-                ):
-                    return c, inc, lib
-    raise SystemExit(
-        "Blackmagic RAW SDK not found. Set BRAW_SDK_ROOT to the unpacked SDK "
-        "(e.g. slim/ with Linux/Include + Linux/Libraries), or place it at "
-        "~/.braw-sdk or /usr/lib64/blackmagic/BlackmagicRAWSDK, or run: "
-        "python3 scripts/fetch_braw_sdk.py  (private CI feed). "
-        "See docs/braw.md."
-    )
-
-
-def _find_dispatch(include: Path) -> Path | None:
-    for name in (
-        "BlackmagicRawAPIDispatch.cpp",
-        "BlackmagicRawAPIDispatch.mm",
-    ):
-        p = include / name
-        if p.is_file():
-            return p
-    return None
-
-
-def _platform_bits() -> tuple[str, list[str]]:
-    system = platform.system()
-    machine = platform.machine().lower()
-    if system == "Darwin":
-        return "dylib", ["-framework", "CoreFoundation", "-lc++"]
-    if system == "Linux":
-        return "so", ["-ldl", "-lpthread", "-lstdc++"]
-    if system == "Windows":
-        return "dll", []
-    raise SystemExit(f"Unsupported platform: {system} {machine}")
-
-
-def build(include: Path, libraries: Path, out_dir: Path, verbose: bool) -> Path:
-    ext, extra = _platform_bits()
-    if not SRC.is_file():
-        raise SystemExit(f"Missing bridge source: {SRC}")
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_lib = out_dir / f"libbraw_bridge.{ext}"
-
-    system = platform.system()
-    if system == "Windows":
-        include = _prepare_windows_include(include, out_dir)
-        # Factory entry points live in BlackmagicRawAPIDispatch.h (not the MIDL header).
-        if not (include / "BlackmagicRawAPIDispatch.h").is_file():
-            raise SystemExit(f"Windows BRAW SDK missing BlackmagicRawAPIDispatch.h under {include}")
-    dispatch = _find_dispatch(include)
-    if system == "Windows":
-        win_common = [
-            "cl.exe",
-            "/nologo",
-            "/O2",
-            "/MD",
-            "/EHsc",
-            "/std:c++17",
-            f"/I{include}",
-            f"/I{HDR_DIR}",
-            "/DBRAW_BRIDGE_EXPORTS",
-            "/c",
-        ]
-        objs: list[Path] = []
-        sources = [SRC]
-        if dispatch is not None:
-            sources.append(dispatch)
-        else:
-            raise SystemExit(f"Missing BlackmagicRawAPIDispatch.cpp next to headers in {include}")
-        iid_c = _find_iid_c(include)
-        if iid_c is None:
-            raise SystemExit(f"Missing BlackmagicRawAPI_i.c (MIDL IID definitions) under {include}")
-        sources.append(iid_c)
-        for src in sources:
-            obj = out_dir / f"{src.stem}.obj"
-            if src.suffix.lower() == ".c":
-                cmd = [
-                    "cl.exe",
-                    "/nologo",
-                    "/O2",
-                    "/MD",
-                    f"/I{include}",
-                    f"/I{HDR_DIR}",
-                    "/c",
-                    str(src),
-                    f"/Fo{obj}",
-                ]
-            else:
-                cmd = [*win_common, str(src), f"/Fo{obj}"]
-            if verbose:
-                print(" ".join(cmd), file=sys.stderr)
-            subprocess.check_call(cmd)
-            objs.append(obj)
-        cmd = [
-            "cl.exe",
-            "/nologo",
-            "/LD",
-            "/MD",
-            *[str(o) for o in objs],
-            f"/Fe{out_lib}",
-            "/link",
-            "ole32.lib",
-            "oleaut32.lib",
-        ]
-        if verbose:
-            print(" ".join(cmd), file=sys.stderr)
-        subprocess.check_call(cmd)
-    else:
-        cxx = os.environ.get("CXX") or ("g++" if system == "Linux" else "c++")
-        common = [
-            "-std=c++17",
-            "-O2",
-            "-fPIC",
-            "-fvisibility=hidden",
-            f"-I{include}",
-            f"-I{HDR_DIR}",
-            "-DBRAW_BRIDGE_EXPORTS",
-        ]
-        objs: list[Path] = []
-        sources = [SRC]
-        if dispatch is not None:
-            sources.append(dispatch)
-        elif system == "Linux":
-            raise SystemExit(f"Missing BlackmagicRawAPIDispatch.cpp next to headers in {include}")
-        for src in sources:
-            obj = out_dir / f"{src.stem}.o"
-            compile_cpp = [cxx, *common, "-c", str(src), "-o", str(obj)]
-            if verbose:
-                print(" ".join(compile_cpp), file=sys.stderr)
-            subprocess.check_call(compile_cpp)
-            objs.append(obj)
-        cmd = [
-            cxx,
-            "-shared",
-            *[str(o) for o in objs],
-            "-o",
-            str(out_lib),
-            *extra,
-        ]
-        if system == "Darwin":
-            cmd.extend(
-                [
-                    "-Wl,-rpath,@loader_path",
-                    "-Wl,-rpath,@loader_path/redistributable",
-                ]
-            )
-        elif system == "Linux":
-            cmd.extend(["-Wl,-rpath,$ORIGIN", "-Wl,-rpath,$ORIGIN/redistributable"])
-        if verbose:
-            print(" ".join(cmd), file=sys.stderr)
-        subprocess.check_call(cmd)
-
-    dest_redist = out_dir / "redistributable"
-    if dest_redist.exists():
-        shutil.rmtree(dest_redist)
-    dest_redist.mkdir(parents=True)
-    for item in libraries.iterdir():
-        if is_macos_junk_name(item.name):
-            continue
-        if item.is_file():
-            shutil.copy2(item, dest_redist / item.name)
-        elif item.is_dir():
-            copytree_preserve_symlinks(item, dest_redist / item.name)
-
-    for p in dest_redist.rglob("*"):
-        if p.is_file() and is_macos_junk_name(p.name):
-            p.unlink(missing_ok=True)
-
-    safe_print(f"Built {out_lib}")
-    safe_print(f"Runtime libraries -> {dest_redist}")
-    safe_print(f"SDK include: {include}")
-    return out_lib
+DEFAULT_REPO = "derek-rein/braw-sdk-private"
+DEFAULT_REF = "bridge-v1"
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--sdk",
-        default=None,
-        help="Path to unpacked Blackmagic RAW SDK root (or set BRAW_SDK_ROOT)",
-    )
-    ap.add_argument(
-        "--out",
-        type=Path,
-        default=OUT_DIR,
-        help=f"Output directory (default: {OUT_DIR})",
-    )
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--sdk", default=None)
+    ap.add_argument("--out", type=Path, default=ROOT / "build" / "braw")
+    ap.add_argument("--repo", default=os.environ.get("BRAW_BRIDGE_REPO", DEFAULT_REPO))
+    ap.add_argument("--ref", default=os.environ.get("BRAW_BRIDGE_REF", DEFAULT_REF))
     ap.add_argument("-v", "--verbose", action="store_true")
-    args = ap.parse_args()
-    _root, include, libraries = _find_sdk(args.sdk)
-    build(include, libraries, args.out.resolve(), args.verbose)
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+    bridge = find_bridge("braw", a.repo, a.ref, "BRAW_SDK_READ_TOKEN")
+    cmd = [sys.executable, str(bridge / "build_braw_bridge.py"), "--out", str(a.out.resolve())]
+    if a.sdk:
+        cmd += ["--sdk", a.sdk]
+    if a.verbose:
+        cmd.append("-v")
+    print(f"Bridge source: {bridge}", file=sys.stderr)
+    if a.dry_run:
+        print(" ".join(cmd))
+        return
+    subprocess.check_call(cmd, cwd=ROOT)
 
 
 if __name__ == "__main__":

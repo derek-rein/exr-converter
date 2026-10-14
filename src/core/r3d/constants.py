@@ -14,7 +14,7 @@ R3D_SRC_COLORSPACE_CANDIDATES: tuple[str, ...] = (
     "REDWideGamutRGB",
 )
 
-# Decode ladder (matches native/r3d/r3d_bridge.h).
+# Decode ladder (bridge C ABI enum values).
 DECODE_FULL_PREMIUM = 0
 DECODE_HALF_PREMIUM = 1
 DECODE_HALF_GOOD = 2

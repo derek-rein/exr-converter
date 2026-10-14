@@ -374,17 +374,27 @@ jobs:
         if: runner.os == 'Windows' && (steps.r3d_sdk.outputs.enabled == 'true' || steps.braw_sdk.outputs.enabled == 'true')
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
 
+      # Bridge source is confidential: fetched from derek-rein/r3d-sdk-private
+      # (bridge/ at R3D_BRIDGE_REF) with the same read token as the SDK.
       - name: Build R3D bridge
         if: steps.r3d_sdk.outputs.enabled == 'true'
         shell: bash
+        env:
+          R3D_SDK_READ_TOKEN: ${{ secrets.R3D_SDK_READ_TOKEN }}
+          R3D_BRIDGE_REF: bridge-v1
         run: |
           set -euo pipefail
           uv run python scripts/build_r3d_bridge.py -v
           ls -la build/r3d/
 
+      # Bridge source is confidential: fetched from derek-rein/braw-sdk-private
+      # (bridge/ at BRAW_BRIDGE_REF) with the same read token as the SDK.
       - name: Build BRAW bridge
         if: steps.braw_sdk.outputs.enabled == 'true'
         shell: bash
+        env:
+          BRAW_SDK_READ_TOKEN: ${{ secrets.BRAW_SDK_READ_TOKEN }}
+          BRAW_BRIDGE_REF: bridge-v1
         run: |
           set -euo pipefail
           uv run python scripts/build_braw_bridge.py -v
