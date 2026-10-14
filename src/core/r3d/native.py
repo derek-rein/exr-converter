@@ -1,4 +1,4 @@
-"""ctypes load + InitializeSdk lifecycle for the R3D bridge library."""
+"""ctypes load + init lifecycle for the optional R3D bridge library (C ABI only)."""
 
 from __future__ import annotations
 
@@ -158,7 +158,7 @@ def _finalize_safe() -> None:
 
 
 def ensure_initialized() -> bool:
-    """Load bridge + InitializeSdk if possible. Idempotent."""
+    """Load bridge + initialize it if possible. Idempotent."""
     global _init_attempted, _init_ok, _init_error
     if _init_attempted:
         return _init_ok

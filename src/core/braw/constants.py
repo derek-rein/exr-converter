@@ -17,7 +17,7 @@ BRAW_SRC_COLORSPACE_CANDIDATES: tuple[str, ...] = (
     "aces2065_1",
 )
 
-# Decode ladder (matches native/braw/braw_bridge.h).
+# Decode ladder (bridge C ABI enum values).
 DECODE_FULL = 0
 DECODE_HALF = 1
 DECODE_QUARTER = 2
@@ -97,7 +97,7 @@ def scale_for_decode_mode(mode: int) -> float:
 
 
 def preferred_decoder_kinds() -> tuple[str, ...]:
-    """Pipeline try-order (matches ``native/braw/braw_bridge.cpp``)."""
+    """Pipeline try-order (matches the bridge)."""
     if sys.platform == "darwin":
         return ("metal", "opencl", "cpu")
     return ("cuda", "opencl", "cpu")

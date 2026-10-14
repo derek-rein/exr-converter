@@ -57,8 +57,10 @@ Summary of constraints that affect this project (not a substitute for the legal 
   restrictions. Practical options: optional/offline install of redistributables,
   clear docs, and a product EULA when shipping binaries that include RED libs.
 
-**Do not commit the R3D SDK tree into the public git repository.** This repo only
-contains *our* bridge source (`native/r3d/`) and Python glue (`src/core/r3d.py`).
+**Do not commit the R3D SDK tree into the public git repository.** The R3D bridge source is **not** in this public repo: it is proprietary
+(Medeu Global LLC) and lives in the private `derek-rein/r3d-sdk-private` repo
+(`bridge/`), fetched at build time by `scripts/build_r3d_bridge.py`. This repo
+only contains the build wrapper and Python ctypes glue (`src/core/r3d.py`).
 
 Contact RED for edge cases: `RED-r3dsdk@nikon.com`.
 
@@ -172,3 +174,11 @@ Sample clips (from RED / Nikon, not this repo):
 
 - https://www.red.com/sample-r3d-files  
 - Nikon N-RAW / R3D NE sample downloads (see SDK `Readme.txt`)
+
+## Bridge source location
+
+`scripts/build_r3d_bridge.py` finds the confidential bridge source via
+`R3D_BRIDGE_SRC`, `~/code/r3d-sdk-private/bridge`, or by downloading the
+`derek-rein/r3d-sdk-private` tarball at `R3D_BRIDGE_REF` (default `bridge-v1`)
+using `R3D_SDK_READ_TOKEN` / `gh auth`. Without access, builds skip the bridge
+and the app reports the format as unavailable.

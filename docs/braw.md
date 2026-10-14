@@ -56,7 +56,10 @@ Summary of constraints that affect this project (not a substitute for the legal 
 - Do **not** reverse-engineer the libraries or file format.
 
 **Do not commit the Blackmagic RAW SDK tree into the public git repository.**
-This repo only contains *our* bridge source (`native/braw/`) and Python glue
+The BRAW bridge source is **not** in this public repo: it is proprietary
+(Medeu Global LLC) and lives in the private `derek-rein/braw-sdk-private` repo
+(`bridge/`), fetched at build time by `scripts/build_braw_bridge.py`. This repo
+only contains the build wrapper and Python ctypes glue
 (`src/core/braw/`).
 
 ---
@@ -136,13 +139,8 @@ uv run python main.py video2exr -i /path/clip.braw -o /tmp/exr_out \
 
 ## Color (what the SDK returns)
 
-The bridge sets clip processing attributes **before** decode, matching the
-official `OpenEXRTranscode` sample **without** `-m`:
-
-1. `blackmagicRawClipProcessingAttributeGamma` = `"Linear"`
-2. `blackmagicRawClipProcessingAttributeGamut` = `"ACES AP0"`
-3. `blackmagicRawClipProcessingAttributePost3DLUTMode` = `"Disabled"`
-4. Resource format `blackmagicRawResourceFormatRGBF32` (interleaved RGB float)
+The bridge asks the SDK for scene-linear, ACES AP0 gamut, no post-LUT,
+interleaved RGB float32 output.
 
 On the bundled **ACES Studio Config v4**, that working space is **ACES2065-1**
 (aliases: `ACES - ACES2065-1`, `lin_ap0`). Auto-detect tries those names in
@@ -245,3 +243,11 @@ set or after `make braw-sdk-fetch`.
 | Convert log says `CPU` on a GPU machine | GPU init failed (Metal / CUDA / OpenCL). Rebuild `make braw-bridge`. CUDA needs an NVIDIA driver + `libDecoderCUDA`; OpenCL needs a GPU ICD + `libDecoderOpenCL`; macOS needs `DecoderMetal` in the framework. Force CPU with `EXR_CONVERTER_BRAW_CPU=1` to compare. |
 
 Official sample clip (from the SDK package, not this repo): `profile.braw`.
+
+## Bridge source location
+
+`scripts/build_braw_bridge.py` finds the confidential bridge source via
+`BRAW_BRIDGE_SRC`, `~/code/braw-sdk-private/bridge`, or by downloading the
+`derek-rein/braw-sdk-private` tarball at `BRAW_BRIDGE_REF` (default `bridge-v1`)
+using `BRAW_SDK_READ_TOKEN` / `gh auth`. Without access, builds skip the bridge
+and the app reports the format as unavailable.
