@@ -210,9 +210,7 @@ The **Release** workflow (Nuitka multi-OS):
 If the secret is missing, Release still publishes the app **without** BRAW
 support (`.braw` convert reports SDK missing, same as R3D).
 
-The bridge must match each SDK ABI: Linux `Variant` / `const char*`, macOS
-`CFUUIDBytes` + `CFStringRef`, Windows COM `VARIANT` / `BSTR` / `BOOL` plus
-`BlackmagicRawAPIDispatch.h` for `CreateBlackmagicRawFactoryInstanceFromPath`.
+The bridge (private repo) handles per-platform SDK ABI differences.
 A tag-only re-run of Release rebuilds the tagged commit. To pick up a
 bridge compile hotfix already on `main` without moving the tag:
 
@@ -237,7 +235,7 @@ set or after `make braw-sdk-fetch`.
 | `BRAW bridge library not found` | `make braw-bridge` / set `EXR_CONVERTER_BRAW_BRIDGE` |
 | `Blackmagic RAW runtime libraries not found` | Set `EXR_CONVERTER_BRAW_LIBS` to the SDK `Libraries` folder |
 | CI skips BRAW | Secret `BRAW_SDK_READ_TOKEN` not set or cannot read private release |
-| `CreateBlackmagicRawFactoryInstanceFromPath failed` | Wrong folder (must contain `libBlackmagicRawAPI.so` / `.dylib` / `.dll`) |
+| BRAW factory / runtime load failed | Wrong folder (must contain `libBlackmagicRawAPI.so` / `.dylib` / `.dll`) |
 | Wrong colors | Use ACES2065-1 source. Decode is Linear AP0, not BMD Film |
 | `._….braw` in browser | macOS AppleDouble metadata, hidden from the video browser |
 | Convert log says `CPU` on a GPU machine | GPU init failed (Metal / CUDA / OpenCL). Rebuild `make braw-bridge`. CUDA needs an NVIDIA driver + `libDecoderCUDA`; OpenCL needs a GPU ICD + `libDecoderOpenCL`; macOS needs `DecoderMetal` in the framework. Force CPU with `EXR_CONVERTER_BRAW_CPU=1` to compare. |

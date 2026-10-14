@@ -192,7 +192,7 @@ def ensure_initialized() -> bool:
 
     rc = lib.r3d_bridge_initialize(str(libs_path).encode("utf-8"))
     if rc != 0:
-        _init_error = last_error(lib) or f"InitializeSdk failed ({rc})"
+        _init_error = last_error(lib) or f"R3D bridge init failed ({rc})"
         log.warning("R3D SDK init failed: %s", _init_error)
         return False
 

@@ -129,7 +129,7 @@ rolling the `[Unreleased]` section into a versioned heading.
   `VARIANT` / `BSTR` / `BOOL`, and the Win dispatch factory entry point).
   Linux is unchanged.
 - **Windows BRAW bridge link:** compile MIDL ``BlackmagicRawAPI_i.c`` so
-  ``IID_IBlackmagicRaw*`` COM GUIDs resolve (header + dispatch obj only
+  the SDK COM GUIDs resolve (header + dispatch obj only
   declared them).
 - **macOS BRAW codesign:** ship ``BlackmagicRawAPI.framework`` under
   ``Contents/Frameworks/braw/`` (not ``Contents/MacOS/braw/``). Ad-hoc
@@ -207,7 +207,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
-- **R3D → EXR GPU decode:** macOS uses Metal (`GpuDecoder` + REDMetal) for
+- **R3D → EXR GPU decode:** macOS uses Metal for
   classic R3D (including KOMODO 6K). Windows and Linux use the SDK
   ``R3DDecoder`` (CUDA, then OpenCL). Convert log reports ``Metal GPU`` /
   ``CUDA GPU`` / ``OpenCL GPU`` vs ``CPU``. Set ``EXR_CONVERTER_R3D_CPU=1``
