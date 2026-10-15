@@ -478,3 +478,12 @@ macOS release DMGs are signed and notarized under **Medeu Global LLC**.
 [derekvfx.ca](https://derekvfx.ca)
 
 ![Analytics](https://umami.derekvfx.ca/p/c3Aaarpz7)
+
+## Third-party SDK notice
+
+EXR Converter's own source is MIT. The optional RED R3D and Blackmagic RAW
+bridges are **not** part of this repository: their source is proprietary
+(Copyright Medeu Global LLC), written against confidential vendor SDKs, and
+kept in private repos. Public builds without access simply omit R3D/BRAW
+support. Release binaries may include only the vendors' redistributable
+runtime libraries, under their respective SDK license terms.

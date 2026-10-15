@@ -44,3 +44,5 @@ BRAWSDK*/
 slim/
 *.braw
 .tmp-braw-sample/
+.r3d-bridge/
+.braw-bridge/

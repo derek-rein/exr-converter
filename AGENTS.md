@@ -73,7 +73,6 @@ src/
   services/             # worker thread, presets, cache, slate model, prefetch
   rc_resources.py       # generated from resources.qrc — do not hand-edit
 native/
-  r3d/                  # optional RED R3D C ABI bridge
   exr_prores/           # optional oxideav-prores PyO3 extension (12-bit ProRes)
 resources/              # icons, style.qss, OCIO config, screenshots
 scripts/                # bump_app_version.py, ensure_ocio.py, build_oxideav_prores.py
@@ -88,8 +87,8 @@ site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 | Area | Start here |
 |------|------------|
 | Convert pipeline | `src/core/convert.py`, `src/core/video.py`, `src/core/exr_io.py` |
-| Optional R3D / N-RAW | `src/core/r3d/`, `native/r3d/` (macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_r3d_bridge.py`, `scripts/fetch_r3d_sdk.py`, `scripts/install_r3d_into_bundle.py`, [docs/r3d.md](./docs/r3d.md) |
-| Optional BRAW | `src/core/braw/`, `native/braw/` (Linear ACES AP0; macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_braw_bridge.py`, `scripts/fetch_braw_sdk.py`, `scripts/install_braw_into_bundle.py`, [docs/braw.md](./docs/braw.md) |
+| Optional R3D / N-RAW | `src/core/r3d/`, bridge source in private `derek-rein/r3d-sdk-private` (macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_r3d_bridge.py`, `scripts/fetch_r3d_sdk.py`, `scripts/install_r3d_into_bundle.py`, [docs/r3d.md](./docs/r3d.md) |
+| Optional BRAW | `src/core/braw/`, bridge source in private `derek-rein/braw-sdk-private` (Linear ACES AP0; macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_braw_bridge.py`, `scripts/fetch_braw_sdk.py`, `scripts/install_braw_into_bundle.py`, [docs/braw.md](./docs/braw.md) |
 | Optional 12-bit ProRes (oxideav) | `native/exr_prores/` (PyO3), `src/core/oxideav_prores.py`, `make oxideav-prores`, [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) |
 | Private full SDK (local) | R3D: `~/code/r3d-sdk-private/R3DSDKv9_2_1` — CI feed `derek-rein/r3d-sdk-private` release `sdk-9.2.1` (`R3D_SDK_READ_TOKEN`). BRAW: `~/.braw-sdk/` or `~/code/braw-sdk-private/BlackmagicRAWSDK-6.0` — CI feed `derek-rein/braw-sdk-private` release `sdk-6.0` (`BRAW_SDK_READ_TOKEN`). Never commit either SDK. |
 | Codec ladder / bit depth labels | `src/core/constants.py` |
