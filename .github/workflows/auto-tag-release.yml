@@ -18,6 +18,11 @@ name: Auto-tag release
 on:
   push:
     branches: [main]
+    # A release only happens when the version/changelog move; skip other pushes.
+    paths:
+      - "pyproject.toml"
+      - "CHANGELOG.md"
+  workflow_dispatch:
 
 concurrency:
   group: auto-tag-release
@@ -30,6 +35,7 @@ permissions:
 jobs:
   tag-and-dispatch:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
