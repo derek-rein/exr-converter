@@ -1131,6 +1131,7 @@ jobs:
           # signing test is not confused with a published release asset.
           name: ${{ (github.event_name == 'workflow_dispatch' && inputs.macos_only) && format('{0}-signed', matrix.artifact) || matrix.artifact }}
           path: ${{ matrix.artifact }}.${{ matrix.ext }}
+          retention-days: 5
 
   # ── SignPath Foundation (Windows Authenticode) — optional ────────────────
   # Free for qualifying open-source projects. Eliminates SmartScreen warnings.
@@ -1193,6 +1194,7 @@ jobs:
         with:
           name: exr_converter-windows-x86_64-setup-signed
           path: signed-out/exr_converter-windows-x86_64-setup.exe
+          retention-days: 5
 
   # ── Cosign (Sigstore keyless) + GitHub build provenance ───────────────────
   # Runs after optional SignPath so Cosign/attest cover the final Windows bits.
@@ -1272,6 +1274,7 @@ jobs:
         with:
           name: release-assets
           path: artifacts/*
+          retention-days: 5
 
   release:
     needs: sign
