@@ -13,9 +13,23 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.12.2] - 2026-10-17
+
 ### Added
 
-- **Invisible watermark** on the Video → Proxy tab and the `proxy` CLI, off by default. Enable it, enter up to 8 ASCII characters, and set a strength. Every proxy frame gets an Adobe TrustMark mark the official decoder can read. The encoder model downloads once into a cache folder (SHA256 checked) and is not included in the app. `scripts/trustmark_detect.py` reads a mark back from a video.
+- **Invisible watermark** on the Video → Proxy tab and the `proxy` CLI, off by default. Enable it, enter up to 8 ASCII characters, and set a strength. Every proxy frame gets an Adobe TrustMark mark the official decoder can read. The encoder model downloads once into a cache folder (SHA256 checked) and is not included in the app. `scripts/trustmark_detect.py` reads a mark back from a video. (#76)
+
+### Fixed
+
+- The Windows desktop and taskbar icon is sharp again: the app now ships every shell icon size instead of scaling one. (#71)
+
+### Changed
+
+- CI type-checks with basedpyright and fails on errors; the 12 existing type errors are fixed. (#62)
+- CI runs Linux-only by default and cross-OS tests on code PRs, with concurrency, timeouts, and caching. (#75)
+- GitHub Actions dependencies bumped (7 updates). (#68)
 
 ---
 
@@ -925,7 +939,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/derek-rein/exr-converter/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/derek-rein/exr-converter/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/derek-rein/exr-converter/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/derek-rein/exr-converter/compare/v0.10.2...v0.11.0
