@@ -7,7 +7,7 @@ description: Tagging, Auto-tag, and the Release workflow
 The full release and deployment process (protected `main`, Makefile, GitHub
 Actions, `gh` CLI, checklist, troubleshooting) lives in:
 
-**[AGENTS.md — Releasing and deployment](../AGENTS.md#releasing-and-deployment)**
+**[AGENTS.md: Releasing and deployment](../AGENTS.md#releasing-and-deployment)**
 
 User-facing history (required on every release):
 
@@ -21,7 +21,7 @@ User-facing history (required on every release):
 
 You do **not** need a manual tag push after merge (that was what skipped 0.5.0
 until fixed). After merge, do **not** also push a local `vX.Y.Z` unless Auto-tag
-failed — dual triggers race and waste runner minutes.
+failed. Dual triggers race and waste runner minutes.
 
 **Hard gates (automated):** Auto-tag and Release refuse to ship if
 `CHANGELOG.md` lacks `## [X.Y.Z]` / the bottom compare link, or if the tag does
@@ -73,11 +73,11 @@ spctl -a -vvv -t install exr_converter-macos-arm64.dmg
 codesign --verify --deep --strict --verbose=2 exr_converter-macos-arm64.dmg
 ```
 
-**Docs site:** Markdown under `docs/` is built with Hugo (`site/`) and published
-by the **Docs** workflow on push to `main` (path filters under `docs/`, `site/`).
+**Docs site:** Markdown under `docs/` is built with Astro (`site/`) and published
+by Vercel on push to `main` (config in `site/vercel.json`).
 That is independent of the versioned app **Release** workflow. Preview locally
 with `make docs-serve`. Public URL:
-[derek-rein.github.io/exr-converter](https://derek-rein.github.io/exr-converter/).
+[exr-converter.derekvfx.ca](https://exr-converter.derekvfx.ca/).
 
 User-facing ProRes / VideoToolbox guide: [prores.md](./prores.md).
 Related design notes (not release machinery):

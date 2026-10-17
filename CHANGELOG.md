@@ -13,6 +13,36 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- **Invisible watermark** on the Video → Proxy tab and the `proxy` CLI, off by default. Enable it, enter up to 8 ASCII characters, and set a strength. Every proxy frame gets an Adobe TrustMark mark the official decoder can read. The encoder model downloads once into a cache folder (SHA256 checked) and is not included in the app. `scripts/trustmark_detect.py` reads a mark back from a video.
+
+---
+
+## [0.12.1] - 2026-10-14
+
+### Changed
+
+- The optional RED R3D and Blackmagic RAW bridge source moved out of this public repository into private SDK repositories (SDK license compliance). Release builds fetch it at build time; no user-facing change otherwise.
+- The **Video → Proxy** tab is about the same height as Video → EXR and EXR → Video. Codec and resolution share a row, the custom output folder appears only when that location is chosen, and the watch-folder path folds into a section under **Start Watching**.
+- The Windows installer and Add/Remove Programs list **DerekVFX** as the publisher and link to https://exr-converter.derekvfx.ca/. The Python package author name is DerekVFX as well.
+- The docs site moved to https://exr-converter.derekvfx.ca/ (hosted on Vercel) and
+  is now built with Astro instead of Hugo; `make docs-serve` / `make docs-build` need Node 22.12+.
+  Old `derek-rein.github.io/exr-converter` links redirect to the same page there.
+- Public docs now match the current app: signed and notarized macOS builds
+  (Medeu Global LLC), the Video → Proxy tab, the `proxy` CLI and watch folder,
+  expanded camera logs, and ProRes bit depths. Install, platform, and CLI pages
+  follow `video2exr`, `exr2video`, and `proxy --help`. Output is described as
+  video or EXR only.
+- The docs home page has direct downloads for the latest release: Windows x64
+  installer, macOS Apple Silicon and Intel DMGs, and the Linux x86_64 AppImage.
+
+### Fixed
+
+- The Windows app, desktop shortcut, and installer icon include 16 px through
+  256 px frames, so the desktop icon stays sharp instead of upscaling a single
+  16×16 image.
+
 ---
 
 ## [0.12.0] - 2026-10-10
@@ -114,7 +144,7 @@ rolling the `[Unreleased]` section into a versioned heading.
   `VARIANT` / `BSTR` / `BOOL`, and the Win dispatch factory entry point).
   Linux is unchanged.
 - **Windows BRAW bridge link:** compile MIDL ``BlackmagicRawAPI_i.c`` so
-  ``IID_IBlackmagicRaw*`` COM GUIDs resolve (header + dispatch obj only
+  the SDK COM GUIDs resolve (header + dispatch obj only
   declared them).
 - **macOS BRAW codesign:** ship ``BlackmagicRawAPI.framework`` under
   ``Contents/Frameworks/braw/`` (not ``Contents/MacOS/braw/``). Ad-hoc
@@ -192,7 +222,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
-- **R3D → EXR GPU decode:** macOS uses Metal (`GpuDecoder` + REDMetal) for
+- **R3D → EXR GPU decode:** macOS uses Metal for
   classic R3D (including KOMODO 6K). Windows and Linux use the SDK
   ``R3DDecoder`` (CUDA, then OpenCL). Convert log reports ``Metal GPU`` /
   ``CUDA GPU`` / ``OpenCL GPU`` vs ``CPU``. Set ``EXR_CONVERTER_R3D_CPU=1``
@@ -895,7 +925,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/derek-rein/exr-converter/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/derek-rein/exr-converter/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/derek-rein/exr-converter/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/derek-rein/exr-converter/compare/v0.10.1...v0.10.2

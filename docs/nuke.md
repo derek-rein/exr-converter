@@ -40,7 +40,7 @@ If `EXR_CONVERTER` is unset, the script probes common install locations:
 
 ### 2. Load the menu
 
-**Option A — drop into `~/.nuke`**
+**Option A: drop into `~/.nuke`**
 
 ```bash
 cp integrations/nuke/exr_converter_nuke.py ~/.nuke/
@@ -56,7 +56,7 @@ except ImportError:
     pass
 ```
 
-**Option B — `NUKE_PATH` plugin folder**
+**Option B: `NUKE_PATH` plugin folder**
 
 ```text
 $NUKE_PATH/
@@ -101,7 +101,7 @@ exr_converter --open <read file> --gui-ocio <config.ocio> --mode exr2video|video
 | OCIO | Root `customOCIOConfigPath` (and a few aliases) when set and on disk; else `$OCIO`; else omit (app default) |
 | Mode | `.exr` / sequence → `exr2video`; common video extensions → `video2exr` |
 
-See [CLI — GUI launch](./cli.md#gui-launch-for-shells--nuke) and [GUI](./gui.md)
+See [CLI: GUI launch](./cli.md#gui-launch-for-shells--nuke) and [GUI](./gui.md)
 for what the app does with those flags.
 
 ---

@@ -1,9 +1,9 @@
 [project]
 name = "exr-converter"
-version = "0.12.0"
+version = "0.12.1"
 description = "A cross-platform GUI tool for converting and transcoding EXR and video files."
 authors = [
-    {name = "Derek Rein", email = "derek@derekvfx.ca"},
+    {name = "DerekVFX", email = "derek@derekvfx.ca"},
 ]
 dependencies = [
     "av>=17.0.0",
@@ -13,6 +13,7 @@ dependencies = [
     "opencolorio>=2.5.2",
     "fileseq>=3.1.1",
     "pyopengl>=3.1.0",
+    "onnxruntime>=1.20",
 ]
 requires-python = "==3.13.*"
 readme = "README.md"

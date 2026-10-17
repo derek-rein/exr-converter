@@ -9,8 +9,9 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
-    QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -35,6 +37,12 @@ from ..core.proxy import (
     default_proxy_output,
     is_proxy_source,
 )
+from ..core.trustmark.payload import (
+    DEFAULT_STRENGTH,
+    MAX_TEXT_CHARS,
+    STRENGTH_MAX,
+    STRENGTH_MIN,
+)
 from ..core.watch_folder import DEFAULT_SETTLE_SECONDS, WatchFolder
 from ..services.proxy_queue import ProxyJob, ProxyQueue, WatchPoller
 from .color_widgets import lock_form_row_height
@@ -45,6 +53,75 @@ LOCATION_BESIDE = "beside"
 LOCATION_CUSTOM = "custom"
 
 _K = "video2proxy"
+
+_NO_COLOR_NOTE = "No color transform: proxies keep the source look, timecode and audio."
+
+
+def _field_label(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    return label
+
+
+def _limit_combo_width(combo: QComboBox, characters: int) -> None:
+    """Size the closed combo from a character count so two can share a row.
+
+    The popup still lists the full item text. A combo sized to its longest
+    item would force the form wider than the other convert tabs.
+    """
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    combo.setMinimumContentsLength(characters)
+    combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+
+class _CollapsibleSection(QWidget):
+    """One header row that shows or hides a body. Starts collapsed."""
+
+    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(4)
+
+        self.toggle = QToolButton()
+        self.toggle.setObjectName("sectionToggle")
+        self.toggle.setText(title)
+        self.toggle.setCheckable(True)
+        self.toggle.setChecked(False)
+        self.toggle.setAutoRaise(True)
+        self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self.toggle.setStyleSheet(
+            "QToolButton#sectionToggle {"
+            " background: transparent; border: none; padding: 0 2px;"
+            " font-weight: bold; text-align: left; }"
+            "QToolButton#sectionToggle:hover { background: transparent; border: none; }"
+        )
+        self.toggle.toggled.connect(self._on_toggled)
+
+        self.header = QHBoxLayout()
+        self.header.setSpacing(8)
+        self.header.addWidget(self.toggle)
+
+        self.body = QWidget()
+        self.body.setVisible(False)
+        self.body_layout = QVBoxLayout(self.body)
+        self.body_layout.setContentsMargins(16, 0, 0, 0)
+        self.body_layout.setSpacing(4)
+
+        root.addLayout(self.header)
+        root.addWidget(self.body)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
+    def _on_toggled(self, expanded: bool) -> None:
+        self.toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+        self.body.setVisible(expanded)
+
+    def set_expanded(self, expanded: bool) -> None:
+        self.toggle.setChecked(expanded)
+
+    def is_expanded(self) -> bool:
+        return self.toggle.isChecked()
 
 
 class ProxyTab(QWidget):
@@ -79,7 +156,9 @@ class ProxyTab(QWidget):
         self.clip_list.setObjectName("proxyClipList")
         self.clip_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.clip_list.setMinimumHeight(96)
-        self.clip_list.setMaximumHeight(140)
+        # The watermark row is taller than the color note it replaced. A
+        # slightly shorter clip list keeps the tab within a row of the others.
+        self.clip_list.setMaximumHeight(122)
         self.clip_list.setToolTip("Clips to proxy when you press Convert. Drop videos here too.")
         in_main.addWidget(self.clip_list)
         btn_row = QHBoxLayout()
@@ -94,43 +173,38 @@ class ProxyTab(QWidget):
         for b in (self._add_files_btn, self._add_folder_btn, self._remove_btn, self._clear_btn):
             lock_form_row_height(b)
             btn_row.addWidget(b)
+        self.recursive_cb = QCheckBox("Include subfolders")
+        self.recursive_cb.setToolTip(
+            "Add Folder… includes nested folders, and the watch folder follows them too.\n"
+            "Proxy folders are skipped."
+        )
+        self.recursive_cb.setChecked(settings.value(f"{_K}/recursive", False, type=bool))
+        btn_row.addSpacing(8)
+        btn_row.addWidget(self.recursive_cb)
         btn_row.addStretch()
         in_main.addLayout(btn_row)
         layout.addWidget(in_group)
 
-        # -- Output --
+        # -- Output (location, codec, and size share one group, two columns) --
         out_group = QGroupBox("Output")
-        out_form = QFormLayout(out_group)
-        out_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        out_group.setToolTip(_NO_COLOR_NOTE)
+        out_main = QVBoxLayout(out_group)
+        out_main.setSpacing(4)
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(6)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
+
         self.location_combo = QComboBox()
         self.location_combo.addItem(
             f"{PROXY_SUBFOLDER} folder next to each clip (Resolve style)", LOCATION_BESIDE
         )
         self.location_combo.addItem("Custom folder", LOCATION_CUSTOM)
-        out_form.addRow("Location", self.location_combo)
+        grid.addWidget(_field_label("Location"), 0, 0)
+        grid.addWidget(self.location_combo, 0, 1, 1, 4)
 
-        dir_row = QHBoxLayout()
-        self.output_dir = QLineEdit()
-        self.output_dir.setPlaceholderText("Folder for all proxies")
-        self.output_dir.setText(str(settings.value(f"{_K}/output_dir", "") or ""))
-        self._browse_out = QPushButton("Browse…")
-        dir_row.addWidget(self.output_dir, 1)
-        dir_row.addWidget(self._browse_out)
-        out_form.addRow("Folder", dir_row)
-
-        self.suffix_edit = QLineEdit(str(settings.value(f"{_K}/suffix", "") or ""))
-        self.suffix_edit.setPlaceholderText("none (same name as the source, best for relinking)")
-        out_form.addRow("Name suffix", self.suffix_edit)
-
-        self.skip_existing_cb = QCheckBox("Skip clips that already have a proxy")
-        self.skip_existing_cb.setChecked(settings.value(f"{_K}/skip_existing", True, type=bool))
-        out_form.addRow("", self.skip_existing_cb)
-        layout.addWidget(out_group)
-
-        # -- Options --
-        opts_group = QGroupBox("Options")
-        opts_form = QFormLayout(opts_group)
-        opts_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.codec_combo = QComboBox()
         for spec in available_proxy_codecs():
             self.codec_combo.addItem(spec.display_name, spec.key)
@@ -138,10 +212,6 @@ class ProxyTab(QWidget):
                 self.codec_combo.count() - 1, spec.format_label, Qt.ItemDataRole.ToolTipRole
             )
         self._select(self.codec_combo, settings.value(f"{_K}/codec", DEFAULT_PROXY_CODEC))
-        opts_form.addRow("Codec", self.codec_combo)
-
-        res_row = QHBoxLayout()
-        res_row.setSpacing(12)
         self.resolution_combo = QComboBox()
         for res in PROXY_RESOLUTIONS:
             self.resolution_combo.addItem(res.label, res.key)
@@ -150,57 +220,114 @@ class ProxyTab(QWidget):
             self.resolution_combo,
             settings.value(f"{_K}/resolution", DEFAULT_PROXY_RESOLUTION),
         )
-        res_row.addWidget(self.resolution_combo, 1)
         self.audio_cb = QCheckBox("Audio")
         self.audio_cb.setToolTip("Carry the source audio into the proxy")
         self.audio_cb.setChecked(settings.value(f"{_K}/audio", True, type=bool))
-        res_row.addWidget(self.audio_cb)
-        opts_form.addRow("Resolution", res_row)
+        grid.addWidget(_field_label("Codec"), 1, 0)
+        grid.addWidget(self.codec_combo, 1, 1)
+        grid.addWidget(_field_label("Resolution"), 1, 2)
+        grid.addWidget(self.resolution_combo, 1, 3)
+        grid.addWidget(self.audio_cb, 1, 4)
 
-        note = QLabel("No color transform: proxies keep the source look, timecode and audio.")
-        note.setStyleSheet(HINT_STYLE)
-        opts_form.addRow("", note)
-        layout.addWidget(opts_group)
+        self.suffix_edit = QLineEdit(str(settings.value(f"{_K}/suffix", "") or ""))
+        self.suffix_edit.setPlaceholderText("empty keeps the source name")
+        self.suffix_edit.setToolTip(
+            "Added before the extension. Leave empty to keep the source name, which relinks best."
+        )
+        self.skip_existing_cb = QCheckBox("Skip clips that already have a proxy")
+        self.skip_existing_cb.setChecked(settings.value(f"{_K}/skip_existing", True, type=bool))
+        grid.addWidget(_field_label("Suffix"), 2, 0)
+        grid.addWidget(self.suffix_edit, 2, 1, 1, 2)
+        grid.addWidget(self.skip_existing_cb, 2, 3, 1, 2)
 
-        # -- Watch folder --
-        watch_group = QGroupBox("Watch folder")
-        watch_main = QVBoxLayout(watch_group)
-        watch_main.setSpacing(4)
-        watch_row = QHBoxLayout()
+        # Shown only for a custom folder. Beside-source is the default and
+        # does not use this path, so the row stays out of the height budget.
+        self._folder_label = _field_label("Folder")
+        self.output_dir = QLineEdit()
+        self.output_dir.setPlaceholderText("Folder for all proxies")
+        self.output_dir.setText(str(settings.value(f"{_K}/output_dir", "") or ""))
+        self._browse_out = QPushButton("Browse…")
+        grid.addWidget(self._folder_label, 3, 0)
+        grid.addWidget(self.output_dir, 3, 1, 1, 3)
+        grid.addWidget(self._browse_out, 3, 4)
+
+        self.watermark_cb = QCheckBox("Enable")
+        self.watermark_cb.setToolTip(
+            "Embed an invisible TrustMark watermark in every proxy frame.\n"
+            "Off by default. The encoder model downloads once into your cache."
+        )
+        self.watermark_cb.setChecked(settings.value(f"{_K}/watermark", False, type=bool))
+        self.watermark_payload = QLineEdit(str(settings.value(f"{_K}/watermark_text", "") or ""))
+        self.watermark_payload.setMaxLength(MAX_TEXT_CHARS)
+        self.watermark_payload.setPlaceholderText(
+            f"Payload, up to {MAX_TEXT_CHARS} ASCII characters"
+        )
+        self.watermark_payload.setToolTip(
+            "Short ID or text. TrustMark text mode keeps 8 ASCII characters, "
+            "which the official decoder can read."
+        )
+        self.watermark_strength = QDoubleSpinBox()
+        self.watermark_strength.setRange(STRENGTH_MIN, STRENGTH_MAX)
+        self.watermark_strength.setSingleStep(0.05)
+        self.watermark_strength.setDecimals(2)
+        self.watermark_strength.setValue(
+            float(settings.value(f"{_K}/watermark_strength", DEFAULT_STRENGTH, type=float))
+        )
+        self.watermark_strength.setToolTip("TrustMark strength. 1.00 is the normal strength.")
+        self._strength_label = QLabel("Strength")
+        wm_row = QHBoxLayout()
+        wm_row.setSpacing(6)
+        wm_row.addWidget(self.watermark_cb)
+        wm_row.addWidget(self.watermark_payload, 1)
+        wm_row.addWidget(self._strength_label)
+        wm_row.addWidget(self.watermark_strength)
+        # Replaces the old one-line color note so the tab stays the same height
+        # as the other convert tabs. The sentence remains the group tooltip.
+        grid.addWidget(_field_label("Watermark"), 4, 0)
+        grid.addLayout(wm_row, 4, 1, 1, 4)
+        self._sync_watermark_enabled()
+        out_main.addLayout(grid)
+        layout.addWidget(out_group)
+
+        # -- Watch folder (collapsed: header matches one form row) --
+        self._watch_section = _CollapsibleSection("Watch folder")
+        self._watch_section.toggle.setToolTip(
+            "Show the watch-folder path and options. Start Watching is always here."
+        )
+        self.watch_status = QLabel("Not watching.")
+        self.watch_status.setStyleSheet(HINT_STYLE)
+        self.watch_status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.watch_btn = QPushButton("Start Watching")
+        self.watch_btn.setObjectName("watchBtn")
+        self.watch_btn.setCheckable(True)
+        self._watch_section.header.addWidget(self.watch_status, 1)
+        self._watch_section.header.addWidget(self.watch_btn)
+
         self.watch_dir = QLineEdit(str(settings.value(f"{_K}/watch_dir", "") or ""))
         self.watch_dir.setPlaceholderText("Folder to watch for new clips")
         self._browse_watch = QPushButton("Browse…")
+        watch_row = QHBoxLayout()
+        watch_row.setSpacing(6)
         watch_row.addWidget(self.watch_dir, 1)
         watch_row.addWidget(self._browse_watch)
-        watch_main.addLayout(watch_row)
+        self._watch_section.body_layout.addLayout(watch_row)
 
-        watch_opts = QHBoxLayout()
-        watch_opts.setSpacing(14)
-        self.recursive_cb = QCheckBox("Include subfolders")
-        self.recursive_cb.setChecked(settings.value(f"{_K}/recursive", False, type=bool))
         self.existing_cb = QCheckBox("Also convert clips already there")
         self.existing_cb.setToolTip(
             "When watching starts, proxy the clips already in the folder too.\n"
             "Off: only clips that arrive after you start watching."
         )
         self.existing_cb.setChecked(settings.value(f"{_K}/watch_existing", False, type=bool))
-        watch_opts.addWidget(self.recursive_cb)
-        watch_opts.addWidget(self.existing_cb)
-        watch_opts.addStretch()
-        self.watch_btn = QPushButton("Start Watching")
-        self.watch_btn.setObjectName("watchBtn")
-        self.watch_btn.setCheckable(True)
-        watch_opts.addWidget(self.watch_btn)
-        watch_main.addLayout(watch_opts)
+        self._watch_section.body_layout.addWidget(self.existing_cb)
+        layout.addWidget(self._watch_section)
 
-        self.watch_status = QLabel("Not watching.")
-        self.watch_status.setStyleSheet(HINT_STYLE)
-        watch_main.addWidget(self.watch_status)
-        layout.addWidget(watch_group)
-
-        for combo in (self.location_combo, self.codec_combo):
-            combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        for g in (in_group, out_group, opts_group, watch_group):
+        for combo, chars in (
+            (self.location_combo, 28),
+            (self.codec_combo, 18),
+            (self.resolution_combo, 12),
+        ):
+            _limit_combo_width(combo, chars)
+        for g in (in_group, out_group, self._watch_section):
             g.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addStretch()
 
@@ -213,11 +340,17 @@ class ProxyTab(QWidget):
             self.codec_combo,
             self.resolution_combo,
             self.audio_cb,
+            self.watermark_cb,
+            self.watermark_payload,
+            self._strength_label,
+            self.watermark_strength,
+            self.recursive_cb,
+            self._watch_section.toggle,
+            self.watch_status,
+            self.watch_btn,
             self.watch_dir,
             self._browse_watch,
-            self.recursive_cb,
             self.existing_cb,
-            self.watch_btn,
         ):
             lock_form_row_height(w)
 
@@ -250,6 +383,13 @@ class ProxyTab(QWidget):
             lambda _: self._settings.setValue(f"{_K}/resolution", self.resolution_key())
         )
         self.audio_cb.toggled.connect(lambda v: self._settings.setValue(f"{_K}/audio", v))
+        self.watermark_cb.toggled.connect(self._on_watermark_toggled)
+        self.watermark_payload.textChanged.connect(
+            lambda t: self._settings.setValue(f"{_K}/watermark_text", t)
+        )
+        self.watermark_strength.valueChanged.connect(
+            lambda v: self._settings.setValue(f"{_K}/watermark_strength", float(v))
+        )
         self.watch_dir.textChanged.connect(lambda t: self._settings.setValue(f"{_K}/watch_dir", t))
         self.recursive_cb.toggled.connect(lambda v: self._settings.setValue(f"{_K}/recursive", v))
         self.existing_cb.toggled.connect(
@@ -312,8 +452,19 @@ class ProxyTab(QWidget):
 
     def _sync_location_enabled(self) -> None:
         custom = self.location() == LOCATION_CUSTOM
+        for w in (self._folder_label, self.output_dir, self._browse_out):
+            w.setVisible(custom)
         self.output_dir.setEnabled(custom)
         self._browse_out.setEnabled(custom)
+
+    def _sync_watermark_enabled(self) -> None:
+        on = self.watermark_cb.isChecked()
+        for widget in (self.watermark_payload, self._strength_label, self.watermark_strength):
+            widget.setEnabled(on)
+
+    def _on_watermark_toggled(self, on: bool) -> None:
+        self._settings.setValue(f"{_K}/watermark", on)
+        self._sync_watermark_enabled()
 
     def _on_location_changed(self) -> None:
         self._settings.setValue(f"{_K}/location", self.location())
@@ -395,12 +546,19 @@ class ProxyTab(QWidget):
         if self.skip_existing_cb.isChecked() and out.exists():
             self.log_message.emit(f"Skip (proxy exists): {out}")
             return None
+        watermark_text = ""
+        if self.watermark_cb.isChecked():
+            watermark_text = self.watermark_payload.text().strip()
+            if not watermark_text:
+                self.log_message.emit("Invisible watermark skipped: payload is empty.")
         return ProxyJob(
             source=str(source),
             output=str(out),
             codec_key=self.codec_key(),
             resolution=self.resolution_key(),
             audio=self.audio_cb.isChecked(),
+            watermark_text=watermark_text,
+            watermark_strength=float(self.watermark_strength.value()),
         )
 
     def enqueue(self, sources: list[str]) -> int:
@@ -478,6 +636,7 @@ class ProxyTab(QWidget):
 
     def _on_watch_toggled(self, on: bool) -> None:
         if on and self._poller is None:
+            self._watch_section.set_expanded(True)
             if not self.start_watching():
                 self.watch_btn.blockSignals(True)
                 self.watch_btn.setChecked(False)
@@ -514,7 +673,9 @@ class ProxyTab(QWidget):
             parts.append(f"{self._queue.completed} done")
         if self._queue.failed:
             parts.append(f"{self._queue.failed} failed")
-        self.watch_status.setText(" · ".join(parts) + ".")
+        text = " · ".join(parts) + "."
+        self.watch_status.setText(text)
+        self.watch_status.setToolTip(text)
 
     def shutdown(self) -> None:
         """Stop the watcher and any running job (window close)."""

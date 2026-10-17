@@ -304,6 +304,27 @@ def test_relocate_macos_data_moves_non_macho_and_keeps_binaries(tmp_path: Path) 
     assert any(path.endswith("exr_converter") for path in signed)
 
 
+def test_onnxruntime_dylib_is_signed_inside_the_app(tmp_path: Path) -> None:
+    """Nuitka places libonnxruntime under the app. Developer ID must sign it."""
+    app = _mini_app(tmp_path)
+    dylib = app / "Contents" / "MacOS" / "onnxruntime" / "capi" / "libonnxruntime.dylib"
+    dylib.parent.mkdir(parents=True)
+    dylib.write_bytes(b"onnxruntime")
+    entitlements = tmp_path / "entitlements.plist"
+    entitlements.write_text("plist", encoding="utf-8")
+    cmds = plan_resign(app, identity=_IDENTITY, entitlements=entitlements)
+    match = [cmd for cmd in cmds if cmd[-1].endswith("libonnxruntime.dylib")]
+    assert len(match) == 1
+    signed = match[0]
+    assert "--deep" not in signed
+    assert "--options" in signed and "runtime" in signed
+    assert "--timestamp" in signed
+    assert "--timestamp=none" not in signed
+    assert "--entitlements" not in signed
+    workflow = _WORKFLOW.read_text(encoding="utf-8")
+    assert "--include-package=onnxruntime" in workflow
+
+
 def test_release_workflow_can_notarize_without_publishing() -> None:
     text = _WORKFLOW.read_text(encoding="utf-8")
     assert "macos_only:" in text

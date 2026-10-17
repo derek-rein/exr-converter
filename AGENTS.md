@@ -37,17 +37,17 @@ Agents: if you implement a feature or fix and forget the changelog, treat that a
 
 ## Documentation (required)
 
-**User-facing docs live in [`docs/`](./docs/)** (Markdown source of truth). Hugo
-builds them from [`site/`](./site/) and the **Docs** workflow publishes to
-GitHub Pages: https://derek-rein.github.io/exr-converter/
+**User-facing docs live in [`docs/`](./docs/)** (Markdown source of truth). Astro
+builds them from [`site/`](./site/) and Vercel publishes them (config in
+[`site/vercel.json`](./site/vercel.json), Root Directory `site`): https://exr-converter.derekvfx.ca/
 
 | Rule | Detail |
 |------|--------|
 | When | Any change that affects how users run or integrate the app: CLI flags, GUI behavior, codecs, OCIO/defaults, install/packaging users notice, Nuke/helpers, post-convert prefs, launch flags |
 | Where | Update the matching file under `docs/` in the **same PR / commit set** as the code (and [CHANGELOG.md](./CHANGELOG.md) when user-visible) |
 | Map | [docs/cli.md](./docs/cli.md) CLI + GUI launch · [docs/gui.md](./docs/gui.md) GUI / prefs / overlays · [docs/prores.md](./docs/prores.md) VideoToolbox / software / oxideav · [docs/nuke.md](./docs/nuke.md) Nuke menu · [docs/releasing.md](./docs/releasing.md) short release pointer · design notes only when the design changes |
-| Local | `make docs-serve` (preview) · `make docs-build` (static `site/public/`) |
-| Do not | Leave docs describing old flags/defaults/codecs. Do not hand-edit generated `site/public/`. Do not put the only copy of user docs solely in chat or PR text. |
+| Local | `make docs-serve` (preview) · `make docs-build` (static `site/dist/`); needs Node 22.12+ |
+| Do not | Leave docs describing old flags/defaults/codecs. Do not hand-edit generated `site/dist/`. Do not put the only copy of user docs solely in chat or PR text. |
 
 Agents: **before finishing work**, check whether `docs/` still matches the
 behavior you shipped. If you changed CLI/GUI/integration surface area and
@@ -73,13 +73,12 @@ src/
   services/             # worker thread, presets, cache, slate model, prefetch
   rc_resources.py       # generated from resources.qrc — do not hand-edit
 native/
-  r3d/                  # optional RED R3D C ABI bridge
   exr_prores/           # optional oxideav-prores PyO3 extension (12-bit ProRes)
 resources/              # icons, style.qss, OCIO config, screenshots
-scripts/                # bump_app_version.py, ensure_ocio.py, build_oxideav_prores.py
+scripts/                # bump_app_version.py, ensure_ocio.py, build_oxideav_prores.py, trustmark_detect.py
 tests/                  # pytest; integration + fixtures under tests/fixtures/
-docs/                   # user-facing Markdown (Hugo content source of truth)
-site/                   # Hugo config + theme; mounts docs/ → GitHub Pages
+docs/                   # user-facing Markdown (Astro content source of truth)
+site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 .github/workflows/      # ci.yml, docs.yml, release.yml, auto-tag-release.yml
 ```
 
@@ -88,8 +87,8 @@ site/                   # Hugo config + theme; mounts docs/ → GitHub Pages
 | Area | Start here |
 |------|------------|
 | Convert pipeline | `src/core/convert.py`, `src/core/video.py`, `src/core/exr_io.py` |
-| Optional R3D / N-RAW | `src/core/r3d/`, `native/r3d/` (macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_r3d_bridge.py`, `scripts/fetch_r3d_sdk.py`, `scripts/install_r3d_into_bundle.py`, [docs/r3d.md](./docs/r3d.md) |
-| Optional BRAW | `src/core/braw/`, `native/braw/` (Linear ACES AP0; macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_braw_bridge.py`, `scripts/fetch_braw_sdk.py`, `scripts/install_braw_into_bundle.py`, [docs/braw.md](./docs/braw.md) |
+| Optional R3D / N-RAW | `src/core/r3d/`, bridge source in private `derek-rein/r3d-sdk-private` (macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_r3d_bridge.py`, `scripts/fetch_r3d_sdk.py`, `scripts/install_r3d_into_bundle.py`, [docs/r3d.md](./docs/r3d.md) |
+| Optional BRAW | `src/core/braw/`, bridge source in private `derek-rein/braw-sdk-private` (Linear ACES AP0; macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_braw_bridge.py`, `scripts/fetch_braw_sdk.py`, `scripts/install_braw_into_bundle.py`, [docs/braw.md](./docs/braw.md) |
 | Optional 12-bit ProRes (oxideav) | `native/exr_prores/` (PyO3), `src/core/oxideav_prores.py`, `make oxideav-prores`, [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) |
 | Private full SDK (local) | R3D: `~/code/r3d-sdk-private/R3DSDKv9_2_1` — CI feed `derek-rein/r3d-sdk-private` release `sdk-9.2.1` (`R3D_SDK_READ_TOKEN`). BRAW: `~/.braw-sdk/` or `~/code/braw-sdk-private/BlackmagicRAWSDK-6.0` — CI feed `derek-rein/braw-sdk-private` release `sdk-6.0` (`BRAW_SDK_READ_TOKEN`). Never commit either SDK. |
 | Codec ladder / bit depth labels | `src/core/constants.py` |
@@ -102,7 +101,7 @@ site/                   # Hugo config + theme; mounts docs/ → GitHub Pages
 | Sequence player | `src/gui/player/` (`SequencePlayer`, transport, preview view) |
 | Slate dialog / viewer | `src/gui/slate_widgets.py` (composes player + overlay hooks), `src/gui/ocio_gpu_plane.py`, `src/services/slate_model.py` |
 | Background convert | `src/services/worker.py` |
-| Video → Proxy tab / watch folder | `src/gui/proxy_tab.py`, `src/core/proxy.py`, `src/core/watch_folder.py`, `src/services/proxy_queue.py` (CLI `proxy` in `src/cli.py`) |
+| Video → Proxy tab / watch folder | `src/gui/proxy_tab.py`, `src/core/proxy.py`, `src/core/watch_folder.py`, `src/services/proxy_queue.py` (CLI `proxy` in `src/cli.py`). Optional invisible watermark: `src/core/trustmark/` (ONNX Runtime, encoder downloaded on first use) and `scripts/trustmark_detect.py` |
 
 ## Commands (local)
 
@@ -118,8 +117,8 @@ make resources     # regenerate src/rc_resources.py after resources.qrc / icons 
 make oxideav-prores # build optional PyO3 12-bit ProRes extension (needs Rust)
 make braw-sdk-fetch # download private BRAW SDK (needs BRAW_SDK_READ_TOKEN / gh)
 make braw-bridge   # optional Blackmagic RAW bridge (needs BRAW_SDK_ROOT)
-make docs-serve    # Hugo local preview of docs/ (http://127.0.0.1:1313/)
-make docs-build    # Hugo static build → site/public/
+make docs-serve    # Astro local preview of docs/ (http://localhost:4321/)
+make docs-build    # Astro static build → site/dist/
 make bundle        # local Nuitka standalone (does not publish a GitHub Release)
 make clean
 ```
@@ -493,8 +492,8 @@ may still show the standard "downloaded from the internet" prompt.
 
 | Workflow | Trigger | Gate |
 |----------|---------|------|
-| [CI](.github/workflows/ci.yml) | push / PR to `main` | Ruff + basedpyright (`src/`, `main.py`) + full pytest on 3 OS; job **`ci-ok`** requires all green |
-| [Docs](.github/workflows/docs.yml) | push / PR paths under `docs/`, `site/` | Hugo build; deploy to Pages on `main` only |
+| [CI](.github/workflows/ci.yml) | push / PR to `main` | Ruff + basedpyright (`src/`, `main.py`; errors fail, warnings tolerated) + full pytest on 3 OS; job **`ci-ok`** requires all green |
+| [Docs](.github/workflows/docs.yml) | push / PR paths under `docs/`, `site/` | Astro build check; on `main`, deploys a redirect from the old GitHub Pages URL to the Vercel site |
 | [Auto-tag release](.github/workflows/auto-tag-release.yml) | push to `main` | CHANGELOG gate; if no `vX.Y.Z` tag → push tag; if no GitHub Release and no active run → `workflow_dispatch` Release |
 | [Release](.github/workflows/release.yml) | tag `v*` **or** `workflow_dispatch` | Tag/CHANGELOG validate + lint + tests via **`gate`** before Nuitka / Cosign / publish. `macos_only` dispatch notarizes the DMGs as artifacts and does not publish |
 
@@ -508,7 +507,7 @@ Branch protection on `main` should require `ci-ok`.
 | [CHANGELOG.md](./CHANGELOG.md) | User-facing history (**must update**) |
 | [README.md](./README.md) | Product overview, install, short CLI |
 | [docs/](./docs/) | User-facing Markdown (**must update** when behavior changes) |
-| [site/](./site/) | Hugo config + theme; mounts `docs/` → GitHub Pages |
+| [site/](./site/) | Astro site; loads `docs/` → Vercel (`site/vercel.json`) |
 | [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`) + GUI launch flags |
 | [docs/gui.md](./docs/gui.md) | GUI tabs, overlays, preferences, post-convert |
 | [docs/prores.md](./docs/prores.md) | Software vs VideoToolbox vs oxideav ProRes |
@@ -519,8 +518,9 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/releasing.md](./docs/releasing.md) | Short pointer here + docs-site note |
 | [integrations/nuke/](./integrations/nuke/) | Nuke `menu.py` + helpers |
 
-Public site: `make docs-serve` / `make docs-build`; workflow **Docs** deploys to
-`https://derek-rein.github.io/exr-converter/` (Pages source = GitHub Actions).
+Public site: `make docs-serve` / `make docs-build`. Vercel (Root Directory `site`)
+builds per `site/vercel.json` (`npm run build` → `site/dist`) and serves `https://exr-converter.derekvfx.ca/`. The old
+`https://derek-rein.github.io/exr-converter/` URL redirects there (workflow **Docs**).
 
 ## What not to do
 

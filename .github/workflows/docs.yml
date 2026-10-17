@@ -1,5 +1,7 @@
-# Build Hugo docs from docs/ + site/ and publish to GitHub Pages.
-# Repo Settings → Pages → Source must be "GitHub Actions" (one-time).
+# Check that the Astro docs (docs/ + site/) build. The public site is hosted on
+# Vercel at https://exr-converter.derekvfx.ca/ (Root Directory = site, config in
+# site/vercel.json). On main, GitHub Pages serves only a redirect so old
+# derek-rein.github.io/exr-converter/ links land on the same page there.
 
 name: Docs
 
@@ -10,12 +12,14 @@ on:
       - "docs/**"
       - "site/**"
       - "resources/screenshots/**"
+      - "resources/icons/**"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "docs/**"
       - "site/**"
       - "resources/screenshots/**"
+      - "resources/icons/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -31,33 +35,56 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Hugo
-        uses: peaceiris/actions-hugo@2752ce1d29631191ea3f27c23495fa06139a5b78 # v3
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          hugo-version: "0.164.0"
-          extended: true
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
 
       - name: Build
-        run: hugo --minify --gc -s site
+        run: |
+          npm ci --prefix site
+          npm run build --prefix site
+
+      - name: Write redirect to the Vercel site
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p pages-redirect
+          cat > pages-redirect/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>EXR Converter docs have moved</title>
+          <link rel="canonical" href="https://exr-converter.derekvfx.ca/">
+          <meta http-equiv="refresh" content="0; url=https://exr-converter.derekvfx.ca/">
+          <script>
+            var p = location.pathname.replace(/^\/exr-converter(?=\/|$)/, "") || "/";
+            location.replace("https://exr-converter.derekvfx.ca" + p + location.search + location.hash);
+          </script>
+          <p>The docs moved to <a href="https://exr-converter.derekvfx.ca/">exr-converter.derekvfx.ca</a>.</p>
+          HTML
+          cp pages-redirect/index.html pages-redirect/404.html
 
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: site/public
+          path: pages-redirect
 
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

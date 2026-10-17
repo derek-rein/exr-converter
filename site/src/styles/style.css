@@ -147,6 +147,45 @@ a:hover {
   color: var(--link);
 }
 
+.download-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin: 1rem 0;
+}
+
+.download-links a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 11rem;
+  flex: 1 1 11rem;
+  padding: 0.7rem 0.9rem;
+  text-decoration: none;
+  color: var(--text);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.download-links a:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.download-links .dl-platform {
+  font-weight: 700;
+}
+
+.download-links .dl-file {
+  color: var(--link);
+  font-size: 0.92rem;
+}
+
+.download-links a:hover .dl-file {
+  color: var(--link-hover);
+}
+
 .hero-shot {
   margin: 2rem 0 0;
   border: 1px solid var(--border);
@@ -315,9 +354,9 @@ a:hover {
   color: var(--muted);
 }
 
-/* Chroma (hugo highlight) — keep readable on dark bg */
-.chroma {
-  background: transparent !important;
+/* Shiki (Astro highlight): use the site's code background */
+.astro-code {
+  background-color: var(--code-bg) !important;
 }
 
 @media (max-width: 640px) {

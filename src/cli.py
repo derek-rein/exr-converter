@@ -37,6 +37,7 @@ from .core.constants import (
 )
 from .core.errors import ConversionCancelled
 from .core.ocio_utils import find_equivalent_space, resolve_ocio_for_cli
+from .core.trustmark.payload import normalize_strength, normalize_watermark_text
 
 _CODEC_KEYS = [spec.key for spec in available_video_codecs()]
 
@@ -128,6 +129,7 @@ examples:
   %(prog)s -i ./day1 --recursive -o /proxies
   %(prog)s --watch /Volumes/Ingest
   %(prog)s --watch /Volumes/Ingest --recursive --existing --codec dnxhr_lb
+  %(prog)s -i clip.mov --watermark ABCD1234 --watermark-strength 1.0
 
 Omit -o to write <source_dir>/Proxy/<clip>.<ext> (same name as the source, so
 editors such as DaVinci Resolve can relink). Existing proxies are skipped
@@ -425,6 +427,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     px.add_argument("--suffix", default="", help="Text added to proxy filenames (default: none)")
     px.add_argument("--no-audio", action="store_true", help="Drop audio from proxies")
+    px.add_argument(
+        "--watermark",
+        default="",
+        help=(
+            "Invisible TrustMark payload (up to 8 ASCII characters). "
+            "Off when omitted. The encoder model downloads once."
+        ),
+    )
+    px.add_argument(
+        "--watermark-strength",
+        type=float,
+        default=1.0,
+        help="TrustMark strength from 0.1 to 2.0 (default: 1.0)",
+    )
     px.add_argument("--overwrite", action="store_true", help="Re-make proxies that already exist")
     px.add_argument(
         "--recursive", action="store_true", help="Include subfolders of input / watch folders"
@@ -473,6 +489,14 @@ def run_proxy_cli(args: argparse.Namespace) -> int:
     if not args.input and not args.watch:
         print("Error: give -i clips/folders and/or --watch DIR.", file=sys.stderr)
         return 2
+    watermark_text = ""
+    if str(args.watermark or "").strip():
+        try:
+            watermark_text = normalize_watermark_text(args.watermark)
+            args.watermark_strength = normalize_strength(args.watermark_strength)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
     for w in args.watch:
         if not Path(w).expanduser().is_dir():
             print(f"Error: watch folder not found: {w}", file=sys.stderr)
@@ -500,6 +524,8 @@ def run_proxy_cli(args: argparse.Namespace) -> int:
                 codec_key=args.codec,
                 resolution=args.resolution,
                 audio=not args.no_audio,
+                watermark_text=watermark_text,
+                watermark_strength=args.watermark_strength,
                 progress=_progress,
                 cancel_check=_cli_cancel.is_set,
                 log=_log,

@@ -43,7 +43,7 @@ transcode with DaVinci Resolve / the official sample `-m` path instead.
 The Blackmagic RAW SDK is **proprietary** (Blackmagic Design). It is **free to
 download** from the [developer site](https://www.blackmagicdesign.com/developer/products/braw)
 after accepting their license. Terms live in the **Developer License** that
-ships with the SDK package — always verify the copy you downloaded.
+ships with the SDK package. Always verify the copy you downloaded.
 
 Summary of constraints that affect this project (not a substitute for the legal text):
 
@@ -56,7 +56,10 @@ Summary of constraints that affect this project (not a substitute for the legal 
 - Do **not** reverse-engineer the libraries or file format.
 
 **Do not commit the Blackmagic RAW SDK tree into the public git repository.**
-This repo only contains *our* bridge source (`native/braw/`) and Python glue
+The BRAW bridge source is **not** in this public repo: it is proprietary
+(Medeu Global LLC) and lives in the private `derek-rein/braw-sdk-private` repo
+(`bridge/`), fetched at build time by `scripts/build_braw_bridge.py`. This repo
+only contains the build wrapper and Python ctypes glue
 (`src/core/braw/`).
 
 ---
@@ -136,13 +139,8 @@ uv run python main.py video2exr -i /path/clip.braw -o /tmp/exr_out \
 
 ## Color (what the SDK returns)
 
-The bridge sets clip processing attributes **before** decode, matching the
-official `OpenEXRTranscode` sample **without** `-m`:
-
-1. `blackmagicRawClipProcessingAttributeGamma` = `"Linear"`
-2. `blackmagicRawClipProcessingAttributeGamut` = `"ACES AP0"`
-3. `blackmagicRawClipProcessingAttributePost3DLUTMode` = `"Disabled"`
-4. Resource format `blackmagicRawResourceFormatRGBF32` (interleaved RGB float)
+The bridge asks the SDK for scene-linear, ACES AP0 gamut, no post-LUT,
+interleaved RGB float32 output.
 
 On the bundled **ACES Studio Config v4**, that working space is **ACES2065-1**
 (aliases: `ACES - ACES2065-1`, `lin_ap0`). Auto-detect tries those names in
@@ -178,7 +176,7 @@ release signing secrets are set, otherwise ad-hoc). GPU decoder binaries stay
 inside the framework / `braw/` folder.
 
 Only runtime dynamic libraries from the SDK `Libraries/` folder plus our
-bridge — including GPU decoder libs (`libDecoderCUDA` / `libDecoderOpenCL` /
+bridge, including GPU decoder libs (`libDecoderCUDA` / `libDecoderOpenCL` /
 `DecoderMetal`). Never headers, samples, `profile.braw`, or SDK documentation.
 
 ---
@@ -210,11 +208,9 @@ The **Release** workflow (Nuitka multi-OS):
    `.framework` under `Contents/MacOS`.
 
 If the secret is missing, Release still publishes the app **without** BRAW
-support (`.braw` convert reports SDK missing — same as R3D).
+support (`.braw` convert reports SDK missing, same as R3D).
 
-The bridge must match each SDK ABI: Linux `Variant` / `const char*`, macOS
-`CFUUIDBytes` + `CFStringRef`, Windows COM `VARIANT` / `BSTR` / `BOOL` plus
-`BlackmagicRawAPIDispatch.h` for `CreateBlackmagicRawFactoryInstanceFromPath`.
+The bridge (private repo) handles per-platform SDK ABI differences.
 A tag-only re-run of Release rebuilds the tagged commit. To pick up a
 bridge compile hotfix already on `main` without moving the tag:
 
@@ -239,9 +235,17 @@ set or after `make braw-sdk-fetch`.
 | `BRAW bridge library not found` | `make braw-bridge` / set `EXR_CONVERTER_BRAW_BRIDGE` |
 | `Blackmagic RAW runtime libraries not found` | Set `EXR_CONVERTER_BRAW_LIBS` to the SDK `Libraries` folder |
 | CI skips BRAW | Secret `BRAW_SDK_READ_TOKEN` not set or cannot read private release |
-| `CreateBlackmagicRawFactoryInstanceFromPath failed` | Wrong folder (must contain `libBlackmagicRawAPI.so` / `.dylib` / `.dll`) |
-| Wrong colors | Use ACES2065-1 source — decode is Linear AP0, not BMD Film |
-| `._….braw` in browser | macOS AppleDouble metadata — hidden from the video browser |
+| BRAW factory / runtime load failed | Wrong folder (must contain `libBlackmagicRawAPI.so` / `.dylib` / `.dll`) |
+| Wrong colors | Use ACES2065-1 source. Decode is Linear AP0, not BMD Film |
+| `._….braw` in browser | macOS AppleDouble metadata, hidden from the video browser |
 | Convert log says `CPU` on a GPU machine | GPU init failed (Metal / CUDA / OpenCL). Rebuild `make braw-bridge`. CUDA needs an NVIDIA driver + `libDecoderCUDA`; OpenCL needs a GPU ICD + `libDecoderOpenCL`; macOS needs `DecoderMetal` in the framework. Force CPU with `EXR_CONVERTER_BRAW_CPU=1` to compare. |
 
 Official sample clip (from the SDK package, not this repo): `profile.braw`.
+
+## Bridge source location
+
+`scripts/build_braw_bridge.py` finds the confidential bridge source via
+`BRAW_BRIDGE_SRC`, `~/code/braw-sdk-private/bridge`, or by downloading the
+`derek-rein/braw-sdk-private` tarball at `BRAW_BRIDGE_REF` (default `bridge-v1`)
+using `BRAW_SDK_READ_TOKEN` / `gh auth`. Without access, builds skip the bridge
+and the app reports the format as unavailable.

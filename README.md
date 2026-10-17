@@ -72,7 +72,7 @@
 | Overlays | Ingest only. Slate, burn-in, and watermark stay on the other tab | Slate, burn-in, and watermark in one pass |
 | Color | OCIO into a scene space (default toward `ACEScg` / `scene_linear`) | OCIO out to a display (default toward `Output - Rec.709`) |
 
-**Video to proxy:** a third tab (and the `proxy` CLI) makes Resolve-style editing proxies (ProRes 422 Proxy at half size by default) in a `Proxy` folder next to each clip, keeping source look, timecode, and audio. A **watch folder** converts new clips automatically once they finish copying. See [docs/gui.md](docs/gui.md#video--proxy).
+**Video to proxy:** a third tab (and the `proxy` CLI) makes Resolve-style editing proxies (ProRes 422 Proxy at half size by default) in a `Proxy` folder next to each clip, keeping source look, timecode, and audio. A **watch folder** converts new clips automatically once they finish copying. An optional invisible TrustMark watermark (off by default) can be written into every proxy frame. See [docs/gui.md](docs/gui.md#video--proxy).
 
 **Optional RED R3D / N-RAW:** when built with the official RED R3D SDK bridge, **Video to EXR** can decode `.r3d` and `.nev` (IPP2 primary to Log3G10 REDWideGamutRGB for OCIO), including browser thumbnails, sequence-player preview, and camera/timecode metadata on written EXRs. Release binaries may ship only RED's allowed Redistributable libraries in a private app folder. See [docs/r3d.md](docs/r3d.md) and **Help → About** for the redistributable notice.
 
@@ -247,9 +247,9 @@ Camera names on the bundled config are listed under [Cameras and formats](#camer
 
 ## Documentation
 
-Guides live under [`docs/`](docs/) (Markdown source of truth). The public site is built with Hugo from [`site/`](site/) and published to GitHub Pages:
+Guides live under [`docs/`](docs/) (Markdown source of truth). The public site is built with Astro from [`site/`](site/) and published on Vercel:
 
-**[https://derek-rein.github.io/exr-converter/](https://derek-rein.github.io/exr-converter/)**
+**[https://exr-converter.derekvfx.ca/](https://exr-converter.derekvfx.ca/)**
 
 | Guide | |
 | --- | --- |
@@ -473,8 +473,19 @@ User-facing history is in **[CHANGELOG.md](CHANGELOG.md)** (Keep a Changelog, se
 
 MIT. See [`LICENSE`](LICENSE). Copyright Derek Rein.
 
+Adobe TrustMark and ONNX Runtime, both MIT, are credited in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 macOS release DMGs are signed and notarized under **Medeu Global LLC**.
 
 [derekvfx.ca](https://derekvfx.ca)
 
 ![Analytics](https://umami.derekvfx.ca/p/c3Aaarpz7)
+
+## Third-party SDK notice
+
+EXR Converter's own source is MIT. The optional RED R3D and Blackmagic RAW
+bridges are **not** part of this repository: their source is proprietary
+(Copyright Medeu Global LLC), written against confidential vendor SDKs, and
+kept in private repos. Public builds without access simply omit R3D/BRAW
+support. Release binaries may include only the vendors' redistributable
+runtime libraries, under their respective SDK license terms.

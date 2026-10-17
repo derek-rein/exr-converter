@@ -1,7 +1,7 @@
 ---
 title: 12-bit ProRes (oxideav)
 weight: 90
-description: Experimental RDD-36 ProRes via PyO3 — 4444/XQ are 12-bit; 422 decodes as 10-bit
+description: Experimental RDD-36 ProRes via PyO3. 4444 and XQ are 12-bit. 422 decodes as 10-bit
 ---
 
 **Status:** Phase 0–2 landed (PyO3 bindings + app wiring + CI/Nuitka include)  
@@ -40,7 +40,7 @@ path): [ProRes and VideoToolbox](./prores.md).
 
 ## 2. Why not FFmpeg / why not a sidecar
 
-FFmpeg `prores_ks` only accepts `*10le` pixel formats — true encode depth is
+FFmpeg `prores_ks` only accepts `*10le` pixel formats. True encode depth is
 **10-bit** even when probe labels say 12. See historical mid-bin table in git
 history / earlier revisions of this doc.
 
@@ -93,7 +93,7 @@ not importable, so a Rust-less dev checkout still runs.
 | Test | Pass criteria |
 |------|----------------|
 | YUV mid-bin | Encode Y=2048 vs Y=2080 → decode Δ **> 12** (`tests/test_oxideav_prores.py`) |
-| Probe | 4444/XQ: PyAV opens `.mov` as `prores` / `ap4h` or `ap4x` / `yuv444p12le`. 422 family probes as 10-bit (`yuv422p10le`) — expected |
+| Probe | 4444/XQ: PyAV opens `.mov` as `prores` / `ap4h` or `ap4x` / `yuv444p12le`. 422 family probes as 10-bit (`yuv422p10le`), which is expected |
 | Missing extension | Presets hidden; FFmpeg codecs still work |
 | Frozen path | Nuitka includes `exr_prores`; experimental presets complete end-to-end |
 
@@ -128,7 +128,7 @@ quantization can still improve the 10-bit result slightly; it does not make
 `ffprobe` report 12-bit.
 
 ```bash
-exr-converter exr2video -i seq/frame.0001.exr -o out.mov --codec prores_ox_422
+exr_converter exr2video -i seq/frame.0001.exr -o out.mov --codec prores_ox_422
 ffprobe -show_entries stream=pix_fmt,bits_per_raw_sample,codec_tag_string out.mov
 # yuv422p10le, 10, apcn
 ```
@@ -158,7 +158,7 @@ ffprobe -show_entries stream=pix_fmt,bits_per_raw_sample,codec_tag_string out.mo
 
 ## 8. References
 
-- `native/exr_prores/` — PyO3 extension  
+- `native/exr_prores/`: PyO3 extension  
 - [oxideav-prores](https://crates.io/crates/oxideav-prores) · SMPTE **RDD 36**  
 - [ASWF Encode ProRes](https://academysoftwarefoundation.github.io/EncodingGuidelines/EncodeProres.html)  
 - FFmpeg Trac [#8054](https://trac.ffmpeg.org/ticket/8054)  

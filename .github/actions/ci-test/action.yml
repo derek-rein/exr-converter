@@ -1,0 +1,60 @@
+name: CI test suite
+description: Set up uv, Python and Rust, build the ProRes extension and run the full pytest suite.
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      with:
+        version: "0.12.3"
+        enable-cache: true
+        # Separate from Release workflow jobs so concurrent CI+Release
+        # runs don't fight over the same cache key (noisy annotations).
+        cache-suffix: CI
+        prune-cache: true
+
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: "3.13"
+
+    - name: Install Qt offscreen system libs (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          libegl1 libgl1 libxkbcommon0 libdbus-1-3
+
+    - name: Install dependencies
+      shell: bash
+      run: uv sync --group dev
+
+    - name: Ensure OpenColorIO 2.5+ linkage
+      shell: bash
+      run: uv run python scripts/ensure_ocio.py
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
+      with:
+        toolchain: stable
+
+    - name: Cache Rust build (oxideav ProRes)
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          native/exr_prores/target
+        key: ci-cargo-${{ runner.os }}-${{ hashFiles('native/exr_prores/Cargo.toml', 'native/exr_prores/Cargo.lock') }}
+        restore-keys: ci-cargo-${{ runner.os }}-
+
+    - name: Build oxideav ProRes extension
+      shell: bash
+      run: uv run python scripts/build_oxideav_prores.py
+
+    - name: Run full test suite (unit + integration)
+      shell: bash
+      env:
+        QT_QPA_PLATFORM: offscreen
+      # Full suite, including @pytest.mark.integration. Missing optional
+      # manifest media is skipped, not failed.
+      run: uv run pytest -v
