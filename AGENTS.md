@@ -134,6 +134,16 @@ cannot load. Fix: `make ensure-ocio` or `make sync` (`scripts/ensure_ocio.py`).
 Nuitka standalone builds still run `scripts/fix_bundle_ocio.py` so
 `PyOpenColorIO` keeps the 2.5 shared library.
 
+macOS Nuitka also runs `scripts/prepare_macos_onnxruntime.py` first. Current
+Apple Silicon wheels install-name `libonnxruntime.<version>.dylib` as
+`@rpath/libonnxruntime.1.dylib` and do not ship that shorter file, so Nuitka
+aborts unless the id is rewritten to the real filename. Intel Macs pin
+`onnxruntime<1.24` because newer wheels are arm64-only. The rewritten dylib
+is a normal Mach-O; `scripts/macos_codesign.py` signs it with the app.
+Pull requests that change that script dispatch the Release workflow with
+`macos_only` (both DMGs, no GitHub Release) via
+`.github/workflows/macos-nuitka-verify.yml`.
+
 ### Qt / tests
 
 - GUI tests and many unit tests need `QT_QPA_PLATFORM=offscreen` (Makefile `test` targets set this).

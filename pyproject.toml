@@ -13,7 +13,9 @@ dependencies = [
     "opencolorio>=2.5.2",
     "fileseq>=3.1.1",
     "pyopengl>=3.1.0",
-    "onnxruntime>=1.20",
+    # 1.24+ macOS wheels are arm64-only. Intel stays on the last x86_64 wheel.
+    "onnxruntime>=1.20; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "onnxruntime>=1.20,<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 requires-python = "==3.13.*"
 readme = "README.md"
@@ -72,3 +74,9 @@ reportPrivateUsage = false
 reportUnusedCallResult = false
 # fileseq / similar packages export symbols without typing ``__all__``.
 reportPrivateImportUsage = false
+
+[tool.uv]
+# Resolve the Intel macOS ONNX Runtime pin even when locking on Linux.
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]

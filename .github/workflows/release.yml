@@ -451,9 +451,12 @@ jobs:
             LTO_FLAG="--lto=no"
           fi
           # Flags kept in sync with `make bundle` (shared strip set + LTO).
-          # onnxruntime ships a native library inside the app. macOS signing
-          # walks every Mach-O (scripts/macos_codesign.py), so that dylib is
-          # signed and notarized with the rest of the bundle.
+          # onnxruntime ships a native library inside the app. On macOS the
+          # wheel's install id does not match the filename, which makes Nuitka
+          # abort. Rewrite that id first. Signing walks every Mach-O
+          # (scripts/macos_codesign.py), so the dylib is signed and notarized
+          # with the rest of the bundle.
+          uv run python scripts/prepare_macos_onnxruntime.py
           uv run python -m nuitka \
             $MODE \
             --output-dir=dist \
@@ -726,6 +729,29 @@ jobs:
             --keychain "$KEYCHAIN" \
             "$APP"
           echo "mode=developer-id" >> "$GITHUB_OUTPUT"
+
+      - name: Verify ONNX Runtime dylib is signed
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="dist/EXR Converter.app"
+          found=0
+          while IFS= read -r lib; do
+            [ -n "$lib" ] || continue
+            found=1
+            if [ -L "$lib" ]; then
+              echo "ERROR: $lib is a symlink. Nuitka should copy the real library." >&2
+              exit 1
+            fi
+            echo "codesign --verify $lib"
+            codesign --verify --verbose=2 "$lib"
+          done < <(find "$APP" -type f -name 'libonnxruntime*.dylib')
+          if [ "$found" -ne 1 ]; then
+            echo "ERROR: expected one libonnxruntime dylib in $APP, found $found" >&2
+            find "$APP" -name 'libonnxruntime*' -print >&2 || true
+            exit 1
+          fi
 
       - name: Slim Linux bundle
         if: runner.os == 'Linux'
