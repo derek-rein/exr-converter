@@ -1,0 +1,32 @@
+name: macOS Nuitka verify
+
+# Dispatch the existing Release macos_only path (arm64 + Intel DMGs, signed
+# when the Apple secrets are set, never published). workflow_dispatch from a
+# local token is not available to cloud agents; GITHUB_TOKEN may send it.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/prepare_macos_onnxruntime.py
+      - .github/workflows/macos-nuitka-verify.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Start Release macos_only
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run Release \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.head_ref }}" \
+            -f macos_only=true \
+            -f publish=false
+          echo "Dispatched Release macos_only for ${{ github.head_ref }}"

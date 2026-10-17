@@ -140,6 +140,9 @@ Apple Silicon wheels install-name `libonnxruntime.<version>.dylib` as
 aborts unless the id is rewritten to the real filename. Intel Macs pin
 `onnxruntime<1.24` because newer wheels are arm64-only. The rewritten dylib
 is a normal Mach-O; `scripts/macos_codesign.py` signs it with the app.
+Pull requests that change that script dispatch the Release workflow with
+`macos_only` (both DMGs, no GitHub Release) via
+`.github/workflows/macos-nuitka-verify.yml`.
 
 ### Qt / tests
 
