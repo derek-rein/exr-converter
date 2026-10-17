@@ -13,9 +13,15 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.12.3] - 2026-10-17
+
+0.12.2 was tagged but never published because its macOS release build failed. 0.12.3 includes all of the 0.12.2 changes listed below.
+
 ### Fixed
 
-- macOS release builds include the ONNX Runtime library used by invisible watermarks. Apple Silicon wheels name that library differently from its install id, which stopped Nuitka. Intel Macs use the newest ONNX Runtime release that still publishes an x86_64 wheel.
+- macOS release builds include the ONNX Runtime library used by invisible watermarks. Apple Silicon wheels name that library differently from its install id, which stopped Nuitka. Intel Macs use ONNX Runtime 1.23.x, the newest release that still publishes an x86_64 wheel.
 
 ---
 
@@ -943,7 +949,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.2...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.3...HEAD
+[0.12.3]: https://github.com/derek-rein/exr-converter/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/derek-rein/exr-converter/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/derek-rein/exr-converter/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/derek-rein/exr-converter/compare/v0.11.0...v0.12.0
