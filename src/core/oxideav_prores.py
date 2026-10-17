@@ -16,7 +16,7 @@ import numpy as np
 
 _IMPORT_ERROR: str | None
 try:
-    import exr_prores as _native
+    import exr_prores as _native  # pyright: ignore[reportMissingImports]
 
     _IMPORT_ERROR = None
 except ImportError as exc:  # pragma: no cover - depends on local build

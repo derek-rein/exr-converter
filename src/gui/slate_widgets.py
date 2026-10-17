@@ -886,7 +886,7 @@ class _SlateOverlayHooks:
     def gpu_overlay_rgba(self, w: int, h: int, frame: int) -> tuple[object | None, object]:
         return self._d._gpu_overlay_layer(w, h)
 
-    def cpu_composite_overlays(self, working_f32: object, frame: int) -> object:
+    def cpu_composite_overlays(self, working_f32: np.ndarray, frame: int) -> np.ndarray:
         return self._d._composite_overlays_working_space(working_f32, is_shot=True)
 
     def invalidate(self) -> None:

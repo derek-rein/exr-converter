@@ -39,7 +39,7 @@ from .preview_view import ImagePreviewView
 from .shuttle_bar import ShuttleBar
 
 if TYPE_CHECKING:
-    pass
+    import numpy as np
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class OverlayHooks(Protocol):
         """Return ``(linear RGBA float32 or None, cache key)`` for GPU overlay texture."""
         ...
 
-    def cpu_composite_overlays(self, working_f32: object, frame: int) -> object:
+    def cpu_composite_overlays(self, working_f32: np.ndarray, frame: int) -> np.ndarray:
         """Return working RGB with burn-in/watermark composited (shot frames)."""
         ...
 
@@ -98,7 +98,7 @@ class SequencePlayer(QWidget):
         self._comp_src_space = ""
         self._working_f32 = None
         self._working_space: str = ""
-        self._display_f32 = None
+        self._display_f32: np.ndarray | None = None
         self._composed_working_f32 = None
         self._preview_pixmap_item = None
         self._gpu_plane: OcioGpuImagePlane | None = None

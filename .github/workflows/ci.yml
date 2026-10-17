@@ -83,6 +83,9 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check src/ main.py tests/
 
+      - name: Typecheck (basedpyright)
+        run: uv run basedpyright src/ main.py
+
   test-linux:
     name: test (ubuntu-latest)
     runs-on: ubuntu-latest

@@ -25,6 +25,7 @@ from PySide6.QtCore import (
     QMimeData,
     QModelIndex,
     QObject,
+    QPersistentModelIndex,
     QStorageInfo,
     Qt,
     QTimer,
@@ -316,7 +317,7 @@ class MultiRootDirModel(QAbstractItemModel):
             self._id_to_path.append(key)
         return self._path_to_id[key]
 
-    def _path_of(self, index: QModelIndex) -> str:
+    def _path_of(self, index: QModelIndex | QPersistentModelIndex) -> str:
         if not index.isValid():
             return ""
         iid = index.internalId()
@@ -355,7 +356,7 @@ class MultiRootDirModel(QAbstractItemModel):
     def filePath(self, index: QModelIndex) -> str:  # noqa: N802 — Qt API
         return self._path_of(index)
 
-    def fileName(self, index: QModelIndex) -> str:  # noqa: N802 — Qt API
+    def fileName(self, index: QModelIndex | QPersistentModelIndex) -> str:  # noqa: N802 — Qt API
         if not index.isValid():
             return ""
         path = self._path_of(index)
@@ -443,10 +444,10 @@ class MultiRootDirModel(QAbstractItemModel):
 
     # -- QAbstractItemModel ---------------------------------------------------
 
-    def columnCount(self, parent: QModelIndex | None = None) -> int:  # noqa: ARG002
+    def columnCount(self, parent: QModelIndex | QPersistentModelIndex | None = None) -> int:  # noqa: ARG002
         return 1
 
-    def rowCount(self, parent: QModelIndex | None = None) -> int:
+    def rowCount(self, parent: QModelIndex | QPersistentModelIndex | None = None) -> int:
         if parent is None:
             parent = QModelIndex()
         if not parent.isValid():
@@ -503,7 +504,11 @@ class MultiRootDirModel(QAbstractItemModel):
             return self._index_for_path(parent_path)
         return self.createIndex(fs_parent.row(), 0, self._id_for(parent_path))
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
+    def data(
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ):
         if not index.isValid():
             return None
         path = self._path_of(index)
@@ -525,7 +530,7 @@ class MultiRootDirModel(QAbstractItemModel):
                 return self._fs.data(fs_idx, role)
         return None
 
-    def flags(self, index: QModelIndex):
+    def flags(self, index: QModelIndex | QPersistentModelIndex):
         if not index.isValid():
             return Qt.ItemFlag.NoItemFlags
         return (
@@ -552,7 +557,7 @@ class MultiRootDirModel(QAbstractItemModel):
             md.setUrls(urls)
         return md
 
-    def hasChildren(self, parent: QModelIndex | None = None) -> bool:
+    def hasChildren(self, parent: QModelIndex | QPersistentModelIndex | None = None) -> bool:
         if parent is None:
             parent = QModelIndex()
         if not parent.isValid():
@@ -565,14 +570,14 @@ class MultiRootDirModel(QAbstractItemModel):
             return True  # assume expandable until loaded
         return self._fs.hasChildren(fs_idx) or self._fs.canFetchMore(fs_idx)
 
-    def canFetchMore(self, parent: QModelIndex) -> bool:
+    def canFetchMore(self, parent: QModelIndex | QPersistentModelIndex) -> bool:
         if not parent.isValid():
             return False
         path = self._path_of(parent)
         fs_idx = self._fs.index(path) if path else QModelIndex()
         return bool(fs_idx.isValid() and self._fs.canFetchMore(fs_idx))
 
-    def fetchMore(self, parent: QModelIndex) -> None:
+    def fetchMore(self, parent: QModelIndex | QPersistentModelIndex) -> None:
         if not parent.isValid():
             return
         path = self._path_of(parent)

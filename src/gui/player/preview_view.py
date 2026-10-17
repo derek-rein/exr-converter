@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QWheelEvent
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
@@ -173,7 +173,7 @@ class ImagePreviewView(QGraphicsView):
             return
         super().keyPressEvent(event)
 
-    def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
+    def drawForeground(self, painter: QPainter, rect: QRectF | QRect) -> None:  # noqa: N802
         super().drawForeground(painter, rect)
         painter.save()
         painter.resetTransform()
