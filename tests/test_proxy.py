@@ -147,11 +147,26 @@ class TestProxyCli:
         assert a.codec == DEFAULT_PROXY_CODEC
         assert a.resolution == "half"
         assert a.watch == []
+        assert a.watermark == ""
+        assert a.watermark_strength == 1.0
+        marked = build_parser().parse_args(
+            ["proxy", "-i", "a.mov", "--watermark", "AB12", "--watermark-strength", "0.8"]
+        )
+        assert marked.watermark == "AB12"
+        assert marked.watermark_strength == 0.8
         g = build_parser().parse_args(["--mode", "proxy"])
         assert g.mode == "proxy"
 
     def test_requires_input_or_watch(self):
         assert run_cli(build_parser().parse_args(["proxy"])) == 2
+
+    def test_watermark_payload_must_fit_text_mode(self):
+        too_long = build_parser().parse_args(["proxy", "-i", "a.mov", "--watermark", "toolong!!"])
+        assert run_cli(too_long) == 2
+        too_strong = build_parser().parse_args(
+            ["proxy", "-i", "a.mov", "--watermark", "AB12", "--watermark-strength", "9"]
+        )
+        assert run_cli(too_strong) == 2
 
 
 @pytest.mark.integration

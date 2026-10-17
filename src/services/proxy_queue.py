@@ -26,6 +26,8 @@ class ProxyJob(NamedTuple):
     codec_key: str
     resolution: str
     audio: bool = True
+    watermark_text: str = ""
+    watermark_strength: float = 1.0
 
 
 class _ProxyJobWorker(QObject):
@@ -55,6 +57,8 @@ class _ProxyJobWorker(QObject):
                 codec_key=job.codec_key,
                 resolution=job.resolution,
                 audio=job.audio,
+                watermark_text=job.watermark_text,
+                watermark_strength=job.watermark_strength,
                 progress=self.progress.emit,
                 cancel_check=self._cancel.is_set,
                 log=self.log_message.emit,

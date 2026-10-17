@@ -451,6 +451,9 @@ jobs:
             LTO_FLAG="--lto=no"
           fi
           # Flags kept in sync with `make bundle` (shared strip set + LTO).
+          # onnxruntime ships a native library inside the app. macOS signing
+          # walks every Mach-O (scripts/macos_codesign.py), so that dylib is
+          # signed and notarized with the rest of the bundle.
           uv run python -m nuitka \
             $MODE \
             --output-dir=dist \
@@ -478,6 +481,8 @@ jobs:
             --include-package-data=PyOpenColorIO \
             --include-package=fileseq \
             --include-package=OpenGL \
+            --include-package=onnxruntime \
+            --include-package-data=onnxruntime \
             --include-data-dir=resources/ocio=resources/ocio \
             --include-data-files=pyproject.toml=pyproject.toml \
             --include-module=ssl \

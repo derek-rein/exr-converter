@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -35,6 +36,12 @@ from ..core.proxy import (
     collect_proxy_sources,
     default_proxy_output,
     is_proxy_source,
+)
+from ..core.trustmark.payload import (
+    DEFAULT_STRENGTH,
+    MAX_TEXT_CHARS,
+    STRENGTH_MAX,
+    STRENGTH_MIN,
 )
 from ..core.watch_folder import DEFAULT_SETTLE_SECONDS, WatchFolder
 from ..services.proxy_queue import ProxyJob, ProxyQueue, WatchPoller
@@ -149,7 +156,9 @@ class ProxyTab(QWidget):
         self.clip_list.setObjectName("proxyClipList")
         self.clip_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.clip_list.setMinimumHeight(96)
-        self.clip_list.setMaximumHeight(140)
+        # The watermark row is taller than the color note it replaced. A
+        # slightly shorter clip list keeps the tab within a row of the others.
+        self.clip_list.setMaximumHeight(122)
         self.clip_list.setToolTip("Clips to proxy when you press Convert. Drop videos here too.")
         in_main.addWidget(self.clip_list)
         btn_row = QHBoxLayout()
@@ -242,9 +251,41 @@ class ProxyTab(QWidget):
         grid.addWidget(self.output_dir, 3, 1, 1, 3)
         grid.addWidget(self._browse_out, 3, 4)
 
-        note = QLabel(_NO_COLOR_NOTE)
-        note.setStyleSheet(HINT_STYLE)
-        grid.addWidget(note, 4, 0, 1, 5)
+        self.watermark_cb = QCheckBox("Enable")
+        self.watermark_cb.setToolTip(
+            "Embed an invisible TrustMark watermark in every proxy frame.\n"
+            "Off by default. The encoder model downloads once into your cache."
+        )
+        self.watermark_cb.setChecked(settings.value(f"{_K}/watermark", False, type=bool))
+        self.watermark_payload = QLineEdit(str(settings.value(f"{_K}/watermark_text", "") or ""))
+        self.watermark_payload.setMaxLength(MAX_TEXT_CHARS)
+        self.watermark_payload.setPlaceholderText(
+            f"Payload, up to {MAX_TEXT_CHARS} ASCII characters"
+        )
+        self.watermark_payload.setToolTip(
+            "Short ID or text. TrustMark text mode keeps 8 ASCII characters, "
+            "which the official decoder can read."
+        )
+        self.watermark_strength = QDoubleSpinBox()
+        self.watermark_strength.setRange(STRENGTH_MIN, STRENGTH_MAX)
+        self.watermark_strength.setSingleStep(0.05)
+        self.watermark_strength.setDecimals(2)
+        self.watermark_strength.setValue(
+            float(settings.value(f"{_K}/watermark_strength", DEFAULT_STRENGTH, type=float))
+        )
+        self.watermark_strength.setToolTip("TrustMark strength. 1.00 is the normal strength.")
+        self._strength_label = QLabel("Strength")
+        wm_row = QHBoxLayout()
+        wm_row.setSpacing(6)
+        wm_row.addWidget(self.watermark_cb)
+        wm_row.addWidget(self.watermark_payload, 1)
+        wm_row.addWidget(self._strength_label)
+        wm_row.addWidget(self.watermark_strength)
+        # Replaces the old one-line color note so the tab stays the same height
+        # as the other convert tabs. The sentence remains the group tooltip.
+        grid.addWidget(_field_label("Watermark"), 4, 0)
+        grid.addLayout(wm_row, 4, 1, 1, 4)
+        self._sync_watermark_enabled()
         out_main.addLayout(grid)
         layout.addWidget(out_group)
 
@@ -299,6 +340,10 @@ class ProxyTab(QWidget):
             self.codec_combo,
             self.resolution_combo,
             self.audio_cb,
+            self.watermark_cb,
+            self.watermark_payload,
+            self._strength_label,
+            self.watermark_strength,
             self.recursive_cb,
             self._watch_section.toggle,
             self.watch_status,
@@ -338,6 +383,13 @@ class ProxyTab(QWidget):
             lambda _: self._settings.setValue(f"{_K}/resolution", self.resolution_key())
         )
         self.audio_cb.toggled.connect(lambda v: self._settings.setValue(f"{_K}/audio", v))
+        self.watermark_cb.toggled.connect(self._on_watermark_toggled)
+        self.watermark_payload.textChanged.connect(
+            lambda t: self._settings.setValue(f"{_K}/watermark_text", t)
+        )
+        self.watermark_strength.valueChanged.connect(
+            lambda v: self._settings.setValue(f"{_K}/watermark_strength", float(v))
+        )
         self.watch_dir.textChanged.connect(lambda t: self._settings.setValue(f"{_K}/watch_dir", t))
         self.recursive_cb.toggled.connect(lambda v: self._settings.setValue(f"{_K}/recursive", v))
         self.existing_cb.toggled.connect(
@@ -404,6 +456,15 @@ class ProxyTab(QWidget):
             w.setVisible(custom)
         self.output_dir.setEnabled(custom)
         self._browse_out.setEnabled(custom)
+
+    def _sync_watermark_enabled(self) -> None:
+        on = self.watermark_cb.isChecked()
+        for widget in (self.watermark_payload, self._strength_label, self.watermark_strength):
+            widget.setEnabled(on)
+
+    def _on_watermark_toggled(self, on: bool) -> None:
+        self._settings.setValue(f"{_K}/watermark", on)
+        self._sync_watermark_enabled()
 
     def _on_location_changed(self) -> None:
         self._settings.setValue(f"{_K}/location", self.location())
@@ -485,12 +546,19 @@ class ProxyTab(QWidget):
         if self.skip_existing_cb.isChecked() and out.exists():
             self.log_message.emit(f"Skip (proxy exists): {out}")
             return None
+        watermark_text = ""
+        if self.watermark_cb.isChecked():
+            watermark_text = self.watermark_payload.text().strip()
+            if not watermark_text:
+                self.log_message.emit("Invisible watermark skipped: payload is empty.")
         return ProxyJob(
             source=str(source),
             output=str(out),
             codec_key=self.codec_key(),
             resolution=self.resolution_key(),
             audio=self.audio_cb.isChecked(),
+            watermark_text=watermark_text,
+            watermark_strength=float(self.watermark_strength.value()),
         )
 
     def enqueue(self, sources: list[str]) -> int:

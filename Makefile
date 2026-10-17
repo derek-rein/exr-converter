@@ -174,6 +174,8 @@ bundle: resources
 		--include-package-data=PyOpenColorIO \
 		--include-package=fileseq \
 		--include-package=OpenGL \
+		--include-package=onnxruntime \
+		--include-package-data=onnxruntime \
 		--include-data-dir=resources/ocio=resources/ocio \
 		--include-data-files=pyproject.toml=pyproject.toml \
 		--include-module=ssl \
