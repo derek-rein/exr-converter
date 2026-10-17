@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- **Invisible watermark** on the Video → Proxy tab and the `proxy` CLI, off by default. Enable it, enter up to 8 ASCII characters, and set a strength. Every proxy frame gets an Adobe TrustMark mark the official decoder can read. The encoder model downloads once into a cache folder (SHA256 checked) and is not included in the app. `scripts/trustmark_detect.py` reads a mark back from a video.
+
 ---
 
 ## [0.12.1] - 2026-10-14

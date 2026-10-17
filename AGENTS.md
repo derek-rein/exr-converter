@@ -75,7 +75,7 @@ src/
 native/
   exr_prores/           # optional oxideav-prores PyO3 extension (12-bit ProRes)
 resources/              # icons, style.qss, OCIO config, screenshots
-scripts/                # bump_app_version.py, ensure_ocio.py, build_oxideav_prores.py
+scripts/                # bump_app_version.py, ensure_ocio.py, build_oxideav_prores.py, trustmark_detect.py
 tests/                  # pytest; integration + fixtures under tests/fixtures/
 docs/                   # user-facing Markdown (Astro content source of truth)
 site/                   # Astro site (layouts, styles); loads docs/ → Vercel
@@ -101,7 +101,7 @@ site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 | Sequence player | `src/gui/player/` (`SequencePlayer`, transport, preview view) |
 | Slate dialog / viewer | `src/gui/slate_widgets.py` (composes player + overlay hooks), `src/gui/ocio_gpu_plane.py`, `src/services/slate_model.py` |
 | Background convert | `src/services/worker.py` |
-| Video → Proxy tab / watch folder | `src/gui/proxy_tab.py`, `src/core/proxy.py`, `src/core/watch_folder.py`, `src/services/proxy_queue.py` (CLI `proxy` in `src/cli.py`) |
+| Video → Proxy tab / watch folder | `src/gui/proxy_tab.py`, `src/core/proxy.py`, `src/core/watch_folder.py`, `src/services/proxy_queue.py` (CLI `proxy` in `src/cli.py`). Optional invisible watermark: `src/core/trustmark/` (ONNX Runtime, encoder downloaded on first use) and `scripts/trustmark_detect.py` |
 
 ## Commands (local)
 

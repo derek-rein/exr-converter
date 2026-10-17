@@ -274,6 +274,7 @@ original.
 | | Audio | on | On the resolution row. PCM in `.mov`, AAC in `.mp4`. |
 | | Name suffix | none | Added to the proxy filename. Leave empty to keep the source name, which relinks best. |
 | | Skip clips that already have a proxy | on | On the suffix row. Off re-makes them. |
+| | Watermark | off | **Enable** writes an invisible [TrustMark](https://github.com/adobe/trustmark) mark into every proxy frame. Payload is up to 8 ASCII characters (TrustMark text mode, so the official decoder can read it). Strength defaults to 1.00 (range 0.10 to 2.00). The encoder model downloads once into a per-user cache and is checked with SHA256. The mark is applied to the resized RGB frame the codec encodes. Proxies still have no OCIO view transform. |
 
 Press **Convert** to queue every listed clip. Proxies are made one at a time
 in the background. You can keep adding clips (Convert again queues the new

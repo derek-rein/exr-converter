@@ -284,6 +284,15 @@ appear on macOS only.
 | `--existing` | off | `--watch`: also proxy clips already in the folder at start |
 | `--interval SECONDS` | `2` | `--watch`: time between folder scans |
 | `--settle SECONDS` | `3` | `--watch`: how long a file's size must stay the same before it is converted |
+| `--watermark TEXT` | off | Invisible TrustMark payload, up to 8 printable ASCII characters. Omitted means no watermark. The encoder model (`encoder_Q.onnx`) downloads once into a per-user cache and is checked with SHA256 |
+| `--watermark-strength N` | `1.0` | Strength from `0.1` to `2.0`. Used only when `--watermark` is set |
+
+The watermark is embedded in the resized RGB frame, on every frame, before the
+codec. Proxies do not run an OCIO view transform, so that RGB image is the
+picture the proxy shows. To read a mark back, use
+`uv run python scripts/trustmark_detect.py PROXY.mov`. That helper downloads
+`decoder_Q.onnx` (not shipped with the app), samples frames, and majority-votes
+the bits.
 
 The watch folder polls instead of relying on OS file events, so it works on
 network shares and removable volumes. Proxies are written to a hidden

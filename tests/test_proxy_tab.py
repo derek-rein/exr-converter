@@ -38,6 +38,27 @@ def tab(qapp: QApplication, settings) -> Iterator[ProxyTab]:
         t.deleteLater()
 
 
+def test_watermark_is_off_until_enabled(tab: ProxyTab, tmp_path) -> None:
+    assert not tab.watermark_cb.isChecked()
+    assert not tab.watermark_payload.isEnabled()
+    assert not tab.watermark_strength.isEnabled()
+    clip = tmp_path / "a.mov"
+    clip.write_bytes(b"x")
+    tab.add_paths([str(clip)])
+    job = tab._job_for(str(clip))
+    assert job is not None and job.watermark_text == ""
+    tab.watermark_cb.setChecked(True)
+    tab.watermark_payload.setText("AB12")
+    tab.watermark_strength.setValue(0.75)
+    enabled = tab._job_for(str(clip))
+    assert enabled is not None
+    assert enabled.watermark_text == "AB12"
+    assert enabled.watermark_strength == pytest.approx(0.75)
+    tab.watermark_payload.setText("   ")
+    skipped = tab._job_for(str(clip))
+    assert skipped is not None and skipped.watermark_text == ""
+
+
 def test_add_paths_and_readiness(tab: ProxyTab, tmp_path) -> None:
     assert not tab.is_ready()
     (tmp_path / "a.mov").write_bytes(b"x")

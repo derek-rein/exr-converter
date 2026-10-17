@@ -4,6 +4,10 @@ Proxies are a straight decode → resize → encode with PyAV. There is no OCIO
 step: a proxy keeps the source's look (log stays log) so an editor can relink
 it to the camera original. Timecode and audio are carried across when present.
 
+An optional invisible TrustMark watermark is applied to every output frame
+after resize, on the RGB image the codec receives (the pixels the proxy
+shows). There is no view transform before that step.
+
 Output defaults to a ``Proxy`` folder next to each source clip with the same
 basename, which is where Resolve looks when relinking proxy media.
 """
@@ -15,6 +19,8 @@ from collections.abc import Callable
 from fractions import Fraction
 from pathlib import Path
 from typing import NamedTuple
+
+import numpy as np
 
 from .constants import video_codec_by_key
 from .errors import ConversionCancelled
@@ -161,6 +167,8 @@ def run_video_to_proxy(
     resolution: str = DEFAULT_PROXY_RESOLUTION,
     audio: bool = True,
     codec_opts: dict[str, str] | None = None,
+    watermark_text: str = "",
+    watermark_strength: float = 1.0,
     progress: ProgressCallback | None = None,
     cancel_check: Callable[[], bool] | None = None,
     log: LogCallback | None = None,
@@ -170,6 +178,10 @@ def run_video_to_proxy(
     Writes to a hidden ``.<name>.partial<ext>`` file and renames it into place
     when the encode finishes, so a watch folder or editor never sees a
     half-written proxy. Returns the final output path.
+
+    *watermark_text* embeds an invisible TrustMark payload when it is not
+    empty. The model downloads on first use. PyAV and ONNX Runtime stay
+    inside this call so importing the proxy module does not load them.
     """
     import av
 
@@ -196,8 +208,15 @@ def run_video_to_proxy(
     if codec_opts:
         opts.update(codec_opts)
 
+    watermark = None
+    if watermark_text.strip():
+        from .trustmark.embed import FrameWatermark
+
+        watermark = FrameWatermark(watermark_text, watermark_strength, log=log)
     if log:
         log(f"Proxy: {src.name} {w}×{h} → {ow}×{oh} {spec.display_name}")
+        if watermark is not None:
+            log(f"Invisible watermark: {watermark.text!r} at strength {watermark.strength:.2f}")
 
     in_c = av.open(str(src))
     try:
@@ -240,7 +259,13 @@ def run_video_to_proxy(
 
             def _encode_video(frame) -> None:
                 nonlocal n
-                vf = av_frame_reformat(frame, width=ow, height=oh, format=spec.pix_fmt)
+                if watermark is None:
+                    vf = av_frame_reformat(frame, width=ow, height=oh, format=spec.pix_fmt)
+                else:
+                    rgb_frame = av_frame_reformat(frame, width=ow, height=oh, format="rgb24")
+                    marked = np.ascontiguousarray(watermark.apply(rgb_frame.to_ndarray()))
+                    vf = av.VideoFrame.from_ndarray(marked, format="rgb24")
+                    vf = av_frame_reformat(vf, format=spec.pix_fmt)
                 vf.pts = n
                 vf.time_base = time_base
                 n += 1

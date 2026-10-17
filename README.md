@@ -72,7 +72,7 @@
 | Overlays | Ingest only. Slate, burn-in, and watermark stay on the other tab | Slate, burn-in, and watermark in one pass |
 | Color | OCIO into a scene space (default toward `ACEScg` / `scene_linear`) | OCIO out to a display (default toward `Output - Rec.709`) |
 
-**Video to proxy:** a third tab (and the `proxy` CLI) makes Resolve-style editing proxies (ProRes 422 Proxy at half size by default) in a `Proxy` folder next to each clip, keeping source look, timecode, and audio. A **watch folder** converts new clips automatically once they finish copying. See [docs/gui.md](docs/gui.md#video--proxy).
+**Video to proxy:** a third tab (and the `proxy` CLI) makes Resolve-style editing proxies (ProRes 422 Proxy at half size by default) in a `Proxy` folder next to each clip, keeping source look, timecode, and audio. A **watch folder** converts new clips automatically once they finish copying. An optional invisible TrustMark watermark (off by default) can be written into every proxy frame. See [docs/gui.md](docs/gui.md#video--proxy).
 
 **Optional RED R3D / N-RAW:** when built with the official RED R3D SDK bridge, **Video to EXR** can decode `.r3d` and `.nev` (IPP2 primary to Log3G10 REDWideGamutRGB for OCIO), including browser thumbnails, sequence-player preview, and camera/timecode metadata on written EXRs. Release binaries may ship only RED's allowed Redistributable libraries in a private app folder. See [docs/r3d.md](docs/r3d.md) and **Help → About** for the redistributable notice.
 
@@ -472,6 +472,8 @@ User-facing history is in **[CHANGELOG.md](CHANGELOG.md)** (Keep a Changelog, se
 ## License
 
 MIT. See [`LICENSE`](LICENSE). Copyright Derek Rein.
+
+Adobe TrustMark and ONNX Runtime, both MIT, are credited in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 macOS release DMGs are signed and notarized under **Medeu Global LLC**.
 
