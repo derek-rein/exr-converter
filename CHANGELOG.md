@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Fixed
+
+- macOS release builds include the ONNX Runtime library used by invisible watermarks. Apple Silicon wheels name that library differently from its install id, which stopped Nuitka. Intel Macs use the newest ONNX Runtime release that still publishes an x86_64 wheel.
+
 ---
 
 ## [0.12.2] - 2026-10-17

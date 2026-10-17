@@ -305,16 +305,21 @@ def test_relocate_macos_data_moves_non_macho_and_keeps_binaries(tmp_path: Path) 
 
 
 def test_onnxruntime_dylib_is_signed_inside_the_app(tmp_path: Path) -> None:
-    """Nuitka places libonnxruntime under the app. Developer ID must sign it."""
+    """Nuitka places the versioned libonnxruntime dylib under the app."""
     app = _mini_app(tmp_path)
-    dylib = app / "Contents" / "MacOS" / "onnxruntime" / "capi" / "libonnxruntime.dylib"
+    dylib = app / "Contents" / "MacOS" / "onnxruntime" / "capi" / "libonnxruntime.1.31.0.dylib"
     dylib.parent.mkdir(parents=True)
     dylib.write_bytes(b"onnxruntime")
+    # A soname symlink is not a Mach-O Nuitka should have copied, and signing
+    # skips symlinks. The real library is what Developer ID must sign.
+    link = dylib.parent / "libonnxruntime.1.dylib"
+    link.symlink_to(dylib.name)
     entitlements = tmp_path / "entitlements.plist"
     entitlements.write_text("plist", encoding="utf-8")
     cmds = plan_resign(app, identity=_IDENTITY, entitlements=entitlements)
-    match = [cmd for cmd in cmds if cmd[-1].endswith("libonnxruntime.dylib")]
+    match = [cmd for cmd in cmds if cmd[-1].endswith("libonnxruntime.1.31.0.dylib")]
     assert len(match) == 1
+    assert not any(cmd[-1].endswith("libonnxruntime.1.dylib") for cmd in cmds)
     signed = match[0]
     assert "--deep" not in signed
     assert "--options" in signed and "runtime" in signed
@@ -323,6 +328,7 @@ def test_onnxruntime_dylib_is_signed_inside_the_app(tmp_path: Path) -> None:
     assert "--entitlements" not in signed
     workflow = _WORKFLOW.read_text(encoding="utf-8")
     assert "--include-package=onnxruntime" in workflow
+    assert "scripts/prepare_macos_onnxruntime.py" in workflow
 
 
 def test_release_workflow_can_notarize_without_publishing() -> None:

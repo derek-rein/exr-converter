@@ -142,6 +142,8 @@ bundle: resources
 	-@$(PYTHON) scripts/build_braw_bridge.py
 	# Optional oxideav 12-bit ProRes PyO3 extension (skip quietly if no Rust).
 	-@$(PYTHON) scripts/build_oxideav_prores.py
+	# macOS: align libonnxruntime's install id with its filename before Nuitka.
+	$(PYTHON) scripts/prepare_macos_onnxruntime.py
 	$(PYTHON) -m nuitka \
 		--standalone \
 		--output-dir=dist \
