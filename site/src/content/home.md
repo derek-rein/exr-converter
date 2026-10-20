@@ -66,8 +66,8 @@ From a source checkout (Python 3.13 and [uv](https://docs.astral.sh/uv/)): `uv r
 
 | Feature | What it does |
 |---|---|
-| **Video → EXR** | Decode a movie through OCIO into an EXR sequence. Ingest only: no slate, burn-in, or watermark. Optional RED R3D / N-RAW (`.r3d`, `.nev`) and Blackmagic RAW (`.braw`) when that SDK bridge is in the build. |
-| **EXR → Video** | Turn an OpenEXR sequence, or DPX, PNG, JPEG, or WebP, into ProRes, DNxHR, CineForm, H.264, HEVC, or FFV1. Optional slate, burn-in, and watermark in the same pass. |
+| **Video → EXR** | Decode a movie through OCIO into an EXR sequence. Ingest only: no slate, burn-in, or watermark. CinemaDNG `.dng` sequences use the built-in reader. Optional RED R3D / N-RAW (`.r3d`, `.nev`) and Blackmagic RAW (`.braw`) when that SDK bridge is in the build. |
+| **EXR → Video** | Turn an OpenEXR sequence, or CinemaDNG, DPX, PNG, JPEG, or WebP, into ProRes, DNxHR, CineForm, H.264, HEVC, or FFV1. Optional slate, burn-in, and watermark in the same pass. |
 | **Video → Proxy** | Resolve-style editing proxies. Default is ProRes 422 Proxy at half size, in a `Proxy` folder next to each clip, keeping the source look, timecode, and audio. A watch folder converts new clips once they finish copying. Same job from the `proxy` CLI, including `proxy --watch`. |
 | **Color** | Bundled **ACES Studio Config v4**, plus extra camera logs: Nikon N-Log, Fujifilm F-Log / F-Log2 / F-Log2 C, Leica L-Log, Sony S-Log and S-Log2, Canon Log in Rec.709 and Rec.2020, KineLOG3, GoPro Protune / GP-Log / GP-Log2, Blackmagic Film Gen 4, OPPO O-Log, and Apple Log 2. Stock ACES spaces cover Apple Log, ARRI LogC3/LogC4, RED Log3G10, Sony S-Log3, and more. Also `$OCIO`, a custom config, or a local Nuke config. |
 | **ProRes** | Software ProRes is 10-bit on every profile, including 4444 and XQ (default **422 HQ**). macOS VideoToolbox is the hardware encoder; 422 stays 10-bit, and 4444 / XQ are about 12-bit class. Experimental oxideav **4444 and XQ are true 12-bit**. oxideav 422 profiles are 12-bit inside the encoder and **10-bit** to FFmpeg, Resolve, and QuickTime. |
@@ -97,6 +97,7 @@ uv run python main.py proxy --watch /path/to/ingest
 | [ProRes and VideoToolbox](docs/prores/) | Software vs Apple VideoToolbox vs oxideav, with honest bit depths |
 | [RED R3D / N-RAW](docs/r3d/) | Optional RED SDK for `.r3d` and `.nev` |
 | [Blackmagic RAW](docs/braw/) | Optional BRAW SDK for `.braw` (Linear ACES AP0) |
+| [CinemaDNG](docs/cinemadng/) | `.dng` frame sequences. DJI Inspire 3 is Linear P3-D60 with +1.4 stops |
 | [Nuke integration](docs/nuke/) | Menu helpers to open a Read plus the session OCIO config |
 | [12-bit ProRes notes](docs/plan-12bit-prores-oxideav/) | Experimental RDD-36 ProRes. 4444 and XQ are 12-bit. 422 decodes as 10-bit |
 | [Releasing](docs/releasing/) | How releases are tagged and published |

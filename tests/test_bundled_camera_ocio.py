@@ -57,6 +57,7 @@ _ADDED = (
     "GP-Log2 Rec.2020",
     "O-Log Rec.2020",
     "Apple Log 2",
+    "Linear P3-D60",
 )
 
 
@@ -326,6 +327,26 @@ def test_formula_error_within_tolerance(bundled: OCIO.Config) -> None:
         "BMD Pocket 6K Film Gen4 - Curve",
     ):
         assert curve in names
+
+
+def test_linear_p3_d60_white_is_aces_white(bundled: OCIO.Config) -> None:
+    out = _apply(bundled, "Linear P3-D60", [1.0, 1.0, 1.0])
+    assert out == pytest.approx([1.0, 1.0, 1.0], abs=1e-5)
+
+
+def test_linear_p3_d60_matches_derived_matrix(bundled: OCIO.Config) -> None:
+    from src.core.cinemadng.color import P3_D60_TO_AP0
+
+    rgb = [0.2, 0.55, 0.1]
+    out = _apply(bundled, "Linear P3-D60", rgb)
+    expected = P3_D60_TO_AP0 @ np.array(rgb, dtype=np.float64)
+    assert out == pytest.approx(expected, abs=1e-5)
+
+
+def test_linear_p3_d60_reaches_existing_dji_spaces(bundled: OCIO.Config) -> None:
+    """Do not add a second D-Log curve. The stock DJI spaces must connect."""
+    for name in ("Linear D-Gamut", "D-Log D-Gamut"):
+        bundled.getProcessor("Linear P3-D60", name).getDefaultCPUProcessor()
 
 
 @pytest.mark.skipif(

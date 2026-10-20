@@ -13,6 +13,14 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- CinemaDNG frame sequences (`.dng`) open on EXR to Video and through `video2exr` / `exr2video`. Uncompressed and lossless JPEG Bayer frames are supported. DJI Inspire 3 and Zenmuse X9 frames are scene-linear P3-D60 with the recommended +1.4 stops already applied. Other CinemaDNG sequences use the file color matrices into ACES2065-1.
+
+### Changed
+
+- The bundled ACES Studio config adds Linear P3-D60, so a CinemaDNG sequence can convert to the existing Linear D-Gamut or D-Log D-Gamut spaces.
+
 ---
 
 ## [0.12.3] - 2026-10-17

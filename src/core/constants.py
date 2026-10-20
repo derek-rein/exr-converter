@@ -94,8 +94,9 @@ DEFAULT_FRAME_PADDING = 4
 DEFAULT_START_FRAME = 1001
 
 # Image-sequence extensions accepted as input for EXR→video (and the sequence
-# browser). OpenEXR remains the primary path; DPX is the other production still
-# format; PNG / JPEG / WebP cover common display stills.
+# browser). OpenEXR remains the primary path. CinemaDNG (``.dng``) is a Bayer
+# frame sequence. DPX is the other production still format. PNG / JPEG / WebP
+# cover common display stills.
 #
 # Deliberately excluded:
 # - BMP / TGA — little production value for sequences
@@ -105,6 +106,7 @@ DEFAULT_START_FRAME = 1001
 IMAGE_SEQUENCE_EXTS: frozenset[str] = frozenset(
     {
         ".exr",
+        ".dng",
         ".dpx",
         ".png",
         ".jpg",
@@ -116,16 +118,18 @@ IMAGE_SEQUENCE_EXTS: frozenset[str] = frozenset(
 # Formats treated as scene-referred / linear by default for OCIO src.
 # Everything else in IMAGE_SEQUENCE_EXTS is assumed display-encoded (sRGB-ish).
 # DPX is film/pipeline data (often log or linear) — not sRGB display stills.
-SCENE_REFERRED_IMAGE_EXTS: frozenset[str] = frozenset({".exr", ".dpx"})
+# CinemaDNG is scene-linear after the reader develops the Bayer frame.
+SCENE_REFERRED_IMAGE_EXTS: frozenset[str] = frozenset({".exr", ".dng", ".dpx"})
 
-# Prefer EXR when a folder contains mixed sequences, then DPX, then display stills.
+# Prefer EXR when a folder contains mixed sequences, then CinemaDNG, then DPX.
 _IMAGE_SEQ_EXT_PRIORITY: dict[str, int] = {
     ".exr": 0,
-    ".dpx": 1,
-    ".png": 2,
-    ".jpg": 3,
-    ".jpeg": 3,
-    ".webp": 4,
+    ".dng": 1,
+    ".dpx": 2,
+    ".png": 3,
+    ".jpg": 4,
+    ".jpeg": 4,
+    ".webp": 5,
 }
 
 

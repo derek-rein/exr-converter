@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import OpenImageIO as oiio
 
+from .cinemadng import read_rgb
+
 
 def _display_window(spec) -> tuple[int, int, int, int]:
     """Return (x, y, width, height) of the display window from an OIIO ImageSpec.
@@ -43,7 +45,7 @@ def apply_exr_compression_attrs(
 
 
 def read_image(path: str) -> np.ndarray:
-    """Read an image (EXR, PNG, JPEG, … via OIIO) and return float32 RGB (H, W, 3).
+    """Read an image (EXR, PNG, JPEG, CinemaDNG, …) and return float32 RGB (H, W, 3).
 
     Values are float32 in the file's native range as returned by OIIO
     (typically ~0–1 for integer 8/16-bit stills and scene-linear for EXR).
@@ -55,6 +57,8 @@ def read_image(path: str) -> np.ndarray:
     RuntimeError
         If the file cannot be opened or pixels cannot be read.
     """
+    if path.lower().endswith(".dng"):
+        return read_rgb(path)
     buf = oiio.ImageBuf(path)
     if buf.has_error:
         raise RuntimeError(f"Failed to open image {path!r}: {buf.geterror()}")

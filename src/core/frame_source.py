@@ -36,7 +36,7 @@ class MediaInfo:
     height: int
     fps: float
     frame_count: int
-    kind: str  # "video" | "r3d" | "braw"
+    kind: str  # "video" | "r3d" | "braw" | "cinemadng"
     colorspace_hint: str = ""
 
 
@@ -91,6 +91,10 @@ class IngestSource(Protocol):
 def open_preview_decoder(path: str, *, fps: float = 0.0) -> PreviewDecoder:
     """Factory for the sequence-player / prefetch decoder."""
     from .braw import is_braw_path
+
+    # Lazy: cinemadng.source imports this module for MediaInfo and resize.
+    from .cinemadng import is_cinemadng_input
+    from .cinemadng.source import CinemaDNGPreviewDecoder
     from .r3d import is_r3d_path
     from .video import (
         _arriraw_unsupported_message,
@@ -98,6 +102,8 @@ def open_preview_decoder(path: str, *, fps: float = 0.0) -> PreviewDecoder:
         is_libav_unsafe_media,
     )
 
+    if is_cinemadng_input(path):
+        return CinemaDNGPreviewDecoder(path, fps=fps)
     if is_r3d_path(path):
         return R3DPreviewDecoder(path, fps=fps)
     if is_braw_path(path):
@@ -120,6 +126,10 @@ def open_ingest_source(
     from .braw import BRAWUnavailableError, is_braw_path
     from .braw import is_available as braw_available
     from .braw import unavailable_reason as braw_unavailable_reason
+
+    # Lazy: cinemadng.source imports this module for MediaInfo and resize.
+    from .cinemadng import is_cinemadng_input
+    from .cinemadng.source import CinemaDNGIngestSource
     from .r3d import R3DUnavailableError, is_r3d_path
     from .r3d import is_available as r3d_available
     from .r3d import unavailable_reason as r3d_unavailable_reason
@@ -132,6 +142,9 @@ def open_ingest_source(
     path_s = str(path)
     if is_ignored_media_filename(path_s):
         raise RuntimeError(f"Not a media file (OS metadata sidecar): {Path(path_s).name}")
+
+    if is_cinemadng_input(path_s):
+        return CinemaDNGIngestSource(path_s, scale=scale)
     if is_r3d_path(path_s):
         if not r3d_available():
             raise R3DUnavailableError(r3d_unavailable_reason())

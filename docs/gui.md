@@ -25,7 +25,7 @@ from a Read. See [nuke.md](./nuke.md).
 | Tab | Direction | Notes |
 |-----|-----------|--------|
 | **Video → EXR** | Decode video → OCIO → EXR sequence | **Ingest only.** Slate, burn-in, and watermark are never applied. Output is an EXR sequence, not a video or a still. The output field uses ``name.####.exr``; that basename is written (not forced to the video stem). Accepts common video containers plus optional **`.r3d` / `.nev`** when the [R3D SDK bridge](./r3d.md) is available (browser thumbs and player preview use low-res R3D decode; convert is full quality: **Metal GPU** on macOS, **CUDA / OpenCL** on Windows and Linux; camera and timecode metadata lands on the EXRs) and optional **`.braw`** when the [Blackmagic RAW bridge](./braw.md) is available (Linear ACES AP0 / `ACES2065-1`; **Metal** on macOS, **CUDA / OpenCL** on Windows and Linux, CPU fallback). |
-| **EXR → Video** | Image sequence → OCIO → video | OpenEXR primary; also DPX, PNG, JPEG, and WebP as **inputs**. Output is a video file. Slate, burn-in, and watermark use that tab’s controls. Sequences may use ``name.####.ext`` or ``name_####.ext`` pads. |
+| **EXR → Video** | Image sequence → OCIO → video | OpenEXR primary; also CinemaDNG (`.dng`), DPX, PNG, JPEG, and WebP as **inputs**. Output is a video file. Slate, burn-in, and watermark use that tab’s controls. Sequences may use ``name.####.ext`` or ``name_####.ext`` pads. DJI CinemaDNG is tagged Linear P3-D60 with +1.4 stops already applied. See [CinemaDNG](./cinemadng.md). |
 | **Video → Proxy** | Video → smaller video (no OCIO) | Batch editing proxies plus a **watch folder**, modelled on DaVinci Resolve proxy generation. See [Video → Proxy](#video--proxy). |
 
 Dragging the **Log** splitter up does not squash Input / Output / Options
@@ -60,9 +60,9 @@ browser’s **Folder** field navigates there, highlights the matching item, and
 opens **Preview** so you can hit **Open** immediately.
 
 **Sequence browser** lists every supported still sequence in a folder
-(``name.####.ext`` or ``name_####.ext``). Mixed folders prefer EXR, then DPX.
+(``name.####.ext`` or ``name_####.ext``). Mixed folders prefer EXR, then CinemaDNG, then DPX.
 Display-encoded stills (PNG/JPEG/WebP) auto-suggest an **sRGB** source color
-space; EXR/DPX default toward scene-linear / metadata.
+space; EXR, CinemaDNG, and DPX default toward scene-linear / metadata.
 
 **Views:** the top bar has **List | Grid | Preview** plus **Inspect** (always
 available). **List** is the metadata table; **Grid** shows first-frame
