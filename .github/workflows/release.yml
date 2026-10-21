@@ -619,6 +619,21 @@ jobs:
           echo "Bundle size after slimming:"
           du -sh "$APP"
 
+      # Quick Look + thumbnail appexes. Compile for this job's arch only,
+      # embed under Contents/PlugIns, then the re-sign step seals each appex
+      # with its sandbox entitlements before the outer app. Linux and Windows
+      # jobs do not run this step.
+      - name: Embed Quick Look extensions
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCH="${{ runner.arch == 'ARM64' && 'arm64' || 'x86_64' }}"
+          uv run python scripts/build_quicklook_appex.py \
+            --arch "$ARCH" \
+            --app "dist/EXR Converter.app"
+          du -sh "dist/EXR Converter.app/Contents/PlugIns"/*
+
       - name: Re-sign macOS bundle
         id: macos_sign
         if: runner.os == 'macOS'
@@ -643,7 +658,8 @@ jobs:
           # "bundle format is ambiguous (could be app or framework)" even
           # when the tree lives under Contents/Frameworks/braw/ (PR #54).
           # scripts/macos_codesign.py signs Mach-Os deepest-first, then
-          # each .framework without that flag, then the outer .app.
+          # each Contents/PlugIns/*.appex with the Quick Look sandbox
+          # entitlements, then each .framework without --deep, then the app.
           # Developer ID verification (later) uses --verify --deep --strict.
           #
           # That script also moves non-Mach-O files (yaml, pyproject.toml,

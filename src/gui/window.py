@@ -43,6 +43,7 @@ from ..core.constants import (
     is_image_sequence_ext,
 )
 from ..core.ocio_utils import color_space_families, config_source_info
+from ..core.quicklook_prefs import schedule_quicklook_view_lut
 from ..core.video import is_ignored_media_filename
 from ..services.presets import delete_preset, list_presets, load_preset, save_preset
 from ..services.worker import ConvertWorker
@@ -630,6 +631,7 @@ class MainWindow(QMainWindow):
         else:
             self._statusbar.showMessage(f"OCIO: {n_spaces} color spaces loaded", 3000)
         self._append_log(f"OCIO config loaded ({n_spaces} spaces)")
+        schedule_quicklook_view_lut(cfg)
 
     # -- Log --
 

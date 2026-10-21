@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Quick Look / thumbnail appex. Sandbox is required. The host app is not
+	     sandboxed. Both share the macOS-style App Group (team id prefix, not
+	     the iOS "group." form) so no provisioning profile is required.
+	     Home-relative "/" is the user's home (the path is already relative to
+	     ~). It lets a numbered sequence play sibling frames that live there.
+	     Absolute read-only covers external volumes and temp. The two named
+	     files stay listed so toggles and the OCIO LUT can be read even if a
+	     future signature drops the broad home entry. Read-only only.
+	     Directories end with /. These entitlements are not an App Review
+	     grant; notarization still has to accept the signature. Desktop,
+	     Documents, and Downloads can remain blocked by TCC. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>83546T4BT8.com.vfxtools.exrconverter</string>
+	</array>
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+	<array>
+		<string>/Library/Application Support/EXR Converter/quicklook.json</string>
+		<string>/Library/Application Support/EXR Converter/view.lut</string>
+		<string>/</string>
+	</array>
+	<key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+	<array>
+		<string>/Volumes/</string>
+		<string>/private/tmp/</string>
+		<string>/tmp/</string>
+	</array>
+</dict>
+</plist>
