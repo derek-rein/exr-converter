@@ -330,7 +330,7 @@ def test_release_workflow_publishes_both_msix_assets_without_new_triggers() -> N
     pack_at = workflow.index("--output exr_converter-windows-x86_64.msixupload")
     sign_at = workflow.index("--sign-msix exr_converter-windows-x86_64.msix")
     upload_at = workflow.index("name: exr_converter-windows-x86_64-msixupload")
-    publish_at = workflow.index('msstore publish \\\n')
+    publish_at = workflow.index("msstore publish \\\n")
     assert pack_at < sign_at < upload_at < publish_at
     assert "Skipping Microsoft Store publish" in workflow
     assert "The first Store submission must be created in Partner Center" in workflow
