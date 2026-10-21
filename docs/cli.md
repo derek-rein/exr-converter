@@ -11,8 +11,9 @@ The same entry point launches the **GUI** when no convert subcommand is given.
 write a video file. PNG, JPEG, WebP, and DPX are **inputs** for `exr2video`
 (image sequences). The app does not write PNG or other still-image output.
 
-Slate, burn-in, watermark, and post-convert toggles are **GUI-only**. See
-[GUI](./gui.md).
+Slate, burn-in, the visible text watermark, and post-convert toggles are
+**GUI-only**. See [GUI](./gui.md). The invisible proxy watermark is available
+from the CLI as `proxy --watermark`.
 
 ```bash
 # From a source checkout
@@ -264,6 +265,9 @@ uv run python main.py proxy -i ./day1 --recursive -o /proxies
 # Watch folder daemon: proxy each new clip once it finishes copying (Ctrl-C stops)
 uv run python main.py proxy --watch /Volumes/Ingest
 uv run python main.py proxy --watch /Volumes/Ingest --recursive --existing --codec dnxhr_lb
+
+# Invisible TrustMark watermark on every proxy frame (off unless --watermark is given)
+uv run python main.py proxy -i ./A001_card --watermark ABCD1234 --watermark-strength 1.0
 ```
 
 Flags match `proxy --help`. The `--codec` list in that help text is whatever
@@ -289,10 +293,19 @@ appear on macOS only.
 
 The watermark is embedded in the resized RGB frame, on every frame, before the
 codec. Proxies do not run an OCIO view transform, so that RGB image is the
-picture the proxy shows. To read a mark back, use
-`uv run python scripts/trustmark_detect.py PROXY.mov`. That helper downloads
-`decoder_Q.onnx` (not shipped with the app), samples frames, and majority-votes
-the bits.
+picture the proxy shows. A payload that is too long or not printable ASCII,
+or a `--watermark-strength` outside `0.1` to `2.0` (checked only with
+`--watermark`), exits with code `2` before any clip is
+converted. If the model cannot be downloaded, each clip fails with an error (a batch
+exits with code `1`).
+
+To read a mark back, use
+`uv run python scripts/trustmark_detect.py PROXY.mov` (add `--samples N` to
+read more frames; the default is 9). That helper downloads `decoder_Q.onnx`
+(not shipped with the app), samples frames, and majority-votes the bits. It
+prints the payload and exits `0`, or prints `detected: no` and exits `1`.
+Cache locations, what survives re-encoding, and other limits:
+[GUI: Invisible watermark](./gui.md#invisible-watermark).
 
 The watch folder polls instead of relying on OS file events, so it works on
 network shares and removable volumes. Proxies are written to a hidden
@@ -307,9 +320,10 @@ network shares and removable volumes. Proxies are written to a hidden
 |------|---------|
 | `0` | Success |
 | `1` | Convert / argument / codec error (`proxy`: at least one clip failed) |
-| `2` | `proxy`: no `-i` / `--watch`, or a bad watch folder |
+| `2` | `proxy`: no `-i` / `--watch`, a bad watch folder, or a bad `--watermark` payload / strength |
 | `2` | Smoke test: OCIO runtime &lt; 2.5 (GUI `--smoke-test`) |
 | `3` | Smoke test: bundled config failed to load |
+| `130` | `proxy`: Ctrl-C during the `-i` batch or while a clip is converting. Ctrl-C while `--watch` is waiting exits `0` |
 
 ---
 

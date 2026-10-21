@@ -24,8 +24,8 @@ as the code (and [CHANGELOG.md](../CHANGELOG.md)). See
 
 | Guide | Topics |
 |-------|--------|
-| [CLI](./cli.md) | `video2exr`, `exr2video`, `proxy` and `--watch`, GUI launch flags |
-| [GUI](./gui.md) | Tabs, Video → Proxy, browsers, player, overlays, preferences, post-convert |
+| [CLI](./cli.md) | `video2exr`, `exr2video`, `proxy` (`--watch`, `--watermark`), GUI launch flags |
+| [GUI](./gui.md) | Tabs, Video → Proxy and the watch folder, invisible watermark, browsers, player, overlays, preferences, post-convert |
 | [ProRes and VideoToolbox](./prores.md) | Software vs Apple VideoToolbox vs oxideav, bit depths |
 | [Nuke](./nuke.md) | Nuke menu integration |
 | [R3D / N-RAW](./r3d.md) | Optional RED R3D SDK (proprietary; build and license) |
