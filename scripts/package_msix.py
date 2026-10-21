@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
-"""Build an unsigned MSIX of the Windows Nuitka app for Microsoft Store submission.
+"""Build an unsigned Partner Center ``.msixupload`` of the Windows Nuitka app.
 
 Partner Center ("MSIX or PWA app") re-signs the package. This script must not
 code-sign the package or embed ``AppxSignature.p7x``.
+
+The upload is a zip whose members sit at the archive root (Microsoft's
+manual-upload layout):
+
+* ``exr_converter_<version>_x64.msix`` — the unsigned package
+* ``exr_converter_<version>_x64.appxsym`` — PDB symbols, only when the app
+  directory contains ``.pdb`` files
+
+The symbol member uses the ``.appxsym`` extension. A ``.msixsym`` member is
+rejected by Partner Center. When Nuitka produced no PDBs the upload contains
+only the ``.msix``, which is still a valid upload. PDB files are left out of
+the MSIX layout. The Inno setup still reads the original app directory.
 
 Identity comes from repository variables (not secrets):
 
@@ -282,7 +294,8 @@ def stage_app(app_dir: Path, layout: Path) -> None:
     """Hardlink the built app into *layout* (copy if the link fails).
 
     Hardlinks keep the MSIX staging tree from doubling a multi-gigabyte Nuitka
-    folder. The Inno setup reads ``app_dir`` unchanged.
+    folder. The Inno setup reads ``app_dir`` unchanged. ``.pdb`` files stay in
+    ``app_dir`` for an optional ``.appxsym`` and are not installed with the app.
     """
     layout.mkdir(parents=True, exist_ok=True)
     for dirpath, _dirnames, filenames in os.walk(app_dir, followlinks=False):
@@ -290,6 +303,8 @@ def stage_app(app_dir: Path, layout: Path) -> None:
         target_dir = layout / relative
         target_dir.mkdir(parents=True, exist_ok=True)
         for name in filenames:
+            if name.lower().endswith(".pdb"):
+                continue
             source = Path(dirpath) / name
             target = target_dir / name
             if target.exists():
@@ -298,6 +313,71 @@ def stage_app(app_dir: Path, layout: Path) -> None:
                 os.link(source, target)
             except OSError:
                 shutil.copy2(source, target)
+
+
+def find_pdbs(app_dir: Path) -> list[Path]:
+    """``.pdb`` files under *app_dir*, in stable relative-path order."""
+    found: list[Path] = []
+    for dirpath, _dirnames, filenames in os.walk(app_dir, followlinks=False):
+        for name in filenames:
+            if name.lower().endswith(".pdb"):
+                found.append(Path(dirpath) / name)
+    return sorted(found)
+
+
+def upload_member_stem(version: str) -> str:
+    """Inner archive name shared by the ``.msix`` and ``.appxsym`` members."""
+    return f"exr_converter_{version}_x64"
+
+
+def write_appxsym(pdbs: list[Path], app_dir: Path, dest: Path) -> None:
+    """Zip *pdbs* into an ``.appxsym``. Paths are relative to *app_dir*."""
+    if not pdbs:
+        raise ValueError("An .appxsym requires at least one PDB file.")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        dest.unlink()
+    with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for pdb in pdbs:
+            archive.write(pdb, pdb.relative_to(app_dir).as_posix())
+
+
+def build_msixupload(msix: Path, output: Path, *, app_dir: Path, version: str) -> Path:
+    """Zip *msix* into a Partner Center ``.msixupload``.
+
+    Members are at the zip root, the same layout as Explorer's
+    Send to → Compressed folder on the files themselves (not on a parent
+    directory). The package member is stored, not deflated again. The symbol
+    member is included only when :func:`find_pdbs` finds files.
+    """
+    if not msix.is_file():
+        raise RuntimeError(f"Missing MSIX to wrap: {msix}")
+    if output.resolve() == msix.resolve():
+        raise ValueError("The .msixupload path and the .msix path must differ.")
+    stem = upload_member_stem(version)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        output.unlink()
+    pdbs = find_pdbs(app_dir)
+    with tempfile.TemporaryDirectory(prefix="exr-appxsym-") as tmp:
+        with zipfile.ZipFile(output, "w", allowZip64=True) as archive:
+            archive.write(msix, f"{stem}.msix", compress_type=zipfile.ZIP_STORED)
+            if pdbs:
+                symbols = Path(tmp) / f"{stem}.appxsym"
+                write_appxsym(pdbs, app_dir, symbols)
+                archive.write(symbols, symbols.name, compress_type=zipfile.ZIP_DEFLATED)
+    if pdbs:
+        print(
+            f"MSIX upload includes {len(pdbs)} PDB file(s) in {stem}.appxsym",
+            flush=True,
+        )
+    else:
+        print(
+            "MSIX upload has no .appxsym (no PDB files under the app directory). "
+            "Partner Center accepts an upload that contains only the .msix.",
+            flush=True,
+        )
+    return output
 
 
 def build_layout(
@@ -380,7 +460,18 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         required=True,
         help="Nuitka dist folder containing exr_converter.exe.",
     )
-    parser.add_argument("--output", type=Path, required=True, help="Destination .msix path.")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Destination .msixupload (zip of the .msix and optional .appxsym).",
+    )
+    parser.add_argument(
+        "--msix",
+        type=Path,
+        default=None,
+        help="Also keep the plain unsigned .msix at this path.",
+    )
     parser.add_argument("--icon", type=Path, default=Path("resources/icons/icon.png"))
     parser.add_argument("--pyproject", type=Path, default=Path("pyproject.toml"))
     return parser.parse_args(argv)
@@ -424,9 +515,13 @@ def main(argv: list[str] | None = None) -> int:
             version=version,
         )
         print(manifest.read_text(encoding="utf-8"), flush=True)
-        pack_msix(makeappx, layout, args.output)
-    assert_unsigned_msix(args.output)
-    print(f"Wrote unsigned MSIX {args.output}", flush=True)
+        msix_path = args.msix if args.msix is not None else Path(tmp) / "package.msix"
+        pack_msix(makeappx, layout, msix_path)
+        assert_unsigned_msix(msix_path)
+        build_msixupload(msix_path, args.output, app_dir=args.app_dir, version=version)
+    print(f"Wrote unsigned MSIX upload {args.output}", flush=True)
+    if args.msix is not None:
+        print(f"Wrote unsigned MSIX {args.msix}", flush=True)
     return 0
 
 

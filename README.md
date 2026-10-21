@@ -134,7 +134,7 @@ Download [exr_converter-windows-x86_64-setup.exe](https://github.com/derek-rein/
 
 The installer adds a Start menu shortcut and can add a desktop shortcut. The program is `exr_converter.exe`.
 
-A release may also attach `exr_converter-windows-x86_64.msix` for Microsoft Store submission. That file is unsigned (Partner Center signs it) and is not the direct-download installer. Maintainer steps: [docs/msix.md](docs/msix.md).
+A release may also attach `exr_converter-windows-x86_64.msixupload` for Microsoft Store submission. That file is an unsigned Partner Center upload (the Store signs the package inside it) and is not the direct-download installer. Maintainer steps: [docs/msix.md](docs/msix.md).
 
 </details>
 
@@ -433,7 +433,7 @@ All static assets live under `resources/`: icons in `resources/icons/` (`icon.ic
 
 ## Releases
 
-Tags use plain semver: `v1.2.3`. Pushing a tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml) and publishes a GitHub Release with a Linux AppImage, macOS DMGs (ARM64 and Intel), and a Windows installer. When the Microsoft Store identity variables are set, the same run also attaches an unsigned Windows `.msix` for Partner Center ([docs/msix.md](docs/msix.md)). After a merge to `main`, [`.github/workflows/auto-tag-release.yml`](.github/workflows/auto-tag-release.yml) can create the missing tag and dispatch that workflow.
+Tags use plain semver: `v1.2.3`. Pushing a tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml) and publishes a GitHub Release with a Linux AppImage, macOS DMGs (ARM64 and Intel), and a Windows installer. When the Microsoft Store identity variables are set, the same run also attaches an unsigned Windows `.msixupload` for Partner Center ([docs/msix.md](docs/msix.md)). After a merge to `main`, [`.github/workflows/auto-tag-release.yml`](.github/workflows/auto-tag-release.yml) can create the missing tag and dispatch that workflow.
 
 | Doc | Contents |
 | --- | --- |

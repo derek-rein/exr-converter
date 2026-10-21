@@ -247,7 +247,7 @@ feature commits (PR → main)
         │  → optional SignPath (Windows exe) → Cosign + GH attestations → publish
         ▼
  Artifacts: Linux AppImage, macOS DMG (arm64 + x86_64), Windows installer,
-            unsigned Windows MSIX when Store identity variables are set
+            unsigned Windows .msixupload when Store identity variables are set
             (+ .sigstore.json bundles; GH attestations for provenance)
 ```
 
@@ -379,11 +379,15 @@ applies). SignPath is the setup `.exe` only. Do not send the MSIX through it.
 
 ### Microsoft Store MSIX (unsigned)
 
-The Windows build job can pack `exr_converter-windows-x86_64.msix` with
+The Windows build job can pack `exr_converter-windows-x86_64.msixupload` with
 `makeappx` (`scripts/package_msix.py`) from the same Nuitka folder the Inno
-setup uses. Partner Center re-signs it. **Do not sign the MSIX** (no
+setup uses. The upload is a zip of the unsigned `.msix` plus an `.appxsym`
+when that folder contains PDB files. No PDBs is still a valid upload (the
+zip holds only the `.msix`). The plain `.msix` is an Actions artifact
+(`exr_converter-windows-x86_64-msix`) and is not a GitHub Release asset.
+Partner Center re-signs the package. **Do not sign the MSIX** (no
 `signtool`, no SignPath). A detached Cosign `.sigstore.json` on the GitHub
-Release is provenance for the bytes, not an Appx signature, and is not
+Release is provenance for the upload bytes, not an Appx signature, and is not
 uploaded to the Store.
 
 Repository **variables** (not secrets):
@@ -550,7 +554,7 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/r3d.md](./docs/r3d.md) | Optional RED R3D / N-RAW (proprietary SDK; license + build) |
 | [docs/braw.md](./docs/braw.md) | Optional Blackmagic RAW (proprietary SDK; Linear ACES AP0) |
 | [docs/releasing.md](./docs/releasing.md) | Short pointer here + docs-site note |
-| [docs/msix.md](./docs/msix.md) | Unsigned Windows MSIX for Partner Center |
+| [docs/msix.md](./docs/msix.md) | Unsigned Windows .msixupload for Partner Center |
 | [integrations/nuke/](./integrations/nuke/) | Nuke `menu.py` + helpers |
 
 Public site: `make docs-serve` / `make docs-build`. Vercel (Root Directory `site`)
@@ -572,7 +576,7 @@ builds per `site/vercel.json` (`npm run build` → `site/dist`) and serves `http
   libraries + `libbraw_bridge` under a private `braw/` folder — see
   [docs/braw.md](./docs/braw.md).
 - Do not reintroduce Qt WebEngine for slate.
-- Do not sign the Windows MSIX (`signtool`, SignPath, or a local cert). Partner Center signs it. Do not install that unsigned file as the user-facing setup; the Inno `.exe` is the direct download.
+- Do not sign the Windows MSIX or `.msixupload` (`signtool`, SignPath, or a local cert). Partner Center signs the package. Publish `exr_converter-windows-x86_64.msixupload` as the Store asset; keep the plain `.msix` as a CI artifact only. The Inno `.exe` is the direct download.
 - Do not push version tags without a changelog section and green Release gate intent.
 - Do not hand-edit `src/rc_resources.py` or force-push published release tags without a deliberate recovery process.
 - Do not finish user-visible work without updating **CHANGELOG.md** and **`docs/`** when the surface area changed.

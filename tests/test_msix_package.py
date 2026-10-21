@@ -1,7 +1,8 @@
-"""Unsigned MSIX manifest, tile logos, and Release workflow wiring."""
+"""Unsigned MSIX manifest, tile logos, upload zip, and Release workflow wiring."""
 
 from __future__ import annotations
 
+import io
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
@@ -21,9 +22,11 @@ from package_msix import (  # noqa: E402
     assert_unsigned_msix,
     build_layout,
     build_manifest,
+    build_msixupload,
     identity_from_env,
     msix_version,
     read_project_version,
+    upload_member_stem,
 )
 
 _NS = {
@@ -129,6 +132,70 @@ def test_layout_logos_and_app_files(tmp_path: Path) -> None:
     assert 'EntryPoint="Windows.FullTrustApplication"' in text
 
 
+def test_layout_leaves_pdb_files_out_of_the_package(tmp_path: Path) -> None:
+    app = tmp_path / "app"
+    (app / "native").mkdir(parents=True)
+    (app / _APP_EXECUTABLE).write_bytes(b"MZ")
+    (app / "exr_converter.pdb").write_bytes(b"ROOT")
+    (app / "native" / "helper.PDB").write_bytes(b"NESTED")
+    layout = tmp_path / "layout"
+    build_layout(
+        app,
+        layout,
+        icon=ROOT / "resources" / "icons" / "icon.png",
+        identity=_identity(),
+        version="0.12.3.0",
+    )
+    packed = [
+        path for path in layout.rglob("*") if path.is_file() and path.suffix.lower() == ".pdb"
+    ]
+    assert packed == []
+    assert (app / "exr_converter.pdb").read_bytes() == b"ROOT"
+    assert (app / "native" / "helper.PDB").read_bytes() == b"NESTED"
+
+
+def _plain_msix(path: Path, payload: bytes = b"msix-bytes") -> None:
+    with zipfile.ZipFile(path, "w") as package:
+        package.writestr("AppxBlockMap.xml", payload)
+
+
+def test_msixupload_without_pdbs_contains_only_the_msix(tmp_path: Path) -> None:
+    app = tmp_path / "app"
+    app.mkdir()
+    msix = tmp_path / "plain.msix"
+    _plain_msix(msix)
+    upload = tmp_path / "out.msixupload"
+    build_msixupload(msix, upload, app_dir=app, version="0.12.3.0")
+    stem = upload_member_stem("0.12.3.0")
+    with zipfile.ZipFile(upload) as package:
+        names = package.namelist()
+        assert names == [f"{stem}.msix"]
+        assert "/" not in names[0]
+        info = package.getinfo(names[0])
+        assert info.compress_type == zipfile.ZIP_STORED
+        assert not any(name.endswith(".appxsym") or name.endswith(".msixsym") for name in names)
+
+
+def test_msixupload_includes_appxsym_when_pdbs_exist(tmp_path: Path) -> None:
+    app = tmp_path / "app"
+    (app / "native").mkdir(parents=True)
+    (app / "native" / "exr_converter.pdb").write_bytes(b"SYMBOLS")
+    msix = tmp_path / "plain.msix"
+    _plain_msix(msix, b"package-body")
+    upload = tmp_path / "out.msixupload"
+    build_msixupload(msix, upload, app_dir=app, version="0.12.3.0")
+    stem = upload_member_stem("0.12.3.0")
+    with zipfile.ZipFile(upload) as package:
+        assert package.namelist() == [f"{stem}.msix", f"{stem}.appxsym"]
+        assert package.getinfo(f"{stem}.msix").compress_type == zipfile.ZIP_STORED
+        assert package.getinfo(f"{stem}.appxsym").compress_type == zipfile.ZIP_DEFLATED
+        assert package.read(f"{stem}.msix") == msix.read_bytes()
+        symbol_bytes = package.read(f"{stem}.appxsym")
+    with zipfile.ZipFile(io.BytesIO(symbol_bytes)) as symbols:
+        assert symbols.namelist() == ["native/exr_converter.pdb"]
+        assert symbols.read("native/exr_converter.pdb") == b"SYMBOLS"
+
+
 def test_assert_unsigned_rejects_signature(tmp_path: Path) -> None:
     signed = tmp_path / "signed.msix"
     unsigned = tmp_path / "unsigned.msix"
@@ -155,10 +222,18 @@ def test_release_workflow_packages_unsigned_msix_without_new_triggers() -> None:
     assert "vars.MSIX_IDENTITY_NAME" in workflow
     assert "vars.MSIX_PUBLISHER" in workflow
     assert "vars.MSIX_PUBLISHER_DISPLAY_NAME" in workflow
-    assert "exr_converter-windows-x86_64.msix" in workflow
+    assert "exr_converter-windows-x86_64.msixupload" in workflow
+    assert "--msix exr_converter-windows-x86_64.msix" in workflow
     assert "exr_converter-windows-x86_64-msix" in workflow
+    assert "exr_converter-windows-x86_64-msixupload" in workflow
+    assert "downloaded/exr_converter-windows-x86_64-msixupload" in workflow
+    assert 'downloaded/exr_converter-windows-x86_64-msix"' not in workflow
+    assert "release-assets/exr_converter-windows-x86_64.msixupload" in workflow
+    assert "artifacts/*.msixupload" in workflow
+    assert "artifacts/*.msix\n" not in workflow
     assert "installer.iss" in workflow
     assert "signtool" not in script.lower()
     assert "makeappx" in script.lower()
+    assert ".appxsym" in script
     # The setup executable upload is unchanged.
     assert "path: ${{ matrix.artifact }}.${{ matrix.ext }}" in workflow

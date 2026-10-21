@@ -13,8 +13,10 @@
 # macos_only still runs that gate, then only the macOS build cells.
 #
 # Windows, when MSIX_IDENTITY_NAME and MSIX_PUBLISHER repository variables are
-# set, also packs an unsigned .msix (MakeAppx, no signtool) for Partner Center.
-# Missing variables skip that step with a warning. The setup .exe is unchanged.
+# set, also packs an unsigned .msixupload for Partner Center: a zip of the
+# .msix plus an .appxsym when PDB symbols exist. The plain .msix stays an
+# Actions artifact and is not a GitHub Release asset. Missing variables skip
+# that step with a warning. The setup .exe is unchanged.
 #
 # Cosign OIDC identity for workflow_dispatch (normal auto-tag path) is:
 #   …/release.yml@refs/heads/main
@@ -1159,10 +1161,11 @@ jobs:
           & $isccPath "/DAppVersion=$version" installer.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit $LASTEXITCODE" }
 
-      # Unsigned MSIX for Partner Center ("MSIX or PWA app"). The Store re-signs
-      # it. Do not signtool this file. Skipped with a warning when the identity
-      # variables are empty. The Inno setup above is unchanged.
-      - name: Package unsigned MSIX (Microsoft Store)
+      # Unsigned .msixupload for Partner Center ("MSIX or PWA app"). The Store
+      # re-signs the inner package. Do not code-sign this file. Skipped with a
+      # warning when the identity variables are empty. The Inno setup above is
+      # unchanged. The plain .msix is uploaded only as an Actions artifact.
+      - name: Package unsigned MSIX upload (Microsoft Store)
         id: msix
         if: runner.os == 'Windows'
         shell: bash
@@ -1179,14 +1182,15 @@ jobs:
           fi
           uv run --with pillow python scripts/package_msix.py \
             --app-dir dist/exr_converter \
-            --output exr_converter-windows-x86_64.msix \
+            --msix exr_converter-windows-x86_64.msix \
+            --output exr_converter-windows-x86_64.msixupload \
             --icon resources/icons/icon.png
-          if [ -f exr_converter-windows-x86_64.msix ]; then
+          if [ -f exr_converter-windows-x86_64.msixupload ]; then
             echo "created=true" >> "$GITHUB_OUTPUT"
-            ls -lh exr_converter-windows-x86_64.msix
+            ls -lh exr_converter-windows-x86_64.msix exr_converter-windows-x86_64.msixupload
           else
             echo "created=false" >> "$GITHUB_OUTPUT"
-            echo "MSIX skipped."
+            echo "MSIX upload skipped."
           fi
 
       - name: Upload artifact
@@ -1204,6 +1208,14 @@ jobs:
         with:
           name: exr_converter-windows-x86_64-msix
           path: exr_converter-windows-x86_64.msix
+          retention-days: 5
+
+      - name: Upload MSIX upload artifact
+        if: runner.os == 'Windows' && steps.msix.outputs.created == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: exr_converter-windows-x86_64-msixupload
+          path: exr_converter-windows-x86_64.msixupload
           retention-days: 5
 
   # ── SignPath Foundation (Windows Authenticode) — optional ────────────────
@@ -1316,15 +1328,17 @@ jobs:
             test -d "$WIN_UNSIGNED"
             cp -a "${WIN_UNSIGNED}/." artifacts/
           fi
-          # Unsigned MSIX for Partner Center. Cosign below writes a detached
-          # .sigstore.json and does not add an Appx signature. Do not signtool it.
-          MSIX_DIR="downloaded/exr_converter-windows-x86_64-msix"
-          if [ -d "$MSIX_DIR" ]; then
-            echo "Including unsigned MSIX (Store signs the package)"
-            cp -a "${MSIX_DIR}/." artifacts/
+          # Partner Center upload. The plain .msix artifact stays on the build
+          # job for inspection and is not copied here, so it is not a Release
+          # asset. Cosign below writes a detached .sigstore.json and does not
+          # add an Appx signature.
+          UPLOAD_DIR="downloaded/exr_converter-windows-x86_64-msixupload"
+          if [ -d "$UPLOAD_DIR" ]; then
+            echo "Including unsigned .msixupload (Store signs the inner package)"
+            cp -a "${UPLOAD_DIR}/." artifacts/
             echo "msix=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No MSIX artifact (identity variables unset, or this is not a Windows release)"
+            echo "No MSIX upload (identity variables unset, or this is not a Windows release)"
             echo "msix=false" >> "$GITHUB_OUTPUT"
           fi
           echo "--- artifacts to sign ---"
@@ -1340,13 +1354,14 @@ jobs:
             artifacts/*.dmg
             artifacts/*.exe
 
-      # Separate attestation so a release without identity variables (no .msix)
-      # still attests the setup .exe, DMGs, and AppImage.
-      - name: Attest MSIX provenance
+      # Separate attestation so a release without identity variables (no
+      # .msixupload) still attests the setup .exe, DMGs, and AppImage.
+      # *.msix would not match the .msixupload suffix.
+      - name: Attest MSIX upload provenance
         if: steps.assemble.outputs.msix == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: artifacts/*.msix
+          subject-path: artifacts/*.msixupload
 
       - name: Sign all artifacts with Cosign
         shell: bash
@@ -1457,13 +1472,14 @@ jobs:
             echo
             echo "Unless SignPath Authenticode is enabled for this release, Windows SmartScreen"
             echo "may warn on first run. Prefer the Cosign/\`gh attestation\` checks above."
-            if [ -f release-assets/exr_converter-windows-x86_64.msix ]; then
+            if [ -f release-assets/exr_converter-windows-x86_64.msixupload ]; then
               echo
               echo "### Microsoft Store (MSIX)"
               echo
-              echo "\`exr_converter-windows-x86_64.msix\` is an unsigned package for Partner Center."
-              echo "The Store signs it. Do not Authenticode-sign this file and do not install it with Add-AppxPackage."
-              echo "The matching \`.sigstore.json\` is detached provenance for the file bytes, not an MSIX signature."
+              echo "\`exr_converter-windows-x86_64.msixupload\` is the unsigned Partner Center upload."
+              echo "It is a zip of the .msix and, when the build produced PDB files, an .appxsym."
+              echo "The Store signs the package. Do not Authenticode-sign this file and do not install it with Add-AppxPackage."
+              echo "The matching \`.sigstore.json\` is detached provenance for the file bytes, not an MSIX signature. Do not upload it to Partner Center."
               echo "Direct installs still use the setup \`.exe\`."
             fi
           } > release-notes.md

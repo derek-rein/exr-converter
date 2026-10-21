@@ -15,7 +15,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Added
 
-- Windows releases can include an unsigned MSIX (`exr_converter-windows-x86_64.msix`) for Microsoft Store submission. Partner Center signs the package. The MSIX is skipped until the `MSIX_IDENTITY_NAME` and `MSIX_PUBLISHER` repository variables are set. The setup `.exe` is unchanged.
+- Windows releases can include an unsigned Partner Center upload (`exr_converter-windows-x86_64.msixupload`) for Microsoft Store submission. It is a zip of the `.msix` and, when the build has PDB symbols, an `.appxsym`. Partner Center signs the package. The upload is skipped until the `MSIX_IDENTITY_NAME` and `MSIX_PUBLISHER` repository variables are set. The setup `.exe` is unchanged. The plain `.msix` is a CI artifact only.
 
 ### Fixed
 

@@ -73,9 +73,11 @@ spctl -a -vvv -t install exr_converter-macos-arm64.dmg
 codesign --verify --deep --strict --verbose=2 exr_converter-macos-arm64.dmg
 ```
 
-**Microsoft Store:** the Windows build can also pack an unsigned `.msix` for
-Partner Center. It is skipped until repository variables are set, and it is
-not signed in this repo. Steps: [msix.md](./msix.md).
+**Microsoft Store:** the Windows build can also pack an unsigned
+`.msixupload` for Partner Center (a zip of the `.msix`, plus an `.appxsym`
+when PDB symbols exist). It is skipped until repository variables are set,
+and it is not signed in this repo. The plain `.msix` is a CI artifact only.
+Steps: [msix.md](./msix.md).
 
 **Docs site:** Markdown under `docs/` is built with Astro (`site/`) and published
 by Vercel on push to `main` (config in `site/vercel.json`).
