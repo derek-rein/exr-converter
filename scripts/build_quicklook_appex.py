@@ -68,8 +68,6 @@ def _base_frameworks(sdk: Path) -> list[str]:
         "CoreImage",
         "UniformTypeIdentifiers",
         "Cocoa",
-        # ``_NSExtensionMain`` lives in PlugInKit. Cocoa does not always re-export it.
-        "PlugInKit",
     ]
     qlui = sdk / "System" / "Library" / "Frameworks" / "QuickLookUI.framework"
     if qlui.is_dir():
