@@ -24,6 +24,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Fixed
 
+- The MSIX manifest now passes MakeAppx schema validation. The write-virtualization exclusions sit inside `<Properties>` and the package declares the `unvirtualizedResources` capability.
 - A Microsoft Store install keeps settings, presets, and the TrustMark model cache in the user profile. The Store install folder is read-only. The bundled OCIO config is read from the package in place.
 
 ---
