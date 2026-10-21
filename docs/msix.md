@@ -69,8 +69,35 @@ An unsigned MSIX does not install. `Add-AppxPackage` refuses it. A self-hosted i
 1. Create the app as **MSIX or PWA app** and reserve the name.
 2. Copy the identity name, the `CN=...` publisher, and the publisher display name into the repository variables above.
 3. Ship a release (merge to `main` so Auto-tag runs, or dispatch Release). Download `exr_converter-windows-x86_64.msixupload` from the GitHub Release.
-4. Create a submission and upload that `.msixupload`. Do not sign it first. Do not upload the loose `.msix` or the `.sigstore.json`.
+4. Create the **first** submission yourself and upload that `.msixupload`. Do not sign it first. Do not upload the loose `.msix` or the `.sigstore.json`. Listings, screenshots, age ratings, and pricing are part of this first submission. The Store CLI cannot create that first submission.
 5. Store listing images (screenshots, the 300×300 icon) are uploaded in Partner Center. They are separate from the tile logos inside the package.
+
+## Automatic updates after the first submission
+
+On a real release (a `v*` tag push, or a Release dispatch that publishes), the Windows job can submit a later package with the [Microsoft Store Developer CLI](https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/overview). It runs only after `exr_converter-windows-x86_64.msixupload` is built and the GitHub Release artifacts have been uploaded. The setup `.exe` and the loose `.msix` are not sent to the Store.
+
+The CLI is `msstore` from `microsoft/microsoft-store-apppublisher` (the setup-msstore-cli action), pinned to CLI **v0.4.3**. The step runs:
+
+```bash
+msstore reconfigure --tenantId … --clientId … --clientSecret … --sellerId …
+msstore publish exr_converter-windows-x86_64.msixupload --appId …
+```
+
+Set these before relying on it. Secrets are under **Settings → Secrets and variables → Actions → Secrets**. `MSSTORE_APP_ID` is a variable, not a secret.
+
+| Name | Kind | Value |
+|------|------|--------|
+| `MSSTORE_TENANT_ID` | secret | Directory (tenant) id of the Partner Center app registration |
+| `MSSTORE_CLIENT_ID` | secret | Application (client) id |
+| `MSSTORE_CLIENT_SECRET` | secret | Client secret |
+| `MSSTORE_SELLER_ID` | secret | Partner Center seller id |
+| `MSSTORE_APP_ID` | variable | Store product id of the app that already has a published submission |
+
+The app registration must be allowed to manage submissions for that seller account. `MSSTORE_APP_ID` is the product id from Partner Center, not `MSIX_IDENTITY_NAME`.
+
+If any of those values is missing, the job prints a notice and continues. If `msstore` fails, times out, or the CLI cannot be installed, the job prints a warning and continues. The GitHub Release, the setup `.exe`, and both MSIX files still ship. Finish that submission in Partner Center, or upload the `.msixupload` from the Release by hand.
+
+`msstore publish` commits the submission. It updates an app that already has a published submission. It does not replace the first manual submission, and a draft you created in the Partner Center UI can make the command fail until that draft is deleted there.
 
 The package is x64, full trust (`runFullTrust`), with entry point `exr_converter.exe` (`Windows.FullTrustApplication`) and device family `Windows.Desktop` (minimum 10.0.19041.0). It does not register file associations or protocol handlers. Open media from inside the app. An execution alias registers `exr_converter.exe` for a new terminal so the CLI works after a Store install.
 

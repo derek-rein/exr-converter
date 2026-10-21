@@ -21,6 +21,10 @@
 #     unsigned otherwise. An unsigned MSIX does not install.
 # Missing identity variables skip that step with a warning. The setup .exe
 # is unchanged. SignPath still applies to the setup .exe only.
+# On a real release (tag push, or workflow_dispatch with publish and not
+# macos_only), the Windows job can also submit the .msixupload with msstore
+# when the Store secrets and MSSTORE_APP_ID are set. A missing setting or a
+# publish error does not fail the job. The first Store submission is manual.
 #
 # Cosign OIDC identity for workflow_dispatch (normal auto-tag path) is:
 #   …/release.yml@refs/heads/main
@@ -1240,6 +1244,115 @@ jobs:
           name: exr_converter-windows-x86_64-msixupload
           path: exr_converter-windows-x86_64.msixupload
           retention-days: 5
+
+      # After the .msixupload exists and the release artifacts are uploaded.
+      # Tag push, or a workflow_dispatch that publishes (not macos_only).
+      # Missing credentials skip. A failed or slow publish does not fail the job.
+      - name: Check Microsoft Store publish settings
+        id: store-publish
+        if: >-
+          runner.os == 'Windows'
+          && steps.msix.outputs.created == 'true'
+          && (
+            github.event_name == 'push'
+            || (
+              github.event_name == 'workflow_dispatch'
+              && inputs.publish == true
+              && inputs.macos_only != true
+            )
+          )
+        shell: bash
+        env:
+          MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+          MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
+          MSSTORE_APP_ID: ${{ vars.MSSTORE_APP_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in MSSTORE_TENANT_ID MSSTORE_CLIENT_ID MSSTORE_CLIENT_SECRET MSSTORE_SELLER_ID MSSTORE_APP_ID; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::notice::Skipping Microsoft Store publish. Missing: ${missing[*]}. Set secrets MSSTORE_TENANT_ID, MSSTORE_CLIENT_ID, MSSTORE_CLIENT_SECRET, MSSTORE_SELLER_ID and variable MSSTORE_APP_ID. The first submission is manual. GitHub Release assets are unchanged."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ! -f exr_converter-windows-x86_64.msixupload ]; then
+            echo "::notice::Skipping Microsoft Store publish. exr_converter-windows-x86_64.msixupload is not in the workspace. GitHub Release assets are unchanged."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      # setup-msstore-cli. The repository name is microsoft-store-apppublisher.
+      - name: Setup Microsoft Store CLI
+        id: setup-msstore
+        if: steps.store-publish.outputs.enabled == 'true'
+        continue-on-error: true
+        uses: microsoft/microsoft-store-apppublisher@cc9910a8d59f2eb55cbb83df0a3800cf3b5300e0 # v1.4
+        with:
+          version: v0.4.3
+
+      - name: Publish .msixupload to Microsoft Store
+        if: steps.store-publish.outputs.enabled == 'true'
+        shell: bash
+        env:
+          MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+          MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
+          MSSTORE_APP_ID: ${{ vars.MSSTORE_APP_ID }}
+        run: |
+          set -uo pipefail
+          if [ "${{ steps.setup-msstore.outcome }}" != "success" ]; then
+            echo "::warning::Microsoft Store CLI setup failed. Skipping publish. GitHub Release assets are unchanged."
+            exit 0
+          fi
+          # Bound the CLI so a prompt or a stuck upload cannot consume the rest
+          # of the Windows job and block the GitHub Release.
+          run_bounded() {
+            local limit="$1"
+            shift
+            "$@" &
+            local pid=$!
+            local waited=0
+            while kill -0 "$pid" 2>/dev/null; do
+              if [ "$waited" -ge "$limit" ]; then
+                kill "$pid" 2>/dev/null || true
+                if command -v taskkill >/dev/null 2>&1; then
+                  taskkill //F //T //PID "$pid" >/dev/null 2>&1 || true
+                fi
+                wait "$pid" 2>/dev/null || true
+                return 124
+              fi
+              sleep 5
+              waited=$((waited + 5))
+            done
+            wait "$pid"
+          }
+          run_bounded 1800 msstore reconfigure \
+            --tenantId "$MSSTORE_TENANT_ID" \
+            --clientId "$MSSTORE_CLIENT_ID" \
+            --clientSecret "$MSSTORE_CLIENT_SECRET" \
+            --sellerId "$MSSTORE_SELLER_ID"
+          reconfigure_status=$?
+          if [ "$reconfigure_status" -ne 0 ]; then
+            echo "::warning::msstore reconfigure failed (exit ${reconfigure_status}). GitHub Release assets are unchanged."
+            exit 0
+          fi
+          run_bounded 1800 msstore publish \
+            "exr_converter-windows-x86_64.msixupload" \
+            --appId "$MSSTORE_APP_ID"
+          publish_status=$?
+          if [ "$publish_status" -ne 0 ]; then
+            echo "::warning::msstore publish failed (exit ${publish_status}). The first Store submission must be created in Partner Center. GitHub Release assets are unchanged."
+            exit 0
+          fi
+          echo "Submitted exr_converter-windows-x86_64.msixupload to Microsoft Store app ${MSSTORE_APP_ID}."
 
   # ── SignPath Foundation (Windows Authenticode) — optional ────────────────
   # Free for qualifying open-source projects. Eliminates SmartScreen warnings.

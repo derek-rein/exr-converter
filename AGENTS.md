@@ -406,6 +406,22 @@ Optional **secrets** (all of them, or none) for `signtool` on the loose `.msix`:
 | `AZURE_ARTIFACT_SIGNING_ACCOUNT` | Artifact Signing account name |
 | `AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE` | Certificate profile name |
 
+Optional Store publish, on a real release only (tag push, or
+`workflow_dispatch` with publish and not `macos_only`), after the
+`.msixupload` artifact is uploaded. Uses `msstore reconfigure` then
+`msstore publish <msixupload> --appId`. The action is
+`microsoft/microsoft-store-apppublisher` (setup-msstore-cli) at CLI v0.4.3.
+Missing values skip with a notice. A publish failure does not fail the job.
+The first Partner Center submission is manual. See [docs/msix.md](./docs/msix.md).
+
+| Name | Kind | Meaning |
+|------|------|---------|
+| `MSSTORE_TENANT_ID` | secret | Directory (tenant) id |
+| `MSSTORE_CLIENT_ID` | secret | App registration client id |
+| `MSSTORE_CLIENT_SECRET` | secret | Client secret |
+| `MSSTORE_SELLER_ID` | secret | Partner Center seller id |
+| `MSSTORE_APP_ID` | variable | Store product id of an already published app |
+
 Repository **variables** (not secrets):
 
 | Variable | Required | Meaning |

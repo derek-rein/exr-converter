@@ -16,6 +16,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 ### Added
 
 - Windows releases can include two Microsoft Store packages from the same build. `exr_converter-windows-x86_64.msixupload` is the unsigned Partner Center upload (a zip of the `.msix` and, when the build has PDB symbols, an `.appxsym`). `exr_converter-windows-x86_64.msix` is the self-distribution package. It is signed with `signtool` when the Azure Artifact Signing secrets are set, and left unsigned otherwise. An unsigned MSIX does not install. Both files are skipped until the `MSIX_IDENTITY_NAME` and `MSIX_PUBLISHER` repository variables are set. The setup `.exe` is unchanged.
+- A release can submit that `.msixupload` to an existing Microsoft Store product when the Store publish secrets and `MSSTORE_APP_ID` are set. The first Store submission is still created in Partner Center. A missing setting or a publish error does not block the GitHub Release.
 
 ### Fixed
 

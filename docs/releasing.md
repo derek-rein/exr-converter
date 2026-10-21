@@ -78,7 +78,10 @@ codesign --verify --deep --strict --verbose=2 exr_converter-macos-arm64.dmg
 and `exr_converter-windows-x86_64.msix` (self-distribution). The loose
 `.msix` is signed with `signtool` when Azure Artifact Signing secrets are
 set, and left unsigned otherwise. An unsigned MSIX does not install. The
-upload's contents are never signed. Steps: [msix.md](./msix.md).
+upload's contents are never signed. A later release can also submit the
+`.msixupload` with `msstore` when the Store secrets and `MSSTORE_APP_ID`
+are set. The first submission is manual, and a publish failure does not
+block the GitHub Release. Steps: [msix.md](./msix.md).
 
 **Docs site:** Markdown under `docs/` is built with Astro (`site/`) and published
 by Vercel on push to `main` (config in `site/vercel.json`).

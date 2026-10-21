@@ -329,7 +329,20 @@ def test_release_workflow_publishes_both_msix_assets_without_new_triggers() -> N
     assert "--sign-msix exr_converter-windows-x86_64.msixupload" not in workflow
     pack_at = workflow.index("--output exr_converter-windows-x86_64.msixupload")
     sign_at = workflow.index("--sign-msix exr_converter-windows-x86_64.msix")
-    assert pack_at < sign_at
+    upload_at = workflow.index("name: exr_converter-windows-x86_64-msixupload")
+    publish_at = workflow.index('msstore publish \\\n')
+    assert pack_at < sign_at < upload_at < publish_at
+    assert "Skipping Microsoft Store publish" in workflow
+    assert "The first Store submission must be created in Partner Center" in workflow
+    assert "secrets.MSSTORE_TENANT_ID" in workflow
+    assert "secrets.MSSTORE_CLIENT_ID" in workflow
+    assert "secrets.MSSTORE_CLIENT_SECRET" in workflow
+    assert "secrets.MSSTORE_SELLER_ID" in workflow
+    assert "vars.MSSTORE_APP_ID" in workflow
+    assert "microsoft/microsoft-store-apppublisher@" in workflow
+    assert "version: v0.4.3" in workflow
+    assert "--appId" in workflow
+    assert "inputs.macos_only != true" in workflow
     assert "exr_converter-windows-x86_64-msix" in workflow
     assert "exr_converter-windows-x86_64-msixupload" in workflow
     assert 'downloaded/exr_converter-windows-x86_64-msix"' in workflow
