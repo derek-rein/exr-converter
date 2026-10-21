@@ -19,7 +19,9 @@ binaries for Linux, macOS (arm64 + x86_64), and Windows.
 | Repo | https://github.com/derek-rein/exr-converter |
 | Org settings keys | `QSettings("VFXTools", "EXRConverter")` |
 
-VFX Reference Platform CY2026-ish stack: PySide6 6.8, OCIO 2.5, OIIO, NumPy 2.x, PyAV.
+VFX Reference Platform CY2026-ish stack: PySide6 6.9.2 (exact pin on every platform), OCIO 2.5, OIIO, NumPy 2.x, PyAV.
+Do not bump PySide6 past 6.9.x while Linux targets RHEL 8: 6.10+ Linux wheels are
+manylinux_2_34 (glibc 2.34). Do not use Qt 6.10+ APIs.
 
 ## Changelog (required)
 
@@ -347,7 +349,7 @@ gh pr checks
 | `test` | Full pytest on ubuntu / macos / windows |
 | `gate` | Aborts release if lint or any OS test failed |
 | `build` | Nuitka → macOS DMG / Windows setup (3h timeout, 6h on macOS so notarization can finish; LTO + Qt strip aligned with `make bundle`). macOS DMGs are Developer ID-signed, notarized, and stapled here, before upload, when the Apple secrets below are set. Skipped for `linux_only` |
-| `build-linux` | Rocky Linux 8 container (`rockylinux:8`, glibc 2.28) → AppImage, relocatable tarball, and RPM from one Nuitka dist. Pins PySide6 6.9.2 (6.10+ wheels need glibc 2.34) and patchelf 0.19 (Rocky 8's patchelf 0.12, and patchelf's RPATH rewrite, mis-align NumPy OpenBLAS; those wheel copies are restored). Skipped for `macos_only` |
+| `build-linux` | Rocky Linux 8 container (`rockylinux:8`, glibc 2.28) → AppImage, relocatable tarball, and RPM from one Nuitka dist. Installs PySide6 from `uv.lock` like the other platforms (the project pins 6.9.2 everywhere because 6.10+ Linux wheels need glibc 2.34) and pins patchelf 0.19 (Rocky 8's patchelf 0.12, and patchelf's RPATH rewrite, mis-align NumPy OpenBLAS; those wheel copies are restored). Skipped for `macos_only` |
 | `sign-windows` | Optional SignPath Authenticode (skipped unless vars configured; runs **before** Cosign) |
 | `sign` | Assemble final bits → Cosign keyless + `actions/attest-build-provenance` for the AppImage, DMGs, and setup, then the Linux tarball and RPM. Skipped for `macos_only` and for `linux_only` (the matrix build did not run) |
 | `release` | CHANGELOG section + verify notes → single GitHub Release upload. Skipped when `publish` is false, `macos_only` is true, or `linux_only` is true |

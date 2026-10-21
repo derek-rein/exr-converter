@@ -148,8 +148,17 @@ def make_tarball(folder: Path, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists():
         dest.unlink()
+    executables = {f"{folder.name}/{LAUNCHER_NAME}", f"{folder.name}/{BINARY_NAME}"}
+
+    def _entry(info: tarfile.TarInfo) -> tarfile.TarInfo:
+        # Keep the entry points executable even when staged on a filesystem
+        # without POSIX modes (Windows test runners).
+        if info.isfile() and info.name in executables:
+            info.mode |= 0o755
+        return info
+
     with tarfile.open(dest, "w:gz", format=tarfile.PAX_FORMAT) as archive:
-        archive.add(folder, arcname=folder.name, recursive=True)
+        archive.add(folder, arcname=folder.name, recursive=True, filter=_entry)
 
 
 def nfpm_config(folder: Path, version: str, work: Path) -> Path:

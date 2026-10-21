@@ -8,9 +8,9 @@
 #   linux-dist/exr_converter-linux-x86_64.tar.gz
 #   linux-dist/exr_converter-linux-x86_64.rpm
 #
-# PySide6 6.10+ Linux wheels are manylinux_2_34 (glibc 2.34, RHEL 9+).
-# This job installs 6.9.2, the newest 6.8/6.9 wheel tagged manylinux_2_28,
-# so the frozen app still runs on RHEL / Rocky / Alma 8.
+# PySide6 comes from uv.lock like every other platform. pyproject.toml pins
+# 6.9.2 everywhere because 6.10+ Linux wheels are manylinux_2_34 (glibc 2.34,
+# RHEL 9+) and 6.9.2 is manylinux_2_28, so the app runs on RHEL / Rocky 8.
 # Nuitka flags match the macOS/Windows "Build with Nuitka" step in
 # .github/workflows/release.yml.
 set -euo pipefail
@@ -58,7 +58,7 @@ dnf -y install \
   libxkbcommon libxkbcommon-x11 \
   libX11 libXext libXrender libXi fontconfig freetype dbus-libs \
   glib2 libSM libICE libxcb libuuid-devel binutils tar gzip findutils \
-  which xz pkgconf rpm zstd fuse-libs \
+  which xz pkgconf rpm zstd fuse-libs file \
   gcc-toolset-12-libatomic-devel
 # GCC 8 on RHEL 8 ships libatomic.so and only a 32-bit libatomic.a.
 # The uv CPython build sets MODLIBS to -l:libatomic.a, which Nuitka
@@ -85,17 +85,9 @@ fi
 . "${HOME}/.cargo/env"
 
 uv python install 3.13
-# uv on glibc 2.28 reports manylinux_2_28 and refuses the locked
-# PySide6-Essentials 6.11.0 wheel (manylinux_2_34). Skip it, then pin 6.9.2.
 # The cache mount and the workspace are different filesystems in CI.
 export UV_LINK_MODE=copy
-uv sync --frozen --group bundle --group dev \
-  --no-install-package pyside6-essentials \
-  --no-install-package shiboken6
-uv pip install --python .venv/bin/python --reinstall \
-  'PySide6-Essentials==6.9.2' 'shiboken6==6.9.2'
-# Later `uv run` would sync 6.11.0 back and fail on this platform.
-export UV_NO_SYNC=1
+uv sync --frozen --group bundle --group dev
 
 uv run python - <<'PY'
 import PySide6
@@ -106,8 +98,10 @@ import onnxruntime
 print(f"PySide6 {PySide6.__version__} Qt {qVersion()}")
 print(f"OpenColorIO {ocio.GetVersion()}")
 print(f"onnxruntime {onnxruntime.__version__}")
+# A newer lock would pull a manylinux_2_34 wheel that uv refuses here,
+# but fail loudly if Qt drifts from the RHEL 8 pin anyway.
 if tuple(int(x) for x in PySide6.__version__.split(".")[:3]) != (6, 9, 2):
-    raise SystemExit(f"expected PySide6 6.9.2, got {PySide6.__version__}")
+    raise SystemExit(f"expected PySide6 6.9.2 from uv.lock, got {PySide6.__version__}")
 nums = tuple(int(x) for x in ocio.GetVersion().split(".")[:3])
 if nums < (2, 5, 0):
     raise SystemExit(f"OpenColorIO {ocio.GetVersion()} is older than 2.5")
@@ -138,8 +132,10 @@ uv run pyside6-rcc resources.qrc -o src/rc_resources.py
 uv run python scripts/prepare_macos_onnxruntime.py
 
 # Flags kept in sync with `make bundle` and the Release workflow Nuitka step.
+# NUITKA_JOBS caps C compile/LTO parallelism on small machines (default: all cores).
 uv run python -m nuitka \
   --standalone \
+  ${NUITKA_JOBS:+--jobs="${NUITKA_JOBS}"} \
   --output-dir=dist \
   --output-filename=exr_converter \
   --assume-yes-for-downloads \

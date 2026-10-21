@@ -8,7 +8,10 @@ authors = [
 dependencies = [
     "av>=17.0.0",
     "OpenImageIO>=3.1.17",
-    "PySide6-Essentials>=6.8.3",
+    # Exact Qt pin on every platform. 6.10+ Linux wheels are manylinux_2_34
+    # (glibc 2.34, RHEL 9). 6.9.2 is manylinux_2_28 and runs on RHEL / Rocky 8.
+    "PySide6-Essentials==6.9.2",
+    "shiboken6==6.9.2",
     "numpy>=2.3",
     "opencolorio>=2.5.2",
     "fileseq>=3.1.1",

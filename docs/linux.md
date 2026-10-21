@@ -9,10 +9,10 @@ RHEL, Rocky, and Alma **8 and newer** (glibc **2.28**). The same folder is
 packed three ways. There is no Snap package and no Flatpak package.
 
 The frozen app bundles Qt, OpenColorIO, OpenImageIO, PyAV, and ONNX Runtime.
-It loads OpenGL, X11, fontconfig, and D-Bus from the host. The Linux build
-uses **Qt 6.9** (PySide6 6.9.2). Qt 6.10 and newer Linux wheels need glibc
-2.34, which is RHEL 9, so they are not used for this package. macOS and
-Windows builds keep the Qt version in the project lock.
+It loads OpenGL, X11, fontconfig, and D-Bus from the host. Every platform
+uses **Qt 6.9** (PySide6 6.9.2), pinned in `pyproject.toml` and `uv.lock`.
+Qt 6.10 and newer Linux wheels need glibc 2.34, which is RHEL 9, so the
+project stays on 6.9.2 until RHEL 8 support is dropped.
 
 Settings go to `$XDG_CONFIG_HOME` (default `~/.config`, Qt organization
 **VFXTools**, application **EXRConverter**). Presets go to `$XDG_DATA_HOME`

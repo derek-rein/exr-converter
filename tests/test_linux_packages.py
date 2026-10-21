@@ -75,7 +75,9 @@ def _fake_dist(tmp_path: Path) -> Path:
 def test_staged_tree_launcher_and_rez(tmp_path: Path) -> None:
     folder = stage_tree(_fake_dist(tmp_path), tmp_path / "stage", "9.9.9")
     assert folder.name == "exr-converter-9.9.9"
-    assert (folder / "exr-converter").stat().st_mode & stat.S_IXUSR
+    if sys.platform != "win32":
+        # NTFS has no POSIX exec bit. make_tarball sets it in the archive.
+        assert (folder / "exr-converter").stat().st_mode & stat.S_IXUSR
     assert "readlink -f" in (folder / "exr-converter").read_text(encoding="utf-8")
     assert "XDG_CONFIG_HOME" in (folder / "README").read_text(encoding="utf-8")
     assert 'version = "9.9.9"' in (folder / "package.py").read_text(encoding="utf-8")
@@ -88,6 +90,7 @@ def test_staged_tree_launcher_and_rez(tmp_path: Path) -> None:
     assert VENDOR == "Medeu Global LLC"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell launcher and symlink")
 def test_launcher_is_relocatable_and_read_only(tmp_path: Path) -> None:
     folder = stage_tree(_fake_dist(tmp_path), tmp_path / "stage", "9.9.9")
     for path in folder.rglob("*"):
@@ -125,6 +128,11 @@ def test_tarball_round_trip(tmp_path: Path) -> None:
     assert (folder / LAUNCHER_NAME).is_file()
     assert (folder / "LICENSE").is_file()
     assert (folder / "package.py").is_file()
+    with tarfile.open(archive, "r:gz") as handle:
+        modes = {Path(m.name).name: m.mode for m in handle.getmembers()}
+    assert modes[LAUNCHER_NAME] & 0o111 == 0o111
+    assert modes["exr_converter"] & 0o111 == 0o111
+    assert modes["README"] & 0o111 == 0
 
 
 @pytest.mark.skipif(
@@ -176,10 +184,11 @@ def test_release_workflow_linux_job_is_rocky_only() -> None:
     assert "artifacts/*.tar.gz" in release
     assert "artifacts/*.rpm" in release
     assert '{"os":"ubuntu-24.04"' not in release
-    assert "PySide6-Essentials==6.9.2" in script
-    assert "shiboken6==6.9.2" in script
-    assert "--no-install-package pyside6-essentials" in script
-    assert "UV_NO_SYNC=1" in script
+    # Qt comes from the shared lock. No Linux-only PySide6 override.
+    assert "uv sync --frozen --group bundle --group dev\n" in script
+    assert "--no-install-package" not in script
+    assert "uv pip install" not in script
+    assert "UV_NO_SYNC" not in script
     assert "gcc-toolset-12-libatomic-devel" in script
     assert "libatomic.a" in script
     assert "patchelf-0.19.2-x86_64.tar.gz" in script
@@ -224,6 +233,27 @@ def test_restore_replaces_misaligned_openblas(tmp_path: Path) -> None:
     restored = restore_misaligned(tmp_path, [healthy.parent])
     assert restored == [copied]
     assert load_segments_aligned(copied)
+
+
+def test_qt_pinned_to_rhel8_wheel_on_every_platform() -> None:
+    """One Qt everywhere: 6.10+ Linux wheels need glibc 2.34 (RHEL 9)."""
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    deps = project["project"]["dependencies"]
+    assert "PySide6-Essentials==6.9.2" in deps
+    assert "shiboken6==6.9.2" in deps
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    versions = {
+        pkg["name"]: pkg["version"]
+        for pkg in lock["package"]
+        if pkg["name"] in {"pyside6-essentials", "shiboken6"}
+    }
+    assert versions == {"pyside6-essentials": "6.9.2", "shiboken6": "6.9.2"}
+    for pkg in lock["package"]:
+        if pkg["name"] == "pyside6-essentials":
+            urls = [wheel["url"] for wheel in pkg["wheels"]]
+            assert any("manylinux_2_28_x86_64" in url for url in urls)
 
 
 def test_patchelf_strict_flag_is_wired() -> None:

@@ -19,7 +19,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
-- The Linux app uses Qt 6.9 (PySide6 6.9.2). Qt 6.10 and newer Linux wheels need glibc 2.34, which does not run on RHEL 8.
+- Qt is pinned to 6.9.2 (PySide6-Essentials and shiboken6) on macOS, Windows, and Linux, down from 6.11.0. All platforms now ship the same Qt. Qt 6.10 and newer Linux wheels need glibc 2.34, which does not run on RHEL 8, so 6.9.2 is the newest release that covers every supported system.
 
 ---
 
