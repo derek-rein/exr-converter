@@ -1663,6 +1663,22 @@ colorspaces:
         - !<MatrixTransform> {matrix: [2.02490528596679, -0.689069761034766, -0.335835524932019, 0, -0.183597032256178, 1.28950620775902, -0.105909175502841, 0, 0.00905856112234766, -0.0592796840575522, 1.0502211229352, 0, 0, 0, 0, 1]}
 
   - !<ColorSpace>
+    name: Linear P3-D60
+    aliases: [lin_p3d60, lin_p3d60_scene, Utility - Linear - P3-D60]
+    family: Utility
+    equalitygroup: ""
+    bitdepth: 32f
+    description: Linear P3 primaries with a D60 white point, as XYZ to ACES2065-1. DJI CinemaDNG (Inspire 3 / Zenmuse X9) is decoded into this space with the recommended +1.4 stops already applied. Convert onward with the existing Linear D-Gamut or D-Log D-Gamut spaces.
+    isdata: false
+    categories: [file-io]
+    encoding: scene-linear
+    allocation: uniform
+    to_scene_reference: !<GroupTransform>
+      name: Linear P3-D60 to ACES2065-1
+      children:
+        - !<MatrixTransform> {matrix: [0.53010158427496312, 0.27786116163831387, 0.19203725408672292, 0, 0.075925191391223223, 0.81960620844298382, 0.10446860016579293, 0, 0, 0.044552727177918423, 0.95544727282208142, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
     name: Linear Rec.2020
     aliases: [lin_rec2020, lin_rec2020_scene, Utility - Linear - Rec.2020]
     interop_id: lin_rec2020_scene

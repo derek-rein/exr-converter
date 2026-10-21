@@ -67,7 +67,7 @@
 | | Video to EXR | EXR to video |
 | --- | --- | --- |
 | Command | `video2exr` | `exr2video` |
-| Input | A video file. Optional `.r3d` / `.nev` or `.braw` when that SDK bridge is built | An image sequence: OpenEXR, DPX, PNG, JPEG, WebP |
+| Input | A video file. Optional `.r3d` / `.nev` or `.braw` when that SDK bridge is built. A CinemaDNG `.dng` sequence also works here | An image sequence: OpenEXR, CinemaDNG (`.dng`), DPX, PNG, JPEG, WebP |
 | Output | An EXR sequence | ProRes, DNxHR, CineForm, HEVC, H.264, or FFV1 |
 | Overlays | Ingest only. Slate, burn-in, and watermark stay on the other tab | Slate, burn-in, and watermark in one pass |
 | Color | OCIO into a scene space (default toward `ACEScg` / `scene_linear`) | OCIO out to a display (default toward `Output - Rec.709`) |
@@ -77,6 +77,8 @@
 **Optional RED R3D / N-RAW:** when built with the official RED R3D SDK bridge, **Video to EXR** can decode `.r3d` and `.nev` (IPP2 primary to Log3G10 REDWideGamutRGB for OCIO), including browser thumbnails, sequence-player preview, and camera/timecode metadata on written EXRs. Release binaries may ship only RED's allowed Redistributable libraries in a private app folder. See [docs/r3d.md](docs/r3d.md) and **Help → About** for the redistributable notice.
 
 **Optional Blackmagic RAW:** when built with the official Blackmagic RAW SDK bridge, **Video to EXR** can decode `.braw` (Linear + ACES AP0 / `ACES2065-1` for OCIO). Without the SDK the extension is recognized but conversion fails with a clear missing-SDK message. Public Release binaries ship the runtime libraries in a private app folder when secret `BRAW_SDK_READ_TOKEN` is configured. See [docs/braw.md](docs/braw.md).
+
+**CinemaDNG:** `.dng` frame sequences (uncompressed or lossless JPEG Bayer) convert to EXR or to a video proxy. DJI Inspire 3 / Zenmuse X9 is scene-linear **P3-D60** with the recommended **+1.4 stops** already applied (`Linear P3-D60`). Convert to `Linear D-Gamut` or `D-Log D-Gamut` with the bundled OCIO config. See [docs/cinemadng.md](docs/cinemadng.md).
 
 Under the hood: **PyAV** (FFmpeg) for video, **OpenImageIO** for EXR and still sequences (**DPX**, **PNG**, **JPEG**, **WebP**), **PySide6** + **QPainter** for slate and overlays. There is no embedded browser.
 
@@ -213,7 +215,7 @@ Packaged apps use the same flags. Per-platform launch commands are in [Install b
 | **Language and tooling** | Python 3.13, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [Nuitka](https://nuitka.net/) for standalone bundles |
 | **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.8), Nuke-inspired dark theme |
 | **Imaging and color** | [OpenImageIO](https://openimageio.org/) (`OpenImageIO` 3.1+), [OpenColorIO 2.5](https://opencolorio.org/). Bundles **ACES Studio Config v4**. Overlay compositing is described below. |
-| **Video and sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences and ranges. Optional **RED R3D SDK** bridge for `.r3d` / `.nev`. Optional **Blackmagic RAW SDK** bridge for `.braw`. Optional **oxideav-prores** PyO3 extension (`exr_prores`) for experimental cross-platform RDD-36 ProRes in release builds (4444 and XQ are 12-bit; 422 is 12-bit internal and 10-bit to other apps) |
+| **Video and sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences and ranges. Optional **RED R3D SDK** bridge for `.r3d` / `.nev`. Optional **Blackmagic RAW SDK** bridge for `.braw`. A small **CinemaDNG** reader for `.dng` sequences (not the Adobe DNG SDK). Optional **oxideav-prores** PyO3 extension (`exr_prores`) for experimental cross-platform RDD-36 ProRes in release builds (4444 and XQ are 12-bit; 422 is 12-bit internal and 10-bit to other apps) |
 | **Slate, burn-in, watermark** | Native **QPainter** preview and offscreen capture. Burn-in and watermark are linearised into the working space and alpha-composited per frame, then OCIO-transformed to display before encode |
 
 CI runs on **GitHub Actions** ([`ci.yml`](.github/workflows/ci.yml)). Releases publish binaries for Linux, macOS (Apple Silicon and Intel), and Windows ([`release.yml`](.github/workflows/release.yml)).
@@ -350,7 +352,7 @@ uv run python main.py --open ./plate --gui-ocio "$OCIO" --mode exr2video
 
 ## Cameras and formats
 
-Still sequences on the EXR to video path are **OpenEXR** first, then **DPX**, **PNG**, **JPEG** (`.jpg` / `.jpeg`), and **WebP**. Mixed folders prefer EXR, then DPX. Video I/O goes through PyAV. Optional camera RAW is separate from that list: `.r3d` and `.nev` need the RED bridge, and `.braw` needs the Blackmagic RAW bridge.
+Still sequences on the EXR to video path are **OpenEXR** first, then **CinemaDNG** (`.dng`), **DPX**, **PNG**, **JPEG** (`.jpg` / `.jpeg`), and **WebP**. Mixed folders prefer EXR, then CinemaDNG, then DPX. Video I/O goes through PyAV. Optional camera RAW is separate from that list: `.r3d` and `.nev` need the RED bridge, and `.braw` needs the Blackmagic RAW bridge. CinemaDNG uses the built-in reader. DJI frames are Linear P3-D60 with +1.4 stops.
 
 <details>
 <summary><b>Camera color spaces on the bundled config</b></summary>

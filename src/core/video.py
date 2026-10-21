@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .cinemadng import is_cinemadng_input, probe_sequence
 from .local_fs import (
     ONLINE_ONLY_LABEL,
     can_probe_media,
@@ -107,6 +108,10 @@ def probe_video(path: str) -> tuple[int, int, float, int]:
     # Reject OS metadata sidecars early (CLI / forced paths), not only in the browser.
     if is_ignored_media_filename(path):
         raise RuntimeError(f"Not a media file (OS metadata sidecar): {Path(path).name}")
+
+    if is_cinemadng_input(path):
+        width, height, fps, frame_count, _colorspace = probe_sequence(path)
+        return width, height, fps, frame_count
 
     if is_r3d_path(path):
         if not r3d_available():
@@ -311,6 +316,8 @@ def detect_interlaced(path: str) -> bool | None:
     """
     if is_ignored_media_filename(path):
         return None
+    if is_cinemadng_input(path):
+        return False
     if is_libav_unsafe_media(path):
         return False
 
@@ -338,6 +345,9 @@ def guess_video_colorspace_candidates(path: str) -> list[str]:
     from .braw import braw_src_colorspace_candidates, is_braw_path
     from .r3d import is_r3d_path, r3d_src_colorspace_candidates
 
+    if is_cinemadng_input(path):
+        _width, _height, _fps, _count, colorspace = probe_sequence(path)
+        return [colorspace] if colorspace else []
     if is_r3d_path(path):
         return r3d_src_colorspace_candidates(path)
     if is_braw_path(path):

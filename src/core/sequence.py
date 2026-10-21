@@ -101,6 +101,14 @@ def parse_dot_sequence_output(
 
 def _probe_resolution(filepath: str) -> tuple[int, int]:
     """Read display-window width and height from an image header without decoding pixels."""
+    if filepath.lower().endswith(".dng"):
+        # Lazy: cinemadng.input imports this module to resolve frame sequences.
+        try:
+            from .cinemadng.decode import display_size
+
+            return display_size(filepath)
+        except Exception:
+            return 0, 0
     try:
         import OpenImageIO as oiio
 
@@ -221,6 +229,9 @@ def _match_seq_by_stem(
 def probe_pixel_colorspace(filepath: str) -> str:
     """Return the OCIO colorspace of the *pixels* in *filepath*, if known.
 
+    CinemaDNG frames report the space the reader developed into
+    (``Linear P3-D60`` for DJI, ``ACES2065-1`` otherwise).
+
     Preference order:
 
     1. ``exrconverter:dstColorSpace`` — space we wrote after OCIO (always correct
@@ -229,6 +240,14 @@ def probe_pixel_colorspace(filepath: str) -> str:
        ``lin_rec709`` for any scene-linear EXR; treat as weak hint only when
        our attribute is missing).
     """
+    if filepath.lower().endswith(".dng"):
+        # Lazy: cinemadng.input imports this module to resolve frame sequences.
+        try:
+            from .cinemadng.decode import colorspace_of_file
+
+            return colorspace_of_file(filepath)
+        except Exception:
+            return ""
     try:
         import OpenImageIO as oiio
 
@@ -434,8 +453,8 @@ def find_exr_sequence(input_path: str) -> tuple[list[str], str]:
     - a single frame file → scan its parent dir, find the sequence it belongs to
     - a Nuke-style pattern (``name.####.ext`` / ``name_%04d.ext``) → match by stem
 
-    Supported extensions: see :data:`IMAGE_SEQUENCE_EXTS` (``.exr``, ``.dpx``,
-    ``.png``, ``.jpg`` / ``.jpeg``, ``.webp``).
+    Supported extensions: see :data:`IMAGE_SEQUENCE_EXTS` (``.exr``, ``.dng``,
+    ``.dpx``, ``.png``, ``.jpg`` / ``.jpeg``, ``.webp``).
     """
     p, scan_dir, pattern_stem = _scan_dir_and_pattern(input_path)
 
