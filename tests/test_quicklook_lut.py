@@ -110,7 +110,8 @@ def test_swift_shaper_constants_match() -> None:
 def test_notarization_probe_is_dispatch_only() -> None:
     text = (ROOT / ".github/workflows/quicklook-notarize.yml").read_text(encoding="utf-8")
     assert "workflow_dispatch:" in text
-    assert "pull_request:" not in text
+    assert "pull_request:" in text
+    assert "paths:" in text
     assert "\n  push:" not in text
     assert "xcrun notarytool submit" in text
     assert "appex.entitlements" in text
