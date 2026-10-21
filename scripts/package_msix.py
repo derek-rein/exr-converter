@@ -262,7 +262,8 @@ def build_manifest(identity: MsixIdentity, version: str, background: str) -> str
     publisher = _xml(identity.publisher)
     display = _xml(identity.publisher_display_name)
     # Virtualization exclusions keep QSettings, presets, and the TrustMark cache
-    # in the real user profile (the same folders the Inno setup uses). The
+    # in the real user profile (the same folders the Inno setup uses). They must
+    # sit inside <Properties> and need the unvirtualizedResources capability. The
     # package directory itself stays read-only.
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <Package
@@ -281,6 +282,17 @@ def build_manifest(identity: MsixIdentity, version: str, background: str) -> str
     <DisplayName>EXR Converter</DisplayName>
     <PublisherDisplayName>{display}</PublisherDisplayName>
     <Logo>Assets\\StoreLogo.png</Logo>
+    <virtualization:FileSystemWriteVirtualization>
+      <virtualization:ExcludedDirectories>
+        <virtualization:ExcludedDirectory>$(KnownFolder:RoamingAppData)\\VFXTools</virtualization:ExcludedDirectory>
+        <virtualization:ExcludedDirectory>$(KnownFolder:LocalAppData)\\VFXTools</virtualization:ExcludedDirectory>
+      </virtualization:ExcludedDirectories>
+    </virtualization:FileSystemWriteVirtualization>
+    <virtualization:RegistryWriteVirtualization>
+      <virtualization:ExcludedKeys>
+        <virtualization:ExcludedKey>HKEY_CURRENT_USER\\Software\\VFXTools</virtualization:ExcludedKey>
+      </virtualization:ExcludedKeys>
+    </virtualization:RegistryWriteVirtualization>
   </Properties>
   <Dependencies>
     <TargetDeviceFamily
@@ -315,18 +327,8 @@ def build_manifest(identity: MsixIdentity, version: str, background: str) -> str
   </Applications>
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
-  <virtualization:FileSystemWriteVirtualization>
-    <virtualization:ExcludedDirectories>
-      <virtualization:ExcludedDirectory>$(KnownFolder:RoamingAppData)\\VFXTools</virtualization:ExcludedDirectory>
-      <virtualization:ExcludedDirectory>$(KnownFolder:LocalAppData)\\VFXTools</virtualization:ExcludedDirectory>
-    </virtualization:ExcludedDirectories>
-  </virtualization:FileSystemWriteVirtualization>
-  <virtualization:RegistryWriteVirtualization>
-    <virtualization:ExcludedKeys>
-      <virtualization:ExcludedKey>HKEY_CURRENT_USER\\Software\\VFXTools</virtualization:ExcludedKey>
-    </virtualization:ExcludedKeys>
-  </virtualization:RegistryWriteVirtualization>
 </Package>
 """
 
