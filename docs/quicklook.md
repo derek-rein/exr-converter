@@ -140,3 +140,8 @@ DNG uses the system RAW filter. It is not a Blackmagic or ARRI develop.
 - A color-critical review. Use the app’s viewer for OCIO.
 - Playback of a whole sequence. One frame, the one you selected.
 - ProRes, H.264, HEVC, BRAW, R3D, or ARRIRAW in this extension.
+- The app’s own player. Spacebar stays inside Quick Look. It does not open
+  EXR Converter. The extension is a separate sandboxed process and cannot run
+  the Python / Qt / OCIO viewer, and it cannot launch the app (the Quick Look
+  sandbox has no Launch Services `open`). A full sequence with the same OCIO
+  view is the built-in player, which can read the other frames in the folder.
