@@ -32,4 +32,5 @@ as the code (and [CHANGELOG.md](../CHANGELOG.md)). See
 | [R3D / N-RAW](./r3d.md) | Optional RED R3D SDK (proprietary; build and license) |
 | [Blackmagic RAW](./braw.md) | Optional BRAW SDK (proprietary; Linear ACES AP0; Release CI feed) |
 | [Releasing](./releasing.md) | Pointer to maintainer release process |
+| [Microsoft Store](./msix.md) | Partner Center .msixupload and self-distribution .msix |
 | [12-bit ProRes (oxideav)](./plan-12bit-prores-oxideav.md) | Experimental RDD-36 ProRes. 4444 and XQ are 12-bit. 422 decodes as 10-bit |

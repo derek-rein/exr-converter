@@ -5,10 +5,15 @@ from __future__ import annotations
 import sys
 
 from src.cli import build_parser, run_cli
+from src.core.app_paths import leave_read_only_install_cwd
 from src.core.constants import APP_NAME, APP_ORG, APP_VERSION
 
 
 def main() -> int:
+    # Store launch uses the MSIX package root as the working directory. That
+    # folder is read-only. Move to the user profile before any relative write.
+    leave_read_only_install_cwd()
+
     parser = build_parser()
     args = parser.parse_args()
 
