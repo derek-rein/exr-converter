@@ -13,6 +13,14 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- Windows releases can include an unsigned MSIX (`exr_converter-windows-x86_64.msix`) for Microsoft Store submission. Partner Center signs the package. The MSIX is skipped until the `MSIX_IDENTITY_NAME` and `MSIX_PUBLISHER` repository variables are set. The setup `.exe` is unchanged.
+
+### Fixed
+
+- A Microsoft Store install keeps settings, presets, and the TrustMark model cache in the user profile. The Store install folder is read-only. The bundled OCIO config is read from the package in place.
+
 ---
 
 ## [0.12.3] - 2026-10-17

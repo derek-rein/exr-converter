@@ -75,7 +75,7 @@ src/
 native/
   exr_prores/           # optional oxideav-prores PyO3 extension (12-bit ProRes)
 resources/              # icons, style.qss, OCIO config, screenshots
-scripts/                # bump_app_version.py, ensure_ocio.py, build_oxideav_prores.py, trustmark_detect.py
+scripts/                # bump_app_version.py, ensure_ocio.py, package_msix.py, build_oxideav_prores.py, trustmark_detect.py
 tests/                  # pytest; integration + fixtures under tests/fixtures/
 docs/                   # user-facing Markdown (Astro content source of truth)
 site/                   # Astro site (layouts, styles); loads docs/ → Vercel
@@ -244,9 +244,10 @@ feature commits (PR → main)
    concurrency: one run per tag (cancel-in-progress: false)
         │  validate tag↔pyproject + CHANGELOG
         │  lint → test (3 OS) → gate → Nuitka (4 targets)
-        │  → optional SignPath (Windows) → Cosign + GH attestations → publish
+        │  → optional SignPath (Windows exe) → Cosign + GH attestations → publish
         ▼
- Artifacts: Linux AppImage, macOS DMG (arm64 + x86_64), Windows installer
+ Artifacts: Linux AppImage, macOS DMG (arm64 + x86_64), Windows installer,
+            unsigned Windows MSIX when Store identity variables are set
             (+ .sigstore.json bundles; GH attestations for provenance)
 ```
 
@@ -374,7 +375,30 @@ Skipped until you set repository **variables** (and matching **secrets**):
 Also install the SignPath GitHub App and create a project/policy/artifact
 configuration in the SignPath dashboard. When `SIGNPATH_PROJECT_SLUG` is empty,
 `sign-windows` is skipped and the unsigned Inno setup is published (Cosign still
-applies).
+applies). SignPath is the setup `.exe` only. Do not send the MSIX through it.
+
+### Microsoft Store MSIX (unsigned)
+
+The Windows build job can pack `exr_converter-windows-x86_64.msix` with
+`makeappx` (`scripts/package_msix.py`) from the same Nuitka folder the Inno
+setup uses. Partner Center re-signs it. **Do not sign the MSIX** (no
+`signtool`, no SignPath). A detached Cosign `.sigstore.json` on the GitHub
+Release is provenance for the bytes, not an Appx signature, and is not
+uploaded to the Store.
+
+Repository **variables** (not secrets):
+
+| Variable | Required | Meaning |
+|----------|----------|---------|
+| `MSIX_IDENTITY_NAME` | yes | Partner Center package identity name |
+| `MSIX_PUBLISHER` | yes | Exact `CN=...` publisher string |
+| `MSIX_PUBLISHER_DISPLAY_NAME` | no | Defaults to **DerekVFX** |
+
+If the required variables are empty, the step warns and skips. The setup
+`.exe` still ships. Manifest version is `pyproject.toml` `a.b.c` → `a.b.c.0`.
+Full-trust desktop (`runFullTrust`, `Windows.FullTrustApplication`,
+`Windows.Desktop`). No file associations or protocol handlers. Submission
+steps: [docs/msix.md](./docs/msix.md).
 
 ### Apple Developer ID (macOS notarization)
 
@@ -526,6 +550,7 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/r3d.md](./docs/r3d.md) | Optional RED R3D / N-RAW (proprietary SDK; license + build) |
 | [docs/braw.md](./docs/braw.md) | Optional Blackmagic RAW (proprietary SDK; Linear ACES AP0) |
 | [docs/releasing.md](./docs/releasing.md) | Short pointer here + docs-site note |
+| [docs/msix.md](./docs/msix.md) | Unsigned Windows MSIX for Partner Center |
 | [integrations/nuke/](./integrations/nuke/) | Nuke `menu.py` + helpers |
 
 Public site: `make docs-serve` / `make docs-build`. Vercel (Root Directory `site`)
@@ -547,6 +572,7 @@ builds per `site/vercel.json` (`npm run build` → `site/dist`) and serves `http
   libraries + `libbraw_bridge` under a private `braw/` folder — see
   [docs/braw.md](./docs/braw.md).
 - Do not reintroduce Qt WebEngine for slate.
+- Do not sign the Windows MSIX (`signtool`, SignPath, or a local cert). Partner Center signs it. Do not install that unsigned file as the user-facing setup; the Inno `.exe` is the direct download.
 - Do not push version tags without a changelog section and green Release gate intent.
 - Do not hand-edit `src/rc_resources.py` or force-push published release tags without a deliberate recovery process.
 - Do not finish user-visible work without updating **CHANGELOG.md** and **`docs/`** when the surface area changed.
