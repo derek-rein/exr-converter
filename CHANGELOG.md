@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Changed
+
+- The docs site describes the Video → Proxy tab in more detail: source formats, each proxy codec with its container and bit depth, what the watch folder skips, and which settings are remembered. It has a new **Invisible watermark** section covering the payload, strength, model download and cache folders, `scripts/trustmark_detect.py`, and what can remove the mark. The home page lists the invisible watermark, shows the latest release version, and notes that the Windows `.msix` / `.msixupload` files are for the Microsoft Store while the setup `.exe` stays the direct download.
+
 ---
 
 ## [0.12.4] - 2026-10-21

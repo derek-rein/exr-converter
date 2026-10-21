@@ -6,8 +6,8 @@ description: Partner Center .msixupload and a self-distribution .msix
 
 The Windows release build can pack two extra files from the same Nuitka app as the setup `.exe`:
 
-- `exr_converter-windows-x86_64.msixupload` — upload this to Partner Center (product type **MSIX or PWA app**). The package inside it is unsigned. The Store signs it.
-- `exr_converter-windows-x86_64.msix` — self-distribution. Windows installs an MSIX only when a certificate the PC trusts has signed it. Without the signing secrets below, this file is unsigned and will not install.
+- `exr_converter-windows-x86_64.msixupload`: upload this to Partner Center (product type **MSIX or PWA app**). The package inside it is unsigned. The Store signs it.
+- `exr_converter-windows-x86_64.msix`: self-distribution. Windows installs an MSIX only when a certificate the PC trusts has signed it. Without the signing secrets below, this file is unsigned and will not install.
 
 The setup `.exe` is unchanged. Download that for a direct install that does not need an MSIX signature.
 
@@ -29,8 +29,8 @@ The manifest version is `[project].version` from `pyproject.toml` with a fourth 
 
 On the same Release run as the other installers (no extra workflow), both of these are GitHub Release assets:
 
-- `exr_converter-windows-x86_64.msixupload` — Partner Center
-- `exr_converter-windows-x86_64.msix` — self-distribution
+- `exr_converter-windows-x86_64.msixupload`: Partner Center
+- `exr_converter-windows-x86_64.msix`: self-distribution
 
 The same files are also Actions artifacts (`exr_converter-windows-x86_64-msixupload` and `exr_converter-windows-x86_64-msix`) before they are copied into the Release.
 
@@ -40,8 +40,8 @@ A detached `.sigstore.json` may sit next to each Release asset. That is provenan
 
 The file is a zip. Its members sit at the **root** of the archive (the same layout as selecting the files and using Send to → Compressed folder, not zipping a parent directory):
 
-- `exr_converter_<version>_x64.msix` — the unsigned package (`0.12.3` is `exr_converter_0.12.3.0_x64.msix`)
-- `exr_converter_<version>_x64.appxsym` — only when the Nuitka folder contains `.pdb` files. This is a zip of those symbols, with paths relative to the app directory, for Partner Center crash analytics
+- `exr_converter_<version>_x64.msix`: the unsigned package (`0.12.3` is `exr_converter_0.12.3.0_x64.msix`)
+- `exr_converter_<version>_x64.appxsym`: only when the Nuitka folder contains `.pdb` files. This is a zip of those symbols, with paths relative to the app directory, for Partner Center crash analytics
 
 Nuitka release builds usually have no PDB files. An upload that contains only the `.msix` is valid. The symbol member uses `.appxsym`. Partner Center rejects a `.msixsym` member. PDB files are not installed inside the `.msix`. The copy inside the upload stays unsigned even when the loose `.msix` is signed later.
 

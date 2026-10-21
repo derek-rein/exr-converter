@@ -1,7 +1,7 @@
 ---
 title: GUI
 weight: 15
-description: Tabs, Video to Proxy, browsers, player, overlays, and preferences
+description: Tabs, Video to Proxy and invisible watermarks, browsers, player, overlays, and preferences
 ---
 
 Desktop UI for **video ↔ OpenEXR** with **OpenColorIO**. Launch with no
@@ -207,13 +207,17 @@ EXR compression, OCIO source. **Not** included: input/output paths, window
 geometry, player/cache prefs, or full slate text (slate fields still use last
 session via Preferences / QSettings).
 
-Files are versioned (`schema_version`); older presets still load.
+Files are versioned (`schema_version`); older presets still load. Presets
+cover **Video → EXR** and **EXR → Video**. The **Video → Proxy** tab keeps
+its own last-used settings instead.
 
 ---
 
 ## Slate / burn-in / watermark
 
-Available on **EXR → Video** only (checkboxes on that tab).
+Available on **EXR → Video** only (checkboxes on that tab). Proxies never get
+a slate, burn-in, or visible watermark. Video → Proxy has a separate
+[invisible watermark](#invisible-watermark).
 
 | Feature | Behavior |
 |---------|----------|
@@ -264,24 +268,49 @@ transform**: a proxy keeps the source look (log stays log), the source
 **timecode**, and the source **audio**, so an editor can relink it to the
 original.
 
+Proxies are a straight decode, resize, and encode. The slate, burn-in, and
+visible text watermark from **EXR → Video** are not applied to proxies. The
+only overlay this tab can add is the optional
+[invisible watermark](#invisible-watermark).
+
+**Source formats:** `.mov`, `.mp4`, `.m4v`, `.mxf`, `.mkv`, `.avi`, `.webm`,
+`.ts`, `.mts`, and `.m2ts`. Camera RAW (`.r3d`, `.nev`, `.braw`, ARRIRAW) is
+not offered here. Hidden files and macOS `._` sidecars are skipped.
+
 | Section | Control | Default | Notes |
 |---------|---------|---------|-------|
-| **Source clips** | Add Clips… / Add Folder… / Remove / Clear | empty | Drop videos or folders on the window while this tab is open to add them. RAW (`.r3d`, `.nev`, `.braw`, ARRIRAW) is not offered here. |
+| **Source clips** | Add Clips… / Add Folder… / Remove / Clear | empty | Drop videos or folders on the window while this tab is open to add them. |
 | | Include subfolders | off | **Add Folder…** includes nested folders, and the watch folder follows them too. `Proxy` folders are skipped. |
 | **Output** | Location | **Proxy folder next to each clip** | Writes `<clip folder>/Proxy/<clip name>.<ext>`, the layout Resolve relinks. **Custom folder** reveals a folder field and puts every proxy in that one folder. |
-| | Codec | **Apple ProRes 422 Proxy** | Also ProRes 422 LT, VideoToolbox ProRes Proxy / LT (macOS), DNxHR LB / SQ, H.264, and 8-bit HEVC. H.264 / HEVC write `.mp4`; the rest write `.mov`. Shares a row with Resolution. |
-| | Resolution | **Half** | Quarter, One-eighth, Original, or fit to 1080p / 720p / 540p height. Never upscales. |
-| | Audio | on | On the resolution row. PCM in `.mov`, AAC in `.mp4`. |
-| | Name suffix | none | Added to the proxy filename. Leave empty to keep the source name, which relinks best. |
+| | Codec | **Apple ProRes 422 Proxy** | See the codec table below. Shares a row with Resolution. |
+| | Resolution | **Half** | Quarter, One-eighth, Original, or Fit 1080p / 720p / 540p (fit to that height). Never upscales. Width and height are rounded to even numbers. |
+| | Audio | on | On the resolution row. Carries the first audio track: PCM in `.mov`, AAC in `.mp4`. |
+| | Suffix | none | Added to the proxy filename before the extension. Leave empty to keep the source name, which relinks best. |
 | | Skip clips that already have a proxy | on | On the suffix row. Off re-makes them. |
-| | Watermark | off | **Enable** writes an invisible [TrustMark](https://github.com/adobe/trustmark) mark into every proxy frame. Payload is up to 8 ASCII characters (TrustMark text mode, so the official decoder can read it). Strength defaults to 1.00 (range 0.10 to 2.00). The encoder model downloads once into a per-user cache and is checked with SHA256. The mark is applied to the resized RGB frame the codec encodes. Proxies still have no OCIO view transform. |
+| | Watermark | off | **Enable**, a payload of up to 8 ASCII characters, and **Strength** (default 1.00). See [Invisible watermark](#invisible-watermark). |
+
+| Proxy codec | Key | Container | Bit depth |
+|-------------|-----|-----------|-----------|
+| Apple ProRes 422 Proxy (default) | `prores_proxy` | `.mov` | 10-bit 4:2:2 |
+| Apple ProRes 422 LT | `prores_lt` | `.mov` | 10-bit 4:2:2 |
+| VideoToolbox ProRes 422 Proxy / LT (macOS only) | `prores_vt_proxy` / `prores_vt_lt` | `.mov` | 10-bit 4:2:2 |
+| DNxHR LB / SQ | `dnxhr_lb` / `dnxhr_sq` | `.mov` | 8-bit 4:2:2 |
+| H.264 | `h264` | `.mp4` | 8-bit 4:2:0 (CRF 23, `veryfast`) |
+| HEVC | `hevc_8` | `.mp4` | 8-bit 4:2:0 (CRF 26, `fast`) |
+
+The experimental oxideav ProRes keys are not offered for proxies.
 
 Press **Convert** to queue every listed clip. Proxies are made one at a time
 in the background. You can keep adding clips (Convert again queues the new
 ones), and **Cancel** stops the running proxy and clears the queue. A proxy
 is written to a hidden `.name.partial.ext` file and renamed when it is
 complete, so a half-made proxy never sits under the final name. Finished clips
-get a ✓ in the list.
+get a ✓ in the list. The status bar shows the current frame and how many
+clips are still queued, then how many proxies were made and how many failed.
+
+The tab remembers its settings (codec, size, audio, suffix, location,
+watermark, and watch folder) between sessions. Named presets in the
+**Presets** menu do not store proxy settings.
 
 ### Watch folder
 
@@ -293,20 +322,91 @@ status (**Not watching**, or copying / queued / done / failed) and
 Pick a folder and press **Start Watching**. Every new clip that appears there
 is proxied with the settings above, joining the same queue as a batch.
 
-- A clip is picked up once its size has stayed the same for a few seconds, so
-  clips still copying from a card or a network share are left alone until the
-  copy finishes.
+- A clip is picked up once its size and modified time have stayed the same
+  for 3 seconds, so clips still copying from a card or a network share are
+  left alone until the copy finishes. The folder is checked every 2 seconds.
 - **Include subfolders** (on the source-clip row) also watches nested folders.
   `Proxy` folders and the custom output folder are never watched, so proxies
   are not re-proxied.
 - **Also convert clips already there** proxies what is already in the folder
   when you start. Off, only clips that arrive afterwards are converted.
+- A clip that is replaced later (new size or modified time) is proxied again,
+  unless **Skip clips that already have a proxy** finds its proxy.
+- Online-only cloud placeholders (Dropbox, iCloud, OneDrive) wait until the
+  file is on disk.
 - The custom output folder cannot be the watched folder itself.
 
-For a headless watch folder (a render box or ingest station), use
+The watch folder scans the folder on a timer instead of using OS file
+events, so it works on network shares and removable volumes. For a headless
+watch folder (a render box or ingest station), use
 [`main.py proxy --watch`](./cli.md#proxy-video-to-editing-proxies).
 
+### Invisible watermark
+
+Optional, and off by default. When it is on, every frame of every proxy gets
+an invisible [Adobe TrustMark](https://github.com/adobe/trustmark) mark
+(variant Q) that carries a short text payload, such as a vendor code or a
+reviewer ID. The picture looks the same to the eye. This is a separate
+feature from the visible text watermark on **EXR → Video**.
+
+| Setting | Range | Notes |
+|---------|-------|-------|
+| Payload | 1 to 8 printable ASCII characters | Stored in TrustMark text mode (7 bits per character) with BCH error correction, so the official TrustMark decoder can read it. With **Enable** on and the payload empty, proxies are made without a mark and the log says so. |
+| Strength | 0.10 to 2.00, default **1.00** | Scales how much the mark changes each pixel. 1.00 is TrustMark's normal strength. Higher values are stronger but more likely to show. Lower values are fainter and easier to lose. |
+
+**Where the mark goes.** The mark is added after the resize, on the RGB
+frame the codec encodes. Proxies have no OCIO view transform, so that is the
+picture the proxy shows (log footage is marked as log). Frames up to 2:1 are
+marked across the whole frame. Wider or taller frames are marked in a center
+square. With the watermark on, frames pass through 8-bit RGB before the
+codec. The CLI does the same with `proxy --watermark`.
+
+**Model download.** The first watermarked proxy downloads TrustMark's
+`encoder_Q.onnx` (about 17 MB) from Adobe's model server
+(`cai-watermark.adobe.net`) and checks its SHA256. It is not included in the
+app. Later runs use the cached copy and work offline. If the download or the
+check fails, that proxy fails with an error and nothing is written under the
+final name. The model runs on the CPU with ONNX Runtime.
+
+| OS | Model cache |
+|----|-------------|
+| macOS | `~/Library/Caches/VFXTools/EXRConverter/trustmark` |
+| Windows | `%LOCALAPPDATA%\VFXTools\EXRConverter\Cache\trustmark` |
+| Linux | `$XDG_CACHE_HOME/exr-converter/trustmark` (default `~/.cache/exr-converter/trustmark`) |
+
+Set `EXR_TRUSTMARK_CACHE` to an absolute folder to use a different cache. It
+cannot be inside the app's install folder.
+
+**Reading a mark back.** The app has no button to read a mark. Use the helper
+script from a source checkout:
+
+```bash
+uv run python scripts/trustmark_detect.py PROXY.mov
+uv run python scripts/trustmark_detect.py PROXY.mp4 --samples 15
+```
+
+It downloads `decoder_Q.onnx` (about 47 MB, SHA256 checked, never shipped with
+the app) into the same cache, reads evenly spaced frames (9 by default),
+takes a majority vote on each bit, and then applies the error correction. It
+prints the payload and exits 0 when a mark is found, or prints
+`detected: no` and exits 1. Adobe's own TrustMark decoder can read the same
+payload.
+
+**Limits.**
+
+- Error correction repairs up to 5 wrong bits out of 100. Past that, the
+  mark reads as not detected.
+- The project's tests embed a mark and read it back from the app's own
+  H.264 and ProRes 422 Proxy output at the original size. Other changes
+  (another re-encode, heavy compression, scaling, cropping, color grading,
+  or a screen recording) are not tested and may remove the mark.
+- The payload is plain text, not encrypted or signed. Anyone with a
+  TrustMark decoder can read it. It is not a C2PA manifest.
+- Only proxies are marked. EXR → Video and Video → EXR never add an
+  invisible watermark.
+
 ---
+
 
 ## After convert
 
