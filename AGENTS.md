@@ -45,7 +45,7 @@ builds them from [`site/`](./site/) and Vercel publishes them (config in
 |------|--------|
 | When | Any change that affects how users run or integrate the app: CLI flags, GUI behavior, codecs, OCIO/defaults, install/packaging users notice, Nuke/helpers, post-convert prefs, launch flags |
 | Where | Update the matching file under `docs/` in the **same PR / commit set** as the code (and [CHANGELOG.md](./CHANGELOG.md) when user-visible) |
-| Map | [docs/cli.md](./docs/cli.md) CLI + GUI launch · [docs/gui.md](./docs/gui.md) GUI / prefs / overlays · [docs/prores.md](./docs/prores.md) VideoToolbox / software / oxideav · [docs/nuke.md](./docs/nuke.md) Nuke menu · [docs/releasing.md](./docs/releasing.md) short release pointer · design notes only when the design changes |
+| Map | [docs/cli.md](./docs/cli.md) CLI + GUI launch · [docs/gui.md](./docs/gui.md) GUI / prefs / overlays · [docs/quicklook.md](./docs/quicklook.md) macOS Quick Look · [docs/prores.md](./docs/prores.md) VideoToolbox / software / oxideav · [docs/nuke.md](./docs/nuke.md) Nuke menu · [docs/releasing.md](./docs/releasing.md) short release pointer · design notes only when the design changes |
 | Local | `make docs-serve` (preview) · `make docs-build` (static `site/dist/`); needs Node 22.12+ |
 | Do not | Leave docs describing old flags/defaults/codecs. Do not hand-edit generated `site/dist/`. Do not put the only copy of user docs solely in chat or PR text. |
 
@@ -75,7 +75,8 @@ src/
 native/
   exr_prores/           # optional oxideav-prores PyO3 extension (12-bit ProRes)
 resources/              # icons, style.qss, OCIO config, screenshots
-scripts/                # bump_app_version.py, ensure_ocio.py, build_oxideav_prores.py, trustmark_detect.py
+scripts/                # bump_app_version.py, ensure_ocio.py, build_oxideav_prores.py, build_quicklook_appex.py, trustmark_detect.py
+packaging/macos/quicklook/  # Swift Quick Look + thumbnail appex (macOS release embeds under Contents/PlugIns)
 tests/                  # pytest; integration + fixtures under tests/fixtures/
 docs/                   # user-facing Markdown (Astro content source of truth)
 site/                   # Astro site (layouts, styles); loads docs/ → Vercel
@@ -520,6 +521,7 @@ Branch protection on `main` should require `ci-ok`.
 | [site/](./site/) | Astro site; loads `docs/` → Vercel (`site/vercel.json`) |
 | [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`) + GUI launch flags |
 | [docs/gui.md](./docs/gui.md) | GUI tabs, overlays, preferences, post-convert |
+| [docs/quicklook.md](./docs/quicklook.md) | macOS Quick Look + Finder thumbnails (EXR, DPX, optional stills) |
 | [docs/prores.md](./docs/prores.md) | Software vs VideoToolbox vs oxideav ProRes |
 | [docs/nuke.md](./docs/nuke.md) | Nuke menu integration |
 | [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 12-bit ProRes (oxideav; shipping in releases) |

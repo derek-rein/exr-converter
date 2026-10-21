@@ -326,8 +326,10 @@ hidden on the **Video → Proxy** tab, which runs batches:
 | **Video player** | **Built-in player** (default), **System default**, or a **custom** app/CLI path (IINA, VLC, mpv, …). Used by **Open result** after EXR → Video. Built-in uses the same `SequencePlayer` as sequence Preview (GPU OCIO + cache strip). |
 | **Slate thumbnail frame** | First / middle / last frame of the EXR sequence for the slate still |
 | **Playback cache budget** | % of system RAM for decoded frames (slate, browser Preview, post-convert built-in player) |
+| **Quick Look** (macOS) | Checkboxes for which still formats the embedded Quick Look / thumbnail extensions handle. OpenEXR and DPX start on. TIFF, PNG, JPEG, WebP, and DNG start off because macOS already previews them. **Login Items & Extensions…** opens the system pane that enables the extensions. **Clear Quick Look cache** drops Finder’s cached thumbnails. See [Quick Look on macOS](./quicklook.md). |
 
-Settings org/app: `QSettings("VFXTools", "EXRConverter")`.
+Settings org/app: `QSettings("VFXTools", "EXRConverter")`. The Quick Look
+section is macOS only.
 
 ---
 
@@ -380,11 +382,15 @@ Site links stay in **About** only (not on the Help menu).
   "downloaded from the internet" prompt.
 - The running Dock icon uses the bundle `.icns`. The bundle identifier is
   `com.vfxtools.exrconverter`. The name on disk stays **EXR Converter**.
+- Release builds embed Quick Look and thumbnail extensions. Enable them under
+  **System Settings → General → Login Items & Extensions**. Format toggles are
+  in Preferences. Details: [Quick Look on macOS](./quicklook.md).
 
 ---
 
 ## See also
 
 - [CLI reference](./cli.md)
+- [Quick Look on macOS](./quicklook.md)
 - [Nuke integration](./nuke.md)
 - [README](../README.md)

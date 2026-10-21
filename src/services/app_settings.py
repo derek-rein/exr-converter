@@ -44,6 +44,7 @@ class Keys:
     PLAYER_PATH = "player/path"
     CACHE_BUDGET_PCT = "cache/budget_pct"
     SLATE_THUMBNAIL_FRAME = "slate/thumbnail_frame"
+    # macOS Quick Look toggles: quicklook/format/<key> (src/core/quicklook_formats.py).
 
     # OCIO
     OCIO_SOURCE = "ocio/source"
