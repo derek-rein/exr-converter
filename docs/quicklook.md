@@ -107,7 +107,9 @@ frame, and the first–last frame (`plate  ·  1002  ·  1001–1003`). Playback
 decodes one frame at a time and keeps the long edge around 960 pixels. It does
 not preload the sequence.
 
-The sandbox is allowed to read, and only read:
+The sandbox is allowed to read, and only read. Developer ID notarization
+accepted this set with no issues (notarytool submission
+`2a95ec5f-eb21-49d3-b200-d1df08b0e1c4`, status Accepted):
 
 - your home directory
 - `/Volumes/` (external and network volumes mounted there)

@@ -15,7 +15,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Added
 
-- macOS Quick Look previews scene-linear OpenEXR and DPX through the app’s default OCIO display view (a baked 3D LUT, exposure 0 and gamma 1). Numbered frames play in the Spacebar preview when the folder can be read. **File → Preferences… → Quick Look** still chooses the formats. Movies, BRAW, R3D, and ARRIRAW are unchanged. See [Quick Look on macOS](docs/quicklook.md).
+- macOS Quick Look previews scene-linear OpenEXR and DPX through the app’s default OCIO display view (a baked 3D LUT, exposure 0 and gamma 1). Numbered frames play in the Spacebar preview when the folder can be read (home, `/Volumes`, and `/tmp`). Notarization accepts those read-only exceptions. **File → Preferences… → Quick Look** still chooses the formats. Movies, BRAW, R3D, and ARRIRAW are unchanged. See [Quick Look on macOS](docs/quicklook.md).
 
 ---
 
