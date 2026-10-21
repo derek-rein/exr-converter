@@ -102,6 +102,7 @@ site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 | Slate dialog / viewer | `src/gui/slate_widgets.py` (composes player + overlay hooks), `src/gui/ocio_gpu_plane.py`, `src/services/slate_model.py` |
 | Background convert | `src/services/worker.py` |
 | Video → Proxy tab / watch folder | `src/gui/proxy_tab.py`, `src/core/proxy.py`, `src/core/watch_folder.py`, `src/services/proxy_queue.py` (CLI `proxy` in `src/cli.py`). Optional invisible watermark: `src/core/trustmark/` (ONNX Runtime, encoder downloaded on first use) and `scripts/trustmark_detect.py` |
+| Linux studio packages | `packaging/linux/` (Rocky 8 build, `exr-converter` launcher), `scripts/package_linux.py`, `scripts/check_glibc_floor.py`. Release job `build-linux` only |
 
 ## Commands (local)
 
@@ -345,10 +346,11 @@ gh pr checks
 | `lint` | Tag↔pyproject + CHANGELOG gate, then Ruff check + format |
 | `test` | Full pytest on ubuntu / macos / windows |
 | `gate` | Aborts release if lint or any OS test failed |
-| `build` | Nuitka → AppImage / DMG / Windows setup (3h timeout, 6h on macOS so notarization can finish; LTO + Qt strip aligned with `make bundle`). macOS DMGs are Developer ID-signed, notarized, and stapled here, before upload, when the Apple secrets below are set |
+| `build` | Nuitka → macOS DMG / Windows setup (3h timeout, 6h on macOS so notarization can finish; LTO + Qt strip aligned with `make bundle`). macOS DMGs are Developer ID-signed, notarized, and stapled here, before upload, when the Apple secrets below are set. Skipped for `linux_only` |
+| `build-linux` | Rocky Linux 8 container (`rockylinux:8`, glibc 2.28) → AppImage, relocatable tarball, and RPM from one Nuitka dist. Pins PySide6 6.9.2 (6.10+ wheels need glibc 2.34) and patchelf 0.19 (Rocky 8's patchelf 0.12, and patchelf's RPATH rewrite, mis-align NumPy OpenBLAS; those wheel copies are restored). Skipped for `macos_only` |
 | `sign-windows` | Optional SignPath Authenticode (skipped unless vars configured; runs **before** Cosign) |
-| `sign` | Assemble final bits → Cosign keyless + `actions/attest-build-provenance` (skipped for a `macos_only` signing test; those DMGs are already the build artifacts) |
-| `release` | CHANGELOG section + verify notes → single GitHub Release upload. Skipped when `publish` is false or `macos_only` is true |
+| `sign` | Assemble final bits → Cosign keyless + `actions/attest-build-provenance` for the AppImage, DMGs, and setup, then the Linux tarball and RPM. Skipped for `macos_only` and for `linux_only` (the matrix build did not run) |
+| `release` | CHANGELOG section + verify notes → single GitHub Release upload. Skipped when `publish` is false, `macos_only` is true, or `linux_only` is true |
 
 Local package only: `make bundle` (no GitHub Release). Shared Nuitka strip/LTO
 flags match CI; packaging (DMG/AppImage/Inno) is CI-only.
@@ -359,7 +361,7 @@ flags match CI; packaging (DMG/AppImage/Inno) is CI-only.
 - [`.github/dependabot.yml`](.github/dependabot.yml) opens weekly grouped PRs for
   `github-actions` bumps.
 - `astral-sh/setup-uv` pins **uv 0.12.3** (not `latest`).
-- AppImage packaging pins **appimagetool 1.9.1** and verifies SHA-256.
+- AppImage packaging pins **appimagetool 1.9.1** and verifies SHA-256. The Linux job also pins **nfpm 2.41.3** for the RPM and builds inside **Rocky Linux 8**.
 
 ### SignPath (optional Windows Authenticode)
 
@@ -505,7 +507,7 @@ may still show the standard "downloaded from the internet" prompt.
 | [CI](.github/workflows/ci.yml) | push / PR to `main` | Ruff + basedpyright (`src/`, `main.py`; errors fail, warnings tolerated) + full pytest on 3 OS; job **`ci-ok`** requires all green |
 | [Docs](.github/workflows/docs.yml) | push / PR paths under `docs/`, `site/` | Astro build check; on `main`, deploys a redirect from the old GitHub Pages URL to the Vercel site |
 | [Auto-tag release](.github/workflows/auto-tag-release.yml) | push to `main` | CHANGELOG gate; if no `vX.Y.Z` tag → push tag; if no GitHub Release and no active run → `workflow_dispatch` Release |
-| [Release](.github/workflows/release.yml) | tag `v*` **or** `workflow_dispatch` | Tag/CHANGELOG validate + lint + tests via **`gate`** before Nuitka / Cosign / publish. `macos_only` dispatch notarizes the DMGs as artifacts and does not publish |
+| [Release](.github/workflows/release.yml) | tag `v*` **or** `workflow_dispatch` | Tag/CHANGELOG validate + lint + tests via **`gate`** before Nuitka / Cosign / publish. `macos_only` notarizes the DMGs and does not publish. `linux_only` builds the Rocky 8 AppImage, tarball, and RPM and does not publish |
 
 Branch protection on `main` should require `ci-ok`.
 
@@ -520,6 +522,7 @@ Branch protection on `main` should require `ci-ok`.
 | [site/](./site/) | Astro site; loads `docs/` → Vercel (`site/vercel.json`) |
 | [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`) + GUI launch flags |
 | [docs/gui.md](./docs/gui.md) | GUI tabs, overlays, preferences, post-convert |
+| [docs/linux.md](./docs/linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
 | [docs/prores.md](./docs/prores.md) | Software vs VideoToolbox vs oxideav ProRes |
 | [docs/nuke.md](./docs/nuke.md) | Nuke menu integration |
 | [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 12-bit ProRes (oxideav; shipping in releases) |
@@ -535,6 +538,7 @@ builds per `site/vercel.json` (`npm run build` → `site/dist`) and serves `http
 ## What not to do
 
 - Do not assume system `ffmpeg` / `ffplay` / `mpv` are installed for core features.
+- Do not publish Snap or Flatpak packages. Linux releases are the AppImage, the relocatable tarball, and the RPM.
 - Do not claim software ProRes is 12-bit.
 - Do not claim oxideav 422 profiles (`prores_ox_proxy` / `lt` / `422` / `hq`)
   are 12-bit to third-party decoders. They are 12-bit internal, 10-bit on

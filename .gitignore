@@ -7,6 +7,9 @@
 **/.venv/
 **/.DS_Store
 dist/
+linux-dist/
+release-linux/
+*.AppDir/
 build/
 *.app/
 *.bin

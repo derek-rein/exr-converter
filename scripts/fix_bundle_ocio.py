@@ -155,7 +155,13 @@ def _macos_fix(ext: Path, src_ext: Path, src_lib: Path) -> None:
     print(f"fix_bundle_ocio: copied {dest_lib} ({dest_lib.stat().st_size} bytes)")
 
 
-def _linux_fix(ext: Path, src_ext: Path, src_lib: Path) -> None:
+def _linux_patchelf_error(message: str, *, strict: bool) -> None:
+    if strict:
+        raise SystemExit(f"fix_bundle_ocio: {message}")
+    print(f"fix_bundle_ocio: warning — {message}", file=sys.stderr)
+
+
+def _linux_fix(ext: Path, src_ext: Path, src_lib: Path, *, strict: bool = False) -> None:
     ext = _replace_extension(ext, src_ext)
     plain = ext.parent / "libOpenColorIO.so"
     shutil.copy2(src_lib, plain)
@@ -170,23 +176,26 @@ def _linux_fix(ext: Path, src_ext: Path, src_lib: Path) -> None:
             stderr=subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        print(
-            "fix_bundle_ocio: warning — patchelf not found; "
-            "relying on Nuitka rpath / LD_LIBRARY_PATH",
-            file=sys.stderr,
+        _linux_patchelf_error(
+            "patchelf not found; PyOpenColorIO.so RPATH was not set to $ORIGIN",
+            strict=strict,
         )
-    except subprocess.CalledProcessError as e:
-        print(f"fix_bundle_ocio: patchelf failed ({e.returncode})", file=sys.stderr)
-
-    try:
-        needed = subprocess.check_output(["patchelf", "--print-needed", str(ext)], text=True)
-        for line in needed.splitlines():
-            if "OpenColorIO" in line and line.strip() != "libOpenColorIO.so":
-                subprocess.check_call(
-                    ["patchelf", "--replace-needed", line.strip(), "libOpenColorIO.so", str(ext)]
-                )
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        pass
+    except subprocess.CalledProcessError as exc:
+        _linux_patchelf_error(f"patchelf --set-rpath failed ({exc.returncode})", strict=strict)
+    else:
+        try:
+            needed = subprocess.check_output(
+                ["patchelf", "--print-needed", str(ext)],
+                text=True,
+            )
+            for line in needed.splitlines():
+                dep = line.strip()
+                if "OpenColorIO" in dep and dep != "libOpenColorIO.so":
+                    subprocess.check_call(
+                        ["patchelf", "--replace-needed", dep, "libOpenColorIO.so", str(ext)]
+                    )
+        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+            _linux_patchelf_error(f"patchelf --replace-needed failed ({exc})", strict=strict)
 
     print(f"fix_bundle_ocio: Linux - ensured {plain}")
 
@@ -230,7 +239,7 @@ def _windows_fix(ext: Path, src_ext: Path, src_lib: Path) -> None:
     )
 
 
-def fix_bundle(root: Path) -> None:
+def fix_bundle(root: Path, *, strict: bool = False) -> None:
     root = root.resolve()
     if not root.exists():
         raise SystemExit(f"Bundle path does not exist: {root}")
@@ -256,7 +265,7 @@ def fix_bundle(root: Path) -> None:
     elif system == "Windows":
         _windows_fix(ext, src_ext, src_lib)
     else:
-        _linux_fix(ext, src_ext, src_lib)
+        _linux_fix(ext, src_ext, src_lib, strict=strict)
 
     print("fix_bundle_ocio: done")
 
@@ -268,8 +277,13 @@ def main() -> int:
         type=Path,
         help='Path to "EXR Converter.app" or Nuitka dist/main.dist',
     )
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="On Linux, exit if patchelf cannot retarget PyOpenColorIO (Release builds).",
+    )
     args = ap.parse_args()
-    fix_bundle(args.bundle)
+    fix_bundle(args.bundle, strict=args.strict)
     return 0
 
 

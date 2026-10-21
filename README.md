@@ -91,7 +91,7 @@ Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-p
 | Windows x64 | [**Installer (.exe)**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe) |
 | macOS Apple Silicon | [**DMG**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-arm64.dmg) |
 | macOS Intel | [**DMG**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-x86_64.dmg) |
-| Linux x86_64 | [**AppImage**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage) |
+| Linux x86_64 | [**AppImage**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage) · [tarball](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz) · [RPM](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm) |
 
 All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) and carry [GitHub build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The [releases page](https://github.com/derek-rein/exr-converter/releases) has the `cosign verify-blob` and `gh attestation verify` commands.
 
@@ -137,16 +137,22 @@ The installer adds a Start menu shortcut and can add a desktop shortcut. The pro
 </details>
 
 <details>
-<summary><b>Linux</b> (x86_64 AppImage)</summary>
+<summary><b>Linux</b> (x86_64, RHEL 8+)</summary>
 
 #### Install on Linux
 
-Download [exr_converter-linux-x86_64.AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage).
+Built on Rocky Linux 8 (glibc 2.28). Runs on RHEL, Rocky, and Alma 8 and newer. Details: [docs/linux.md](docs/linux.md).
+
+**AppImage** (artists). Download [exr_converter-linux-x86_64.AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage).
 
 ```bash
 chmod +x exr_converter-linux-x86_64.AppImage
 ./exr_converter-linux-x86_64.AppImage
 ```
+
+**Tarball** (studio deploy, `/opt`, `/software`, Rez). Download [exr_converter-linux-x86_64.tar.gz](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz), extract it, and run `exr-converter` from that folder. The folder does not need to be writable. Settings go to the XDG directories.
+
+**RPM** (IT, RHEL / Rocky). Download [exr_converter-linux-x86_64.rpm](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm). It installs to `/opt/exr-converter`, links `/usr/bin/exr-converter`, and adds a desktop file and icon. Vendor is Medeu Global LLC. License is MIT.
 
 </details>
 
@@ -407,7 +413,7 @@ This uses [Nuitka](https://nuitka.net/) to produce a standalone distributable:
 | Platform | Output |
 | --- | --- |
 | macOS | `dist/EXR Converter.app` |
-| Linux | `dist/exr_converter` (single binary) |
+| Linux | Release job on Rocky Linux 8: AppImage, tarball, and RPM (see [docs/linux.md](docs/linux.md)). `make bundle` is the macOS app |
 | Windows | `dist\main.dist\` (folder with `exr_converter.exe` and dependencies) |
 
 Nuitka will auto-download `ccache` on first run. See the `Makefile` for the full set of flags.

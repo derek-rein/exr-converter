@@ -6,6 +6,7 @@ export const RELEASES = `${GITHUB}/releases`;
 
 export const NAV = [
   { name: "Docs", href: "/docs/" },
+  { name: "Linux", href: "/docs/linux/" },
   { name: "CLI", href: "/docs/cli/" },
   { name: "GUI", href: "/docs/gui/" },
   { name: "ProRes", href: "/docs/prores/" },

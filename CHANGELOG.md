@@ -13,6 +13,14 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- Linux releases are built on Rocky Linux 8 and run on RHEL, Rocky, and Alma 8 and newer (glibc 2.28). The same build publishes the AppImage, a relocatable tarball (`exr_converter-linux-x86_64.tar.gz`) for `/opt`, `/software`, and Rez, and an RPM (`exr_converter-linux-x86_64.rpm`) that installs to `/opt/exr-converter`. Settings and caches stay in the XDG directories, so the install folder can be read-only.
+
+### Changed
+
+- The Linux app uses Qt 6.9 (PySide6 6.9.2). Qt 6.10 and newer Linux wheels need glibc 2.34, which does not run on RHEL 8.
+
 ---
 
 ## [0.12.3] - 2026-10-17

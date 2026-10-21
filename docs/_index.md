@@ -25,6 +25,7 @@ as the code (and [CHANGELOG.md](../CHANGELOG.md)). See
 | Guide | Topics |
 |-------|--------|
 | [CLI](./cli.md) | `video2exr`, `exr2video`, `proxy` and `--watch`, GUI launch flags |
+| [Linux](./linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
 | [GUI](./gui.md) | Tabs, Video → Proxy, browsers, player, overlays, preferences, post-convert |
 | [ProRes and VideoToolbox](./prores.md) | Software vs Apple VideoToolbox vs oxideav, bit depths |
 | [Nuke](./nuke.md) | Nuke menu integration |

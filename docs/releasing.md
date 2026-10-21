@@ -45,6 +45,19 @@ CHANGELOG section for that version plus verify commands. Optional SignPath
 Authenticode for Windows is off until repository vars/secrets are set (see
 AGENTS.md).
 
+**Linux packages:** the Release workflow builds Linux on Rocky Linux 8
+(glibc 2.28) and publishes three files from that dist: the AppImage, a
+relocatable tarball, and an RPM. See [linux.md](./linux.md). To build only
+those artifacts and skip the GitHub Release:
+
+```bash
+gh workflow run Release --ref <branch> -f linux_only=true -f publish=false
+```
+
+That run still passes the lint and test gate, then uploads
+`exr_converter-linux-x86_64` (AppImage, `.tar.gz`, and `.rpm`). Cosign runs
+on a full release, together with the macOS and Windows assets.
+
 **macOS notarization:** when the Developer ID secrets are set, the build job
 signs each DMG with **Developer ID Application: Medeu Global LLC (83546T4BT8)**
 (team `83546T4BT8`, G2 cert, expires 2031-09-17), notarizes it, and staples it

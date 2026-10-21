@@ -25,6 +25,14 @@ The app writes a **video file** or an **OpenEXR sequence**. PNG, JPEG, WebP, and
     <span class="dl-platform">Linux x86_64</span>
     <span class="dl-file">AppImage</span>
   </a>
+  <a href="https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz">
+    <span class="dl-platform">Linux studio</span>
+    <span class="dl-file">Tarball</span>
+  </a>
+  <a href="https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm">
+    <span class="dl-platform">RHEL / Rocky</span>
+    <span class="dl-file">RPM</span>
+  </a>
 </div>
 
 All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) and carry [GitHub build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The [releases page](https://github.com/derek-rein/exr-converter/releases) has the `cosign verify-blob` and `gh attestation verify` commands.
@@ -53,7 +61,9 @@ open -a "EXR Converter"
 
 The installer adds a Start menu shortcut and can add a desktop shortcut. The program is `exr_converter.exe`.
 
-**Linux** (x86_64 AppImage). Download [exr_converter-linux-x86_64.AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage).
+**Linux** (x86_64, RHEL / Rocky / Alma 8 and newer). The release is built on Rocky Linux 8 (glibc 2.28).
+
+Artists: [AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage). Studio deploy and Rez: [tarball](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz). IT: [RPM](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm) (`/opt/exr-converter`, `/usr/bin/exr-converter`). Details: [Linux](docs/linux/).
 
 ```bash
 chmod +x exr_converter-linux-x86_64.AppImage
@@ -72,7 +82,7 @@ From a source checkout (Python 3.13 and [uv](https://docs.astral.sh/uv/)): `uv r
 | **Color** | Bundled **ACES Studio Config v4**, plus extra camera logs: Nikon N-Log, Fujifilm F-Log / F-Log2 / F-Log2 C, Leica L-Log, Sony S-Log and S-Log2, Canon Log in Rec.709 and Rec.2020, KineLOG3, GoPro Protune / GP-Log / GP-Log2, Blackmagic Film Gen 4, OPPO O-Log, and Apple Log 2. Stock ACES spaces cover Apple Log, ARRI LogC3/LogC4, RED Log3G10, Sony S-Log3, and more. Also `$OCIO`, a custom config, or a local Nuke config. |
 | **ProRes** | Software ProRes is 10-bit on every profile, including 4444 and XQ (default **422 HQ**). macOS VideoToolbox is the hardware encoder; 422 stays 10-bit, and 4444 / XQ are about 12-bit class. Experimental oxideav **4444 and XQ are true 12-bit**. oxideav 422 profiles are 12-bit inside the encoder and **10-bit** to FFmpeg, Resolve, and QuickTime. |
 | **Browsers and player** | Sequence and video browsers with list, grid, and preview. GPU OCIO on the playback path. Built-in player for review, with a RAM cache and frame-accurate video scrub. |
-| **Platforms** | Linux x86_64 AppImage, macOS Apple Silicon and Intel DMGs, and a Windows x64 installer. macOS release DMGs are signed with a Developer ID Application certificate for **Medeu Global LLC**, then notarized and stapled. The app opens normally. First launch may still show the standard "downloaded from the internet" prompt. |
+| **Platforms** | Linux x86_64 AppImage, relocatable tarball, and RPM (RHEL / Rocky 8+, glibc 2.28), macOS Apple Silicon and Intel DMGs, and a Windows x64 installer. macOS release DMGs are signed with a Developer ID Application certificate for **Medeu Global LLC**, then notarized and stapled. The app opens normally. First launch may still show the standard "downloaded from the internet" prompt. |
 
 ## CLI
 
@@ -93,6 +103,7 @@ uv run python main.py proxy --watch /path/to/ingest
 | Guide | Description |
 |---|---|
 | [CLI reference](docs/cli/) | `video2exr`, `exr2video`, `proxy` (including `--watch`), GUI launch flags |
+| [Linux](docs/linux/) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
 | [GUI](docs/gui/) | Tabs, Video → Proxy and the watch folder, browsers, player, overlays, preferences |
 | [ProRes and VideoToolbox](docs/prores/) | Software vs Apple VideoToolbox vs oxideav, with honest bit depths |
 | [RED R3D / N-RAW](docs/r3d/) | Optional RED SDK for `.r3d` and `.nev` |
