@@ -247,7 +247,7 @@ feature commits (PR → main)
         │  → optional SignPath (Windows exe) → Cosign + GH attestations → publish
         ▼
  Artifacts: Linux AppImage, macOS DMG (arm64 + x86_64), Windows installer,
-            unsigned Windows .msixupload when Store identity variables are set
+            Windows .msixupload and .msix when Store identity variables are set
             (+ .sigstore.json bundles; GH attestations for provenance)
 ```
 
@@ -377,18 +377,34 @@ configuration in the SignPath dashboard. When `SIGNPATH_PROJECT_SLUG` is empty,
 `sign-windows` is skipped and the unsigned Inno setup is published (Cosign still
 applies). SignPath is the setup `.exe` only. Do not send the MSIX through it.
 
-### Microsoft Store MSIX (unsigned)
+### Microsoft Store MSIX
 
-The Windows build job can pack `exr_converter-windows-x86_64.msixupload` with
-`makeappx` (`scripts/package_msix.py`) from the same Nuitka folder the Inno
-setup uses. The upload is a zip of the unsigned `.msix` plus an `.appxsym`
-when that folder contains PDB files. No PDBs is still a valid upload (the
-zip holds only the `.msix`). The plain `.msix` is an Actions artifact
-(`exr_converter-windows-x86_64-msix`) and is not a GitHub Release asset.
-Partner Center re-signs the package. **Do not sign the MSIX** (no
-`signtool`, no SignPath). A detached Cosign `.sigstore.json` on the GitHub
-Release is provenance for the upload bytes, not an Appx signature, and is not
-uploaded to the Store.
+The Windows build job can pack two Release assets with `makeappx`
+(`scripts/package_msix.py`) from the same Nuitka folder the Inno setup uses:
+
+- `exr_converter-windows-x86_64.msixupload` — Partner Center upload. A zip of
+  the unsigned `.msix` plus an `.appxsym` when that folder contains PDB files.
+  No PDBs is still valid. **Do not sign the upload or the package inside it.**
+  Partner Center re-signs it.
+- `exr_converter-windows-x86_64.msix` — self-distribution. After the upload is
+  written, `signtool` signs this file when the Azure Artifact Signing secrets
+  below are all set. Otherwise it ships unsigned, and Windows will not install
+  it. An unsigned MSIX needs a trusted signature before `Add-AppxPackage` works.
+
+SignPath stays on the setup `.exe` only. A detached Cosign `.sigstore.json`
+is provenance for the file bytes, not an Appx signature, and is not uploaded
+to the Store.
+
+Optional **secrets** (all of them, or none) for `signtool` on the loose `.msix`:
+
+| Secret | Meaning |
+|--------|---------|
+| `AZURE_TENANT_ID` | Directory (tenant) id |
+| `AZURE_CLIENT_ID` | App registration client id |
+| `AZURE_CLIENT_SECRET` | Client secret |
+| `AZURE_ARTIFACT_SIGNING_ENDPOINT` | Regional Artifact Signing endpoint |
+| `AZURE_ARTIFACT_SIGNING_ACCOUNT` | Artifact Signing account name |
+| `AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE` | Certificate profile name |
 
 Repository **variables** (not secrets):
 
@@ -554,7 +570,7 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/r3d.md](./docs/r3d.md) | Optional RED R3D / N-RAW (proprietary SDK; license + build) |
 | [docs/braw.md](./docs/braw.md) | Optional Blackmagic RAW (proprietary SDK; Linear ACES AP0) |
 | [docs/releasing.md](./docs/releasing.md) | Short pointer here + docs-site note |
-| [docs/msix.md](./docs/msix.md) | Unsigned Windows .msixupload for Partner Center |
+| [docs/msix.md](./docs/msix.md) | Windows .msixupload (Store) and .msix (self-distribution) |
 | [integrations/nuke/](./integrations/nuke/) | Nuke `menu.py` + helpers |
 
 Public site: `make docs-serve` / `make docs-build`. Vercel (Root Directory `site`)
@@ -576,7 +592,7 @@ builds per `site/vercel.json` (`npm run build` → `site/dist`) and serves `http
   libraries + `libbraw_bridge` under a private `braw/` folder — see
   [docs/braw.md](./docs/braw.md).
 - Do not reintroduce Qt WebEngine for slate.
-- Do not sign the Windows MSIX or `.msixupload` (`signtool`, SignPath, or a local cert). Partner Center signs the package. Publish `exr_converter-windows-x86_64.msixupload` as the Store asset; keep the plain `.msix` as a CI artifact only. The Inno `.exe` is the direct download.
+- Do not sign the `.msixupload` or the package inside it (`signtool`, SignPath, or a local cert). Partner Center signs that package. The loose `.msix` may be signed with `signtool` only when the Azure Artifact Signing secrets are set. The Inno `.exe` is the direct download.
 - Do not push version tags without a changelog section and green Release gate intent.
 - Do not hand-edit `src/rc_resources.py` or force-push published release tags without a deliberate recovery process.
 - Do not finish user-visible work without updating **CHANGELOG.md** and **`docs/`** when the surface area changed.

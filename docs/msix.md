@@ -1,12 +1,15 @@
 ---
 title: Microsoft Store
 weight: 32
-description: Unsigned .msixupload for Partner Center submission
+description: Partner Center .msixupload and a self-distribution .msix
 ---
 
-The Windows release build can pack an **unsigned** `.msixupload` from the same Nuitka app as the setup `.exe`. Partner Center (product type **MSIX or PWA app**) signs the package inside it. This repository does not have a code-signing certificate and must not sign the package.
+The Windows release build can pack two extra files from the same Nuitka app as the setup `.exe`:
 
-The setup `.exe` is unchanged. Download that for a direct install. The `.msixupload` is only for Store submission.
+- `exr_converter-windows-x86_64.msixupload` — upload this to Partner Center (product type **MSIX or PWA app**). The package inside it is unsigned. The Store signs it.
+- `exr_converter-windows-x86_64.msix` — self-distribution. Windows installs an MSIX only when a certificate the PC trusts has signed it. Without the signing secrets below, this file is unsigned and will not install.
+
+The setup `.exe` is unchanged. Download that for a direct install that does not need an MSIX signature.
 
 ## Repository variables
 
@@ -24,13 +27,14 @@ The manifest version is `[project].version` from `pyproject.toml` with a fourth 
 
 ## What the Release workflow publishes
 
-On the same Release run as the other installers (no extra workflow):
+On the same Release run as the other installers (no extra workflow), both of these are GitHub Release assets:
 
-- GitHub Release asset `exr_converter-windows-x86_64.msixupload` — upload this to Partner Center
-- Actions artifact `exr_converter-windows-x86_64-msix` — the plain `.msix`, for inspection only. It is not a Release asset
-- Actions artifact `exr_converter-windows-x86_64-msixupload` — the same upload file, before it is copied into the Release
+- `exr_converter-windows-x86_64.msixupload` — Partner Center
+- `exr_converter-windows-x86_64.msix` — self-distribution
 
-A detached `.sigstore.json` may sit next to the Release asset. That is provenance for the file bytes. It is not an MSIX signature. Do not upload it to Partner Center.
+The same files are also Actions artifacts (`exr_converter-windows-x86_64-msixupload` and `exr_converter-windows-x86_64-msix`) before they are copied into the Release.
+
+A detached `.sigstore.json` may sit next to each Release asset. That is provenance for the file bytes. It is not an MSIX signature. Do not upload it to Partner Center, and do not treat it as the signature that lets Windows install the package.
 
 ## What is inside the `.msixupload`
 
@@ -39,14 +43,33 @@ The file is a zip. Its members sit at the **root** of the archive (the same layo
 - `exr_converter_<version>_x64.msix` — the unsigned package (`0.12.3` is `exr_converter_0.12.3.0_x64.msix`)
 - `exr_converter_<version>_x64.appxsym` — only when the Nuitka folder contains `.pdb` files. This is a zip of those symbols, with paths relative to the app directory, for Partner Center crash analytics
 
-Nuitka release builds usually have no PDB files. An upload that contains only the `.msix` is valid. The symbol member uses `.appxsym`. Partner Center rejects a `.msixsym` member. PDB files are not installed inside the `.msix`.
+Nuitka release builds usually have no PDB files. An upload that contains only the `.msix` is valid. The symbol member uses `.appxsym`. Partner Center rejects a `.msixsym` member. PDB files are not installed inside the `.msix`. The copy inside the upload stays unsigned even when the loose `.msix` is signed later.
+
+## Signing the self-distribution `.msix`
+
+`signtool` signs `exr_converter-windows-x86_64.msix` only when every Azure Artifact Signing secret below is set. The step runs after the `.msixupload` has been written, and the upload path is not passed to `signtool`. SignPath is still the setup `.exe` only. Do not send either MSIX file through SignPath.
+
+Set these under **Settings → Secrets and variables → Actions → Secrets**:
+
+| Secret | Value |
+|--------|--------|
+| `AZURE_TENANT_ID` | Directory (tenant) id of the app registration |
+| `AZURE_CLIENT_ID` | Application (client) id |
+| `AZURE_CLIENT_SECRET` | Client secret for that app registration |
+| `AZURE_ARTIFACT_SIGNING_ENDPOINT` | Regional endpoint, such as `https://eus.codesigning.azure.net` |
+| `AZURE_ARTIFACT_SIGNING_ACCOUNT` | Artifact Signing account name |
+| `AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE` | Certificate profile name |
+
+The app registration needs the Artifact Signing Certificate Profile Signer role. The endpoint must be the region where the account and profile were created. If none of these secrets are set, the loose `.msix` ships unsigned and the job continues. If only some of them are set, the Windows job fails instead of publishing an unsigned package by mistake.
+
+An unsigned MSIX does not install. `Add-AppxPackage` refuses it. A self-hosted install needs a signature from a certificate the target PC trusts. Until those secrets exist, use the setup `.exe` for direct installs, or install from the Store after Partner Center signs the upload.
 
 ## Submit in Partner Center
 
 1. Create the app as **MSIX or PWA app** and reserve the name.
 2. Copy the identity name, the `CN=...` publisher, and the publisher display name into the repository variables above.
 3. Ship a release (merge to `main` so Auto-tag runs, or dispatch Release). Download `exr_converter-windows-x86_64.msixupload` from the GitHub Release.
-4. Create a submission and upload that `.msixupload`. Do not sign it first with a local certificate, SignPath, or `signtool`. Do not upload the plain `.msix` or the `.sigstore.json`. `Add-AppxPackage` refuses the unsigned package; that is expected.
+4. Create a submission and upload that `.msixupload`. Do not sign it first. Do not upload the loose `.msix` or the `.sigstore.json`.
 5. Store listing images (screenshots, the 300×300 icon) are uploaded in Partner Center. They are separate from the tile logos inside the package.
 
 The package is x64, full trust (`runFullTrust`), with entry point `exr_converter.exe` (`Windows.FullTrustApplication`) and device family `Windows.Desktop` (minimum 10.0.19041.0). It does not register file associations or protocol handlers. Open media from inside the app. An execution alias registers `exr_converter.exe` for a new terminal so the CLI works after a Store install.

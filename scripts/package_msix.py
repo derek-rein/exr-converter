@@ -16,6 +16,11 @@ rejected by Partner Center. When Nuitka produced no PDBs the upload contains
 only the ``.msix``, which is still a valid upload. PDB files are left out of
 the MSIX layout. The Inno setup still reads the original app directory.
 
+``--sign-msix`` is a separate step. It signs the loose ``.msix`` with
+``signtool`` when the Azure Artifact Signing secrets are all set, and it
+leaves that file unsigned otherwise. It refuses a ``.msixupload`` path. Call
+it only after the upload has been written.
+
 Identity comes from repository variables (not secrets):
 
 * ``MSIX_IDENTITY_NAME`` — Partner Center package identity name
@@ -35,6 +40,8 @@ the ``.msix``, ``makeappx.exe`` from the Windows 10 SDK.
 from __future__ import annotations
 
 import argparse
+import io
+import json
 import os
 import re
 import shutil
@@ -42,6 +49,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import urllib.request
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
@@ -57,12 +65,45 @@ _APP_EXECUTABLE = "exr_converter.exe"
 _DEFAULT_PUBLISHER_DISPLAY_NAME = "DerekVFX"
 _MIN_VERSION = "10.0.19041.0"
 _MAX_VERSION_TESTED = "10.0.26100.0"
+_SIGNING_ENV_KEYS = (
+    "AZURE_TENANT_ID",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET",
+    "AZURE_ARTIFACT_SIGNING_ENDPOINT",
+    "AZURE_ARTIFACT_SIGNING_ACCOUNT",
+    "AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE",
+)
+_NUGET_EXE_URL = "https://dist.nuget.org/win-x86-commandline/v6.13.2/nuget.exe"
+_ARTIFACT_SIGNING_CLIENT_VERSION = "1.0.146"
+_TIMESTAMP_URL = "http://timestamp.acs.microsoft.com"
+# Skip every DefaultAzureCredential type except EnvironmentCredential so a
+# GitHub runner uses AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET
+# and does not wait on interactive or managed-identity login.
+_EXCLUDE_CREDENTIALS = (
+    "ManagedIdentityCredential",
+    "WorkloadIdentityCredential",
+    "SharedTokenCacheCredential",
+    "VisualStudioCredential",
+    "VisualStudioCodeCredential",
+    "AzureCliCredential",
+    "AzurePowerShellCredential",
+    "AzureDeveloperCliCredential",
+    "InteractiveBrowserCredential",
+)
 
 
 class MsixIdentity(NamedTuple):
     name: str
     publisher: str
     publisher_display_name: str
+
+
+class ArtifactSigningConfig(NamedTuple):
+    """Account settings for signtool. The client secret stays in the environment."""
+
+    endpoint: str
+    account: str
+    certificate_profile: str
 
 
 class MsixIdentityMissing(Exception):
@@ -440,10 +481,14 @@ def pack_msix(makeappx: Path, layout: Path, output: Path) -> None:
     subprocess.run(command, check=True)
 
 
+def _zip_entry_names(path: Path) -> list[str]:
+    with zipfile.ZipFile(path) as package:
+        return [entry.replace("\\", "/").lower() for entry in package.namelist()]
+
+
 def assert_unsigned_msix(path: Path) -> None:
     """Fail if MakeAppx (or a later step) embedded an Appx signature."""
-    with zipfile.ZipFile(path) as package:
-        names = [entry.replace("\\", "/").lower() for entry in package.namelist()]
+    names = _zip_entry_names(path)
     if any(name.endswith("appxsignature.p7x") for name in names):
         raise RuntimeError(
             f"{path} contains AppxSignature.p7x. Partner Center must receive an unsigned MSIX."
@@ -452,18 +497,260 @@ def assert_unsigned_msix(path: Path) -> None:
         raise RuntimeError(f"{path} is missing AppxBlockMap.xml.")
 
 
+def artifact_signing_from_env(env: Mapping[str, str]) -> ArtifactSigningConfig | None:
+    """Return Artifact Signing settings, or None when no signing secrets are set.
+
+    A partial set is an error so a release does not silently ship an unsigned
+    package after only some of the secrets were added. The client secret is
+    checked for presence and is not copied into the returned config.
+    """
+    values = {key: env.get(key, "").strip() for key in _SIGNING_ENV_KEYS}
+    if not any(values.values()):
+        return None
+    missing = [key for key, value in values.items() if not value]
+    if missing:
+        names = ", ".join(missing)
+        raise ValueError(
+            "Azure Artifact Signing secrets are incomplete ("
+            f"{names}). Set all of them, or none. The loose .msix is signed only "
+            "when every secret is present."
+        )
+    return ArtifactSigningConfig(
+        endpoint=values["AZURE_ARTIFACT_SIGNING_ENDPOINT"],
+        account=values["AZURE_ARTIFACT_SIGNING_ACCOUNT"],
+        certificate_profile=values["AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE"],
+    )
+
+
+def signing_metadata(config: ArtifactSigningConfig) -> dict[str, object]:
+    """``metadata.json`` for signtool's Artifact Signing dlib.
+
+    EnvironmentCredential stays enabled. The client secret is not written here.
+    """
+    return {
+        "Endpoint": config.endpoint,
+        "CodeSigningAccountName": config.account,
+        "CertificateProfileName": config.certificate_profile,
+        "ExcludeCredentials": list(_EXCLUDE_CREDENTIALS),
+    }
+
+
+def assert_loose_msix_path(path: Path) -> None:
+    """The only file signtool may sign is a loose ``.msix``."""
+    if path.name.lower().endswith(".msixupload") or path.suffix.lower() != ".msix":
+        raise ValueError(
+            f"Refusing to sign {path.name}. signtool may sign the loose .msix only. "
+            "The .msixupload stays unsigned so Partner Center can re-sign it."
+        )
+
+
+def signtool_sign_command(signtool: Path, dlib: Path, metadata: Path, msix: Path) -> list[str]:
+    """signtool command for one loose ``.msix``. The upload is not an argument."""
+    assert_loose_msix_path(msix)
+    if dlib.name.lower() != "azure.codesigning.dlib.dll":
+        raise ValueError(f"Expected Azure.CodeSigning.Dlib.dll, got {dlib.name}.")
+    return [
+        str(signtool),
+        "sign",
+        "/v",
+        "/debug",
+        "/fd",
+        "SHA256",
+        "/tr",
+        _TIMESTAMP_URL,
+        "/td",
+        "SHA256",
+        "/dlib",
+        str(dlib),
+        "/dmdf",
+        str(metadata),
+        str(msix),
+    ]
+
+
+def assert_upload_contains_unsigned_msix(path: Path) -> None:
+    """The ``.msix`` stored inside the upload must not contain ``AppxSignature.p7x``."""
+    with zipfile.ZipFile(path) as outer:
+        members = [
+            name
+            for name in outer.namelist()
+            if name.lower().endswith(".msix") and not name.endswith("/")
+        ]
+        if len(members) != 1:
+            raise RuntimeError(
+                f"{path} should contain exactly one .msix member, found {members!r}."
+            )
+        payload = outer.read(members[0])
+    with zipfile.ZipFile(io.BytesIO(payload)) as package:
+        names = [entry.replace("\\", "/").lower() for entry in package.namelist()]
+    if any(name.endswith("appxsignature.p7x") for name in names):
+        raise RuntimeError(
+            f"{path} contains a signed .msix. Partner Center re-signs the upload. "
+            "Sign only the loose self-distribution .msix, after the upload is written."
+        )
+    if not any(name == "appxblockmap.xml" for name in names):
+        raise RuntimeError(f"The .msix inside {path} is missing AppxBlockMap.xml.")
+
+
+def assert_signed_msix(path: Path) -> None:
+    """The loose self-distribution package has an Appx signature."""
+    assert_loose_msix_path(path)
+    names = _zip_entry_names(path)
+    if not any(name.endswith("appxsignature.p7x") for name in names):
+        raise RuntimeError(f"{path} has no AppxSignature.p7x after signtool.")
+
+
+def _sdk_version_key(path: Path) -> tuple[int, ...]:
+    folder = path.parent.parent.name
+    numbers: list[int] = []
+    for piece in folder.split("."):
+        if not piece.isdigit():
+            break
+        numbers.append(int(piece))
+    return tuple(numbers)
+
+
+def find_signtool() -> Path | None:
+    """Newest x64 ``signtool.exe`` from the Windows SDK, or None off Windows."""
+    if sys.platform != "win32":
+        return None
+    roots: list[Path] = []
+    for key in ("ProgramFiles(x86)", "ProgramFiles"):
+        base = os.environ.get(key, "")
+        if base:
+            roots.append(Path(base) / "Windows Kits" / "10" / "bin")
+    sdk = os.environ.get("WindowsSdkDir", "").strip()
+    if sdk:
+        roots.append(Path(sdk) / "bin")
+    found: list[Path] = []
+    for root in roots:
+        if root.is_dir():
+            found.extend(root.glob("*/x64/signtool.exe"))
+    if not found:
+        return None
+    return max(found, key=_sdk_version_key)
+
+
+def _download(url: str, dest: Path) -> None:
+    request = urllib.request.Request(url, headers={"User-Agent": "exr-converter-msix"})
+    with urllib.request.urlopen(request, timeout=120) as response, dest.open("wb") as handle:
+        shutil.copyfileobj(response, handle)
+
+
+def install_artifact_signing_dlib(dest: Path) -> Path:
+    """Install ``Microsoft.ArtifactSigning.Client`` and return the x64 dlib."""
+    dest.mkdir(parents=True, exist_ok=True)
+    nuget = dest / "nuget.exe"
+    if not nuget.is_file():
+        _download(_NUGET_EXE_URL, nuget)
+    subprocess.run(
+        [
+            str(nuget),
+            "install",
+            "Microsoft.ArtifactSigning.Client",
+            "-Version",
+            _ARTIFACT_SIGNING_CLIENT_VERSION,
+            "-OutputDirectory",
+            str(dest),
+            "-NonInteractive",
+            "-Verbosity",
+            "quiet",
+        ],
+        check=True,
+    )
+    preferred = (
+        dest
+        / f"Microsoft.ArtifactSigning.Client.{_ARTIFACT_SIGNING_CLIENT_VERSION}"
+        / "bin"
+        / "x64"
+        / "Azure.CodeSigning.Dlib.dll"
+    )
+    if preferred.is_file():
+        return preferred
+    matches = [
+        path
+        for path in dest.rglob("Azure.CodeSigning.Dlib.dll")
+        if path.parent.name.lower() == "x64"
+    ]
+    if not matches:
+        raise RuntimeError(
+            "Azure.CodeSigning.Dlib.dll was not found after installing "
+            f"Microsoft.ArtifactSigning.Client {_ARTIFACT_SIGNING_CLIENT_VERSION}."
+        )
+    return matches[0]
+
+
+def sign_loose_msix(msix: Path, upload: Path) -> int:
+    """Sign *msix* when Artifact Signing secrets are set. Never signs *upload*."""
+    assert_loose_msix_path(msix)
+    if not msix.is_file():
+        print(f"::error::MSIX not found: {msix}", file=sys.stderr)
+        return 1
+    if not upload.is_file():
+        print(f"::error::MSIX upload not found: {upload}", file=sys.stderr)
+        return 1
+    assert_upload_contains_unsigned_msix(upload)
+    try:
+        config = artifact_signing_from_env(os.environ)
+    except ValueError as exc:
+        print(f"::error::{exc}", file=sys.stderr)
+        return 1
+    if config is None:
+        print(
+            "::warning::Self-distribution MSIX is unsigned. Windows will not install it "
+            "until it has a signature from a certificate the PC trusts. Set Azure Artifact "
+            "Signing secrets (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, "
+            "AZURE_ARTIFACT_SIGNING_ENDPOINT, AZURE_ARTIFACT_SIGNING_ACCOUNT, "
+            "AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE) to sign "
+            f"{msix.name} with signtool. {upload.name} is never signed.",
+            file=sys.stderr,
+        )
+        return 0
+    if sys.platform != "win32":
+        print("::error::signtool signing requires Windows.", file=sys.stderr)
+        return 1
+    signtool = find_signtool()
+    if signtool is None:
+        print(
+            "::error::signtool.exe not found. Install the Windows SDK "
+            "(10.0.22621 or newer) on the runner.",
+            file=sys.stderr,
+        )
+        return 1
+    sealed = upload.read_bytes()
+    with tempfile.TemporaryDirectory(prefix="exr-msix-sign-") as tmp:
+        tmp_path = Path(tmp)
+        dlib = install_artifact_signing_dlib(tmp_path)
+        metadata_path = tmp_path / "metadata.json"
+        metadata_path.write_text(
+            json.dumps(signing_metadata(config), indent=2) + "\n",
+            encoding="utf-8",
+        )
+        command = signtool_sign_command(signtool, dlib, metadata_path, msix)
+        print(
+            "Signing the loose MSIX with signtool. The .msixupload is not an argument.",
+            flush=True,
+        )
+        print(" ".join(command), flush=True)
+        subprocess.run(command, check=True)
+    if upload.read_bytes() != sealed:
+        raise RuntimeError(f"signtool modified {upload.name}. The upload must stay unsigned.")
+    assert_upload_contains_unsigned_msix(upload)
+    assert_signed_msix(msix)
+    print(f"Signed {msix}. {upload.name} is still unsigned.", flush=True)
+    return 0
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--app-dir",
         type=Path,
-        required=True,
         help="Nuitka dist folder containing exr_converter.exe.",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        required=True,
         help="Destination .msixupload (zip of the .msix and optional .appxsym).",
     )
     parser.add_argument(
@@ -472,13 +759,34 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=None,
         help="Also keep the plain unsigned .msix at this path.",
     )
+    parser.add_argument(
+        "--sign-msix",
+        type=Path,
+        default=None,
+        help="Sign this loose .msix with signtool when Artifact Signing secrets are set.",
+    )
+    parser.add_argument(
+        "--upload",
+        type=Path,
+        default=None,
+        help="Existing .msixupload to leave unsigned while --sign-msix runs.",
+    )
     parser.add_argument("--icon", type=Path, default=Path("resources/icons/icon.png"))
     parser.add_argument("--pyproject", type=Path, default=Path("pyproject.toml"))
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.sign_msix is not None:
+        if args.upload is None:
+            parser.error("--upload is required with --sign-msix")
+        return args
+    if args.app_dir is None or args.output is None:
+        parser.error("--app-dir and --output are required to pack an MSIX")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    if args.sign_msix is not None:
+        return sign_loose_msix(args.sign_msix, args.upload)
     try:
         identity = identity_from_env(os.environ)
     except MsixIdentityMissing as exc:

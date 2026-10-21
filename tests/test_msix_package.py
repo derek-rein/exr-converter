@@ -1,8 +1,10 @@
-"""Unsigned MSIX manifest, tile logos, upload zip, and Release workflow wiring."""
+"""MSIX manifest, upload zip, optional signtool hook, and Release workflow wiring."""
 
 from __future__ import annotations
 
+import inspect
 import io
+import json
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
@@ -19,13 +21,19 @@ from package_msix import (  # noqa: E402
     LOGOS,
     MsixIdentity,
     MsixIdentityMissing,
+    artifact_signing_from_env,
     assert_unsigned_msix,
+    assert_upload_contains_unsigned_msix,
     build_layout,
     build_manifest,
     build_msixupload,
     identity_from_env,
     msix_version,
+    pack_msix,
     read_project_version,
+    sign_loose_msix,
+    signing_metadata,
+    signtool_sign_command,
     upload_member_stem,
 )
 
@@ -211,7 +219,99 @@ def test_assert_unsigned_rejects_signature(tmp_path: Path) -> None:
         assert_unsigned_msix(signed)
 
 
-def test_release_workflow_packages_unsigned_msix_without_new_triggers() -> None:
+_SIGNING_ENV = {
+    "AZURE_TENANT_ID": "tenant",
+    "AZURE_CLIENT_ID": "client",
+    "AZURE_CLIENT_SECRET": "super-secret",
+    "AZURE_ARTIFACT_SIGNING_ENDPOINT": "https://eus.codesigning.azure.net",
+    "AZURE_ARTIFACT_SIGNING_ACCOUNT": "exr-account",
+    "AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE": "exr-profile",
+}
+
+
+def test_artifact_signing_secrets_are_all_or_nothing() -> None:
+    assert artifact_signing_from_env({}) is None
+    with pytest.raises(ValueError, match="incomplete"):
+        artifact_signing_from_env({"AZURE_TENANT_ID": "tenant"})
+    config = artifact_signing_from_env(_SIGNING_ENV)
+    assert config is not None
+    assert config.account == "exr-account"
+    metadata = signing_metadata(config)
+    blob = json.dumps(metadata)
+    assert "super-secret" not in blob
+    assert "EnvironmentCredential" not in metadata["ExcludeCredentials"]
+    assert "InteractiveBrowserCredential" in metadata["ExcludeCredentials"]
+
+
+def test_signtool_command_signs_only_the_loose_msix(tmp_path: Path) -> None:
+    msix = tmp_path / "app.msix"
+    command = signtool_sign_command(
+        Path("signtool.exe"),
+        Path("Azure.CodeSigning.Dlib.dll"),
+        tmp_path / "metadata.json",
+        msix,
+    )
+    assert command[1] == "sign"
+    assert command[-1] == str(msix)
+    assert "msixupload" not in " ".join(command).lower()
+    assert "super-secret" not in " ".join(command)
+    assert "/dlib" in command
+    with pytest.raises(ValueError, match="loose"):
+        signtool_sign_command(
+            Path("signtool.exe"),
+            Path("Azure.CodeSigning.Dlib.dll"),
+            tmp_path / "metadata.json",
+            tmp_path / "app.msixupload",
+        )
+
+
+def test_rewriting_the_loose_msix_leaves_the_upload_unsigned(tmp_path: Path) -> None:
+    app = tmp_path / "app"
+    app.mkdir()
+    msix = tmp_path / "plain.msix"
+    _plain_msix(msix)
+    upload = tmp_path / "out.msixupload"
+    build_msixupload(msix, upload, app_dir=app, version="0.12.3.0")
+    sealed = upload.read_bytes()
+    assert_upload_contains_unsigned_msix(upload)
+    msix.write_bytes(b"signed-replacement")
+    assert upload.read_bytes() == sealed
+    assert_upload_contains_unsigned_msix(upload)
+
+
+def test_upload_guard_rejects_a_signed_inner_package(tmp_path: Path) -> None:
+    app = tmp_path / "app"
+    app.mkdir()
+    msix = tmp_path / "signed.msix"
+    with zipfile.ZipFile(msix, "w") as package:
+        package.writestr("AppxBlockMap.xml", "<BlockMap/>")
+        package.writestr("AppxSignature.p7x", b"signed")
+    upload = tmp_path / "out.msixupload"
+    build_msixupload(msix, upload, app_dir=app, version="0.12.3.0")
+    with pytest.raises(RuntimeError, match="signed"):
+        assert_upload_contains_unsigned_msix(upload)
+
+
+def test_sign_loose_msix_skips_when_secrets_are_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = tmp_path / "app"
+    app.mkdir()
+    msix = tmp_path / "plain.msix"
+    _plain_msix(msix)
+    original = msix.read_bytes()
+    upload = tmp_path / "out.msixupload"
+    build_msixupload(msix, upload, app_dir=app, version="0.12.3.0")
+    for key in _SIGNING_ENV:
+        monkeypatch.delenv(key, raising=False)
+    assert sign_loose_msix(msix, upload) == 0
+    assert msix.read_bytes() == original
+    monkeypatch.setenv("AZURE_TENANT_ID", "tenant")
+    assert sign_loose_msix(msix, upload) == 1
+    assert msix.read_bytes() == original
+
+
+def test_release_workflow_publishes_both_msix_assets_without_new_triggers() -> None:
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     script = (ROOT / "scripts" / "package_msix.py").read_text(encoding="utf-8")
     assert "on:\n  push:\n    tags:" in workflow
@@ -224,15 +324,27 @@ def test_release_workflow_packages_unsigned_msix_without_new_triggers() -> None:
     assert "vars.MSIX_PUBLISHER_DISPLAY_NAME" in workflow
     assert "exr_converter-windows-x86_64.msixupload" in workflow
     assert "--msix exr_converter-windows-x86_64.msix" in workflow
+    assert "--sign-msix exr_converter-windows-x86_64.msix" in workflow
+    assert "--upload exr_converter-windows-x86_64.msixupload" in workflow
+    assert "--sign-msix exr_converter-windows-x86_64.msixupload" not in workflow
+    pack_at = workflow.index("--output exr_converter-windows-x86_64.msixupload")
+    sign_at = workflow.index("--sign-msix exr_converter-windows-x86_64.msix")
+    assert pack_at < sign_at
     assert "exr_converter-windows-x86_64-msix" in workflow
     assert "exr_converter-windows-x86_64-msixupload" in workflow
+    assert 'downloaded/exr_converter-windows-x86_64-msix"' in workflow
     assert "downloaded/exr_converter-windows-x86_64-msixupload" in workflow
-    assert 'downloaded/exr_converter-windows-x86_64-msix"' not in workflow
     assert "release-assets/exr_converter-windows-x86_64.msixupload" in workflow
+    assert "release-assets/exr_converter-windows-x86_64.msix" in workflow
+    assert "artifacts/*.msix\n" in workflow
     assert "artifacts/*.msixupload" in workflow
-    assert "artifacts/*.msix\n" not in workflow
+    for secret in _SIGNING_ENV:
+        assert f"secrets.{secret}" in workflow
     assert "installer.iss" in workflow
-    assert "signtool" not in script.lower()
+    assert "name: exr_converter-windows-x86_64-setup" in workflow
+    assert "signtool" not in inspect.getsource(pack_msix).lower()
+    assert "signtool" not in inspect.getsource(build_msixupload).lower()
+    assert "signtool" in inspect.getsource(signtool_sign_command).lower()
     assert "makeappx" in script.lower()
     assert ".appxsym" in script
     # The setup executable upload is unchanged.
