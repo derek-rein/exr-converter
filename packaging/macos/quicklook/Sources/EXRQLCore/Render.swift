@@ -35,7 +35,7 @@ enum PreviewRenderer {
             let image = try render(url: url, format: format, maxPixel: max(maxPixel, 1))
             return .image(image, label: label)
         } catch {
-            let message = (error as? CustomStringConvertible).map { "\($0)" } ?? "Could not preview this file."
+            let message = String(describing: error)
             if let fallback = errorImage(message: message) {
                 return .image(fallback, label: label)
             }
@@ -168,7 +168,7 @@ enum PreviewRenderer {
             if let extent = raw.outputImage?.extent, extent.width > 0, extent.height > 0 {
                 let long = max(extent.width, extent.height)
                 if long > CGFloat(maxPixel) {
-                    raw.scaleFactor = CGFloat(maxPixel) / long
+                    raw.scaleFactor = Float(maxPixel) / Float(long)
                 }
             }
             if let output = raw.outputImage {

@@ -3,7 +3,7 @@ import Foundation
 import QuickLookThumbnailing
 
 /// Referenced from Info.plist only. Keep the class live for the linker.
-@_used
+@used
 let exrqlKeepThumbnailProvider: AnyClass = ThumbnailProvider.self
 
 public final class ThumbnailProvider: QLThumbnailProvider {
