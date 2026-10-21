@@ -15,6 +15,7 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
+from ..app_paths import is_under_install_dir, outside_install_dir
 from ..constants import APP_ORG, APP_VERSION
 
 MODEL_BASE_URL = "https://cai-watermark.adobe.net/watermarking/trustmark-models/"
@@ -33,11 +34,7 @@ _SHA256 = {
 LogCallback = Callable[[str], None]
 
 
-def cache_dir() -> Path:
-    """Per-user model cache. ``EXR_TRUSTMARK_CACHE`` overrides it."""
-    override = os.environ.get("EXR_TRUSTMARK_CACHE", "").strip()
-    if override:
-        return Path(override).expanduser()
+def _default_cache_dir() -> Path:
     if sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA", "")
         root = Path(base) if base else Path.home() / "AppData" / "Local"
@@ -47,6 +44,34 @@ def cache_dir() -> Path:
     xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
     root = Path(xdg) if xdg else Path.home() / ".cache"
     return root / "exr-converter" / "trustmark"
+
+
+def _fallback_cache_dir() -> Path:
+    """Home-relative cache when ``LOCALAPPDATA`` / ``XDG_CACHE_HOME`` point at the install tree."""
+    if sys.platform == "win32":
+        return Path.home() / "AppData" / "Local" / APP_ORG / "EXRConverter" / "Cache" / "trustmark"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / APP_ORG / "EXRConverter" / "trustmark"
+    return Path.home() / ".cache" / "exr-converter" / "trustmark"
+
+
+def cache_dir() -> Path:
+    """Per-user model cache. ``EXR_TRUSTMARK_CACHE`` overrides it.
+
+    The directory is never inside the application install folder. An MSIX
+    package root is read-only, so a download next to ``exr_converter.exe``
+    would fail.
+    """
+    override = os.environ.get("EXR_TRUSTMARK_CACHE", "").strip()
+    if override:
+        path = Path(override).expanduser()
+        if not path.is_absolute() or is_under_install_dir(path):
+            raise RuntimeError(
+                "EXR_TRUSTMARK_CACHE must be an absolute directory outside the "
+                "application install folder. An MSIX install directory is read-only."
+            )
+        return path
+    return outside_install_dir(_default_cache_dir(), _fallback_cache_dir())
 
 
 def _sha256(path: Path) -> str:

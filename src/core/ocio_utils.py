@@ -52,6 +52,10 @@ def get_bundled_aces_studio_path() -> Path | None:
     Tries several locations to work in dev, Nuitka onefile, and especially
     macOS .app bundles created with --macos-create-app-bundle +
     --include-data-files.
+
+    The config and its ``luts/`` files are read in place. They are not extracted
+    or copied. An MSIX install directory is read-only, so this lookup must not
+    write beside the config.
     """
     filename = "aces-studio-v4.ocio"
     rel_path = Path("resources") / "ocio" / filename
