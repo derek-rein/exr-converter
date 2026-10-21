@@ -1,8 +1,8 @@
 import Foundation
 
-/// Filename-only sequence identity. The Quick Look sandbox can read the file
-/// it was handed and usually cannot list sibling frames, so the frame range is
-/// optional.
+/// Filename-only sequence identity. Sibling frames are readable when the
+/// temporary-exception entitlement covers the directory. A failed listing is
+/// just the selected frame.
 struct SequenceFrame: Equatable {
     let name: String
     let separator: Character
@@ -14,6 +14,10 @@ struct SequenceFrame: Equatable {
 
     func padded(_ value: Int) -> String {
         String(format: "%0\(padding)d", value)
+    }
+
+    func filename(forFrame value: Int) -> String {
+        "\(name)\(separator)\(padded(value)).\(ext)"
     }
 
     func matchesSequence(_ other: SequenceFrame) -> Bool {
@@ -55,7 +59,9 @@ enum SequenceLabel {
     /// omitted rather than shown from a partial listing.
     static let maxDirectoryEntries = 50_000
 
-    static func frameRange(directory: URL, frame: SequenceFrame) -> ClosedRange<Int>? {
+    /// Sorted frame numbers, or nil when the directory cannot be listed or is
+    /// too large to trust. An empty match still returns the selected frame.
+    static func listedFrames(directory: URL, frame: SequenceFrame) -> [Int]? {
         let names: [String]
         do {
             names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
@@ -65,9 +71,7 @@ enum SequenceLabel {
         if names.count > maxDirectoryEntries {
             return nil
         }
-        var low = frame.frame
-        var high = frame.frame
-        var found = 0
+        var found = Set<Int>()
         for name in names {
             if name.hasPrefix(".") {
                 continue
@@ -75,11 +79,22 @@ enum SequenceLabel {
             guard let other = SequenceFrame.parse(filename: name), other.matchesSequence(frame) else {
                 continue
             }
-            found += 1
-            low = min(low, other.frame)
-            high = max(high, other.frame)
+            found.insert(other.frame)
         }
-        if found < 2 || low == high {
+        if found.isEmpty {
+            return [frame.frame]
+        }
+        return found.sorted()
+    }
+
+    static func frameRange(directory: URL, frame: SequenceFrame) -> ClosedRange<Int>? {
+        guard
+            let frames = listedFrames(directory: directory, frame: frame),
+            frames.count >= 2,
+            let low = frames.first,
+            let high = frames.last,
+            low != high
+        else {
             return nil
         }
         return low...high
@@ -92,5 +107,40 @@ enum SequenceLabel {
             return "\(frame.name)  ·  \(frame.padded(range.lowerBound))–\(frame.padded(range.upperBound))"
         }
         return "\(frame.name)  ·  frame \(frame.paddedFrame)"
+    }
+}
+
+/// Frames the flipbook can open. ``frames`` is the selected frame alone when
+/// the directory listing fails.
+struct SequencePlaylist {
+    let directory: URL
+    let identity: SequenceFrame
+    let frames: [Int]
+
+    var canPlay: Bool { frames.count >= 2 }
+
+    func fileURL(at index: Int) -> URL {
+        directory.appendingPathComponent(identity.filename(forFrame: frames[index]))
+    }
+
+    func caption(at index: Int) -> String {
+        let frame = frames[index]
+        guard canPlay, let first = frames.first, let last = frames.last else {
+            return "\(identity.name)  ·  frame \(identity.padded(frame))"
+        }
+        return "\(identity.name)  ·  \(identity.padded(frame))  ·  \(identity.padded(first))–\(identity.padded(last))"
+    }
+
+    static func load(url: URL) -> SequencePlaylist? {
+        guard let identity = SequenceFrame.parse(filename: url.lastPathComponent) else {
+            return nil
+        }
+        let directory = url.deletingLastPathComponent()
+        let frames = SequenceLabel.listedFrames(directory: directory, frame: identity) ?? [identity.frame]
+        return SequencePlaylist(directory: directory, identity: identity, frames: frames)
+    }
+
+    func index(ofFrame frame: Int) -> Int {
+        frames.firstIndex(of: frame) ?? 0
     }
 }

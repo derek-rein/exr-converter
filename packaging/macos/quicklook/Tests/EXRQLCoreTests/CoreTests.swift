@@ -136,6 +136,84 @@ final class CoreTests: XCTestCase {
         XCTAssertThrowsError(try DPXDecoder.decode(url: url, maxPixel: 32))
     }
 
+    func testShaperClampsNonPositiveAndSpansTheLattice() {
+        XCTAssertEqual(ViewLUT.shaper(0, minExp: -10, maxExp: 6), 0)
+        XCTAssertEqual(ViewLUT.shaper(-4, minExp: -10, maxExp: 6), 0)
+        XCTAssertEqual(ViewLUT.shaper(exp2(-10), minExp: -10, maxExp: 6), 0, accuracy: 1e-5)
+        XCTAssertEqual(ViewLUT.shaper(exp2(6), minExp: -10, maxExp: 6), 1, accuracy: 1e-4)
+        let mid = ViewLUT.shaper(0.18, minExp: -10, maxExp: 6)
+        XCTAssertGreaterThan(mid, 0.4)
+        XCTAssertLessThan(mid, 0.55)
+    }
+
+    func testViewLUTParseAndSample() throws {
+        let lut = try XCTUnwrap(ViewLUT.parse(solidRedLUT()))
+        XCTAssertEqual(lut.cubeSize, 2)
+        XCTAssertEqual(lut.sourceName, "ACEScg")
+        XCTAssertEqual(lut.displayName, "sRGB")
+        XCTAssertEqual(lut.viewName, "View")
+        let rgb = lut.sample(r: 0.2, g: 0.2, b: 0.2)
+        XCTAssertEqual(rgb.0, 1, accuracy: 0.001)
+        XCTAssertEqual(rgb.1, 0, accuracy: 0.001)
+        XCTAssertEqual(rgb.2, 0, accuracy: 0.001)
+        XCTAssertNil(ViewLUT.parse(Data("nope".utf8)))
+    }
+
+    func testColorCubeUsesTheLattice() throws {
+        let lut = try XCTUnwrap(ViewLUT.parse(solidRedLUT()))
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        let info = CGBitmapInfo.floatComponents.rawValue
+            | CGBitmapInfo.byteOrder32Little.rawValue
+            | CGImageAlphaInfo.premultipliedLast.rawValue
+        let context = try XCTUnwrap(
+            CGContext(
+                data: nil,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 32,
+                bytesPerRow: 16,
+                space: space,
+                bitmapInfo: info
+            ))
+        let gray = try XCTUnwrap(CGColor(colorSpace: space, components: [0.2, 0.2, 0.2, 1]))
+        context.setFillColor(gray)
+        context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        let source = try XCTUnwrap(context.makeImage())
+        let mapped = try XCTUnwrap(ColorCube.apply(image: source, lut: lut))
+        let px = try readSRGB(mapped)
+        XCTAssertGreaterThan(Int(px[0]), 200)
+        XCTAssertLessThan(Int(px[1]), 30)
+        XCTAssertLessThan(Int(px[2]), 30)
+    }
+
+    func testPlaylistPlaysListedFramesAndFallsBackToOne() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for frame in [1001, 1003, 1002] {
+            FileManager.default.createFile(
+                atPath: dir.appendingPathComponent("plate.\(frame).exr").path,
+                contents: Data()
+            )
+        }
+        let url = dir.appendingPathComponent("plate.1002.exr")
+        let playlist = try XCTUnwrap(SequencePlaylist.load(url: url))
+        XCTAssertEqual(playlist.frames, [1001, 1002, 1003])
+        XCTAssertTrue(playlist.canPlay)
+        XCTAssertEqual(playlist.index(ofFrame: 1002), 1)
+        XCTAssertEqual(playlist.fileURL(at: 0).lastPathComponent, "plate.1001.exr")
+        XCTAssertEqual(playlist.caption(at: 1), "plate  ·  1002  ·  1001–1003")
+
+        let missing = dir.appendingPathComponent("gone")
+        try FileManager.default.createDirectory(at: missing, withIntermediateDirectories: true)
+        let alone = missing.appendingPathComponent("plate.1005.exr")
+        FileManager.default.createFile(atPath: alone.path, contents: Data())
+        try FileManager.default.removeItem(at: missing)
+        let fallback = try XCTUnwrap(SequencePlaylist.load(url: alone))
+        XCTAssertEqual(fallback.frames, [1005])
+        XCTAssertFalse(fallback.canPlay)
+    }
+
     func testToneMapAssignsRedToRed() throws {
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
         let info = CGBitmapInfo.floatComponents.rawValue
@@ -160,6 +238,42 @@ final class CoreTests: XCTestCase {
         XCTAssertGreaterThan(Int(px[0]), 30)
         XCTAssertLessThan(Int(px[1]), 8)
         XCTAssertLessThan(Int(px[2]), 8)
+    }
+
+    private func solidRedLUT() -> Data {
+        var data = Data()
+        data.append(contentsOf: Array("EXQL".utf8))
+        func u16(_ value: UInt16) {
+            data.append(UInt8(value & 0xFF))
+            data.append(UInt8(value >> 8))
+        }
+        func f32(_ value: Float) {
+            var bits = value.bitPattern.littleEndian
+            withUnsafeBytes(of: &bits) { data.append(contentsOf: $0) }
+        }
+        u16(1)
+        u16(2)
+        u16(1)
+        u16(0)
+        f32(-10)
+        f32(6)
+        let source = Data("ACEScg".utf8)
+        let display = Data("sRGB".utf8)
+        let view = Data("View".utf8)
+        u16(UInt16(source.count))
+        u16(UInt16(display.count))
+        u16(UInt16(view.count))
+        u16(0)
+        data.append(source)
+        data.append(display)
+        data.append(view)
+        for _ in 0..<8 {
+            f32(1)
+            f32(0)
+            f32(0)
+            f32(1)
+        }
+        return data
     }
 
     private func readSRGB(_ image: CGImage) throws -> [UInt8] {

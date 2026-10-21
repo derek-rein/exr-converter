@@ -585,11 +585,10 @@ class PreferencesDialog(QDialog):
             "preview when it has one. EXR and DPX have none, so they go blank. "
             "Enable the extension once under System Settings → General → "
             "Login Items &amp; Extensions. "
-            "Numbered frames are labeled from the filename. The frame range is "
-            "shown only when the folder can be listed; the sandbox often blocks "
-            "that. Scene-linear EXR and DPX use a small Rec.709 approximation, "
-            "not this app’s OCIO config. Movies, BRAW, R3D, and ARRIRAW are not "
-            "previewed here."
+            "Scene-linear OpenEXR and DPX use this app’s default OCIO display "
+            "view (exposure 0, gamma 1), written when the OCIO config loads. "
+            "Numbered frames play in the preview when the folder can be read. "
+            "Movies, BRAW, R3D, and ARRIRAW are not previewed here."
         )
         hint.setWordWrap(True)
         hint.setTextFormat(Qt.TextFormat.RichText)

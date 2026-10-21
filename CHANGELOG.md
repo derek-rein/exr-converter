@@ -15,7 +15,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Added
 
-- macOS release builds include Quick Look and Finder thumbnail extensions for OpenEXR and DPX (on by default), plus optional TIFF, PNG, JPEG, WebP, and DNG. Spacebar previews the selected frame and labels a numbered sequence when the name has a frame. **File → Preferences… → Quick Look** chooses which formats the extension handles. Movies, BRAW, R3D, and ARRIRAW are unchanged. See [Quick Look on macOS](docs/quicklook.md).
+- macOS Quick Look previews scene-linear OpenEXR and DPX through the app’s default OCIO display view (a baked 3D LUT, exposure 0 and gamma 1). Numbered frames play in the Spacebar preview when the folder can be read. **File → Preferences… → Quick Look** still chooses the formats. Movies, BRAW, R3D, and ARRIRAW are unchanged. See [Quick Look on macOS](docs/quicklook.md).
 
 ---
 

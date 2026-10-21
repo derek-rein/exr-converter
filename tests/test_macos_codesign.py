@@ -155,7 +155,19 @@ def test_appex_entitlements_are_sandboxed_without_jit() -> None:
     assert data["com.apple.security.files.user-selected.read-only"] is True
     assert data["com.apple.security.application-groups"] == ["83546T4BT8.com.vfxtools.exrconverter"]
     home = data["com.apple.security.temporary-exception.files.home-relative-path.read-only"]
-    assert home == ["/Library/Application Support/EXR Converter/quicklook.json"]
+    assert home == [
+        "/Library/Application Support/EXR Converter/quicklook.json",
+        "/Library/Application Support/EXR Converter/view.lut",
+        "/",
+    ]
+    absolute = data["com.apple.security.temporary-exception.files.absolute-path.read-only"]
+    assert absolute == ["/Volumes/", "/private/tmp/", "/tmp/"]
+    for path in (*home, *absolute):
+        assert isinstance(path, str) and path.startswith("/")
+    for path in absolute:
+        assert path.endswith("/")
+    assert "com.apple.security.temporary-exception.files.home-relative-path.read-write" not in data
+    assert "com.apple.security.temporary-exception.files.absolute-path.read-write" not in data
     assert "com.apple.security.cs.allow-jit" not in data
     assert "com.apple.security.cs.disable-library-validation" not in data
 

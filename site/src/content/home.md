@@ -35,7 +35,7 @@ The macOS build is signed and notarized, so it opens normally. First launch may 
 
 Release DMGs are signed with a Developer ID Application certificate for **Medeu Global LLC**, then notarized and stapled.
 
-Release builds also include Quick Look and Finder thumbnail extensions for OpenEXR and DPX. Enable them under **System Settings → General → Login Items & Extensions**. See [Quick Look on macOS](docs/quicklook/).
+Release builds also include Quick Look and Finder thumbnail extensions for OpenEXR and DPX. Spacebar uses the app’s default OCIO display view, and numbered frames play when the folder can be read. Enable the extensions under **System Settings → General → Login Items & Extensions**. See [Quick Look on macOS](docs/quicklook/).
 
 ### Install by platform
 

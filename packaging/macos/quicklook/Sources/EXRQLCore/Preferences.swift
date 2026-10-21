@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// JSON written by the Python app. See ``src/core/quicklook_prefs.py``.
@@ -55,10 +54,7 @@ enum QuickLookPreferences {
     /// real home. The temporary-exception entitlement is relative to the real
     /// home, which ``getpwuid`` still returns.
     private static func readFallback() -> Data? {
-        guard let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir else {
-            return nil
-        }
-        let home = URL(fileURLWithPath: String(cString: dir), isDirectory: true)
+        guard let home = RealHome.url() else { return nil }
         return try? Data(contentsOf: home.appendingPathComponent(fallbackRelative))
     }
 }

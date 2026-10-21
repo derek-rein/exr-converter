@@ -30,6 +30,7 @@ from src.core.quicklook_formats import (  # noqa: E402
     merge_type_declarations,
     supported_content_types,
 )
+from src.core.quicklook_lut import bake_bundled_view_lut  # noqa: E402
 
 QL_ROOT = ROOT / "packaging" / "macos" / "quicklook"
 CORE_SOURCES = sorted((QL_ROOT / "Sources" / "EXRQLCore").glob("*.swift"))
@@ -159,7 +160,9 @@ def extension_info_plist(
         "QLSupportedContentTypes": supported_content_types(),
     }
     if preview:
-        attributes["QLIsDataBasedPreview"] = True
+        # View controller + custom NSView. False selects that path over the
+        # data-based QLPreviewProvider reply.
+        attributes["QLIsDataBasedPreview"] = False
         attributes["QLSupportsSearchableItems"] = False
     else:
         attributes["QLThumbnailMinimumDimension"] = 16
@@ -191,13 +194,14 @@ def write_appex(
     executable_name: str,
     display_name: str,
     module: str,
-    extra_source: Path,
+    extra_sources: list[Path],
     extra_frameworks: list[str],
     extension_point: str,
     principal_class: str,
     preview: bool,
     arch: str,
     version: str,
+    lut: bytes,
 ) -> Path:
     if dest.exists():
         shutil.rmtree(dest)
@@ -205,7 +209,7 @@ def write_appex(
     exe = macos / executable_name
     compile_executable(
         module=module,
-        sources=[*CORE_SOURCES, extra_source],
+        sources=[*CORE_SOURCES, *extra_sources],
         frameworks=extra_frameworks,
         arch=arch,
         destination=exe,
@@ -223,6 +227,9 @@ def write_appex(
     plist_path = dest / "Contents" / "Info.plist"
     with plist_path.open("wb") as handle:
         plistlib.dump(info, handle, fmt=plistlib.FMT_XML)
+    resources = dest / "Contents" / "Resources"
+    resources.mkdir(parents=True, exist_ok=True)
+    (resources / "view.lut").write_bytes(lut)
     ad_hoc_sign(dest)
     return dest
 
@@ -250,19 +257,27 @@ def build_pair(staging: Path, arch: str) -> tuple[Path, Path]:
     if not CORE_SOURCES:
         raise SystemExit(f"no Swift sources in {QL_ROOT / 'Sources' / 'EXRQLCore'}")
     version = project_version()
+    lut = bake_bundled_view_lut()
+    if len(lut) > 2_000_000:
+        raise SystemExit(f"view.lut is {len(lut)} bytes; keep the cube at 33³")
+    print(f"view.lut: {len(lut)} bytes", flush=True)
+    preview_sources = sorted((QL_ROOT / "Sources" / "EXRQLPreview").glob("*.swift"))
+    if not preview_sources:
+        raise SystemExit(f"no Swift sources in {QL_ROOT / 'Sources' / 'EXRQLPreview'}")
     preview = write_appex(
         dest=staging / "EXRConverterPreview.appex",
         bundle_id=PREVIEW_ID,
         executable_name="EXRConverterPreview",
         display_name="EXR Converter Quick Look",
         module="EXRConverterPreview",
-        extra_source=QL_ROOT / "Sources" / "EXRQLPreview" / "PreviewProvider.swift",
+        extra_sources=preview_sources,
         extra_frameworks=["QuickLook"],
         extension_point="com.apple.quicklook.preview",
         principal_class="EXRConverterPreview.PreviewProvider",
         preview=True,
         arch=arch,
         version=version,
+        lut=lut,
     )
     thumb = write_appex(
         dest=staging / "EXRConverterThumbnail.appex",
@@ -270,13 +285,14 @@ def build_pair(staging: Path, arch: str) -> tuple[Path, Path]:
         executable_name="EXRConverterThumbnail",
         display_name="EXR Converter Thumbnails",
         module="EXRConverterThumbnail",
-        extra_source=QL_ROOT / "Sources" / "EXRQLThumbnail" / "ThumbnailProvider.swift",
+        extra_sources=[QL_ROOT / "Sources" / "EXRQLThumbnail" / "ThumbnailProvider.swift"],
         extra_frameworks=["QuickLookThumbnailing"],
         extension_point="com.apple.quicklook.thumbnail",
         principal_class="EXRConverterThumbnail.ThumbnailProvider",
         preview=False,
         arch=arch,
         version=version,
+        lut=lut,
     )
     return preview, thumb
 
@@ -304,6 +320,12 @@ def main() -> None:
     parser.add_argument("--arch", choices=("arm64", "x86_64"), default=None)
     parser.add_argument("--app", type=Path, default=None, help="Embed into this .app")
     parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Write both appexes into this directory",
+    )
+    parser.add_argument(
         "--compile-check",
         action="store_true",
         help="Compile both appexes into a temp directory and discard them",
@@ -316,8 +338,12 @@ def main() -> None:
         with tempfile.TemporaryDirectory(prefix="exr-quicklook-") as tmp:
             build_pair(Path(tmp), arch)
         return
+    if args.out is not None:
+        args.out.mkdir(parents=True, exist_ok=True)
+        build_pair(args.out, arch)
+        return
     if args.app is None:
-        raise SystemExit("pass --app or --compile-check")
+        raise SystemExit("pass --app, --out, or --compile-check")
     install_into_app(args.app, arch)
 
 

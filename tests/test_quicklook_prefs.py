@@ -119,7 +119,7 @@ def test_swift_catalog_and_app_group_match_python():
     assert appex["com.apple.security.application-groups"] == [APP_GROUP_ID]
 
 
-def test_preview_info_plist_is_data_based():
+def test_preview_info_plist_is_view_based():
     info = ql_build.extension_info_plist(
         bundle_id=ql_build.PREVIEW_ID,
         executable="EXRConverterPreview",
@@ -135,7 +135,7 @@ def test_preview_info_plist_is_data_based():
     assert isinstance(attrs, dict)
     types = attrs["QLSupportedContentTypes"]
     assert isinstance(types, list)
-    assert attrs["QLIsDataBasedPreview"] is True
+    assert attrs["QLIsDataBasedPreview"] is False
     assert "com.ilm.openexr-image" in types
     assert "public.mpeg-4" not in types
     thumb = ql_build.extension_info_plist(

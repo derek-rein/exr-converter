@@ -1,0 +1,177 @@
+# Developer ID notarization probe for the Quick Look appex.
+#
+# Not a release. workflow_dispatch only. Builds the preview appex, signs it
+# with the same Developer ID certificate as Release, and submits a zip to
+# notarytool. The question is whether the read-only temporary-exception
+# entitlements (home directory, /Volumes, /tmp) are accepted.
+#
+#   gh workflow run "Quick Look notarization probe" --ref <branch>
+#
+# Does not create a GitHub Release and does not build the Nuitka app.
+
+name: Quick Look notarization probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  notarize-appex:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.12.3"
+          enable-cache: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          uv sync --group dev
+          uv run python scripts/ensure_ocio.py
+
+      - name: Build Quick Look appexes
+        run: |
+          set -euo pipefail
+          uv run python scripts/build_quicklook_appex.py --out "$RUNNER_TEMP/quicklook"
+
+      - name: Sign and notarize the preview appex
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MACOS_CERT_P12_BASE64:-}" ] || [ -z "${MACOS_CERT_PASSWORD:-}" ] || [ -z "${MACOS_SIGNING_IDENTITY:-}" ]; then
+            echo "ERROR: Developer ID certificate secrets are not set." >&2
+            exit 1
+          fi
+          if [ -z "${ASC_API_KEY_P8:-}" ] || [ -z "${ASC_KEY_ID:-}" ] || [ -z "${ASC_ISSUER_ID:-}" ]; then
+            echo "ERROR: App Store Connect API key secrets are not set." >&2
+            exit 1
+          fi
+          expected_identity="Developer ID Application: Medeu Global LLC (83546T4BT8)"
+          got_identity="$(printf '%s' "$MACOS_SIGNING_IDENTITY" | tr -d '\r\n')"
+          if [ "$got_identity" != "$expected_identity" ]; then
+            echo "ERROR: MACOS_SIGNING_IDENTITY is not the expected Developer ID." >&2
+            exit 1
+          fi
+          MACOS_CERT_PASSWORD="$(printf '%s' "$MACOS_CERT_PASSWORD" | tr -d '\r\n')"
+
+          KEYCHAIN="$RUNNER_TEMP/exr-signing.keychain-db"
+          P12="$RUNNER_TEMP/developer-id.p12"
+          P8="$RUNNER_TEMP/AuthKey.p8"
+          APPEX="$RUNNER_TEMP/quicklook/EXRConverterPreview.appex"
+          ZIP="$RUNNER_TEMP/EXRConverterPreview.zip"
+          SUBMIT_JSON="$RUNNER_TEMP/notary-submit.json"
+          LOG_JSON="$RUNNER_TEMP/notary-log.json"
+          ENT_PLIST="$RUNNER_TEMP/signed-entitlements.plist"
+          cleanup() { rm -f "$P12" "$P8"; }
+          trap cleanup EXIT
+          umask 077
+          printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -D > "$P12"
+          chmod 600 "$P12"
+          printf '%s\n' "$ASC_API_KEY_P8" > "$P8"
+          unset MACOS_CERT_P12_BASE64 ASC_API_KEY_P8
+
+          KEYCHAIN_PASS="$(openssl rand -base64 24)"
+          security delete-keychain "$KEYCHAIN" 2>/dev/null || true
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security import "$P12" -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security -f pkcs12
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$KEYCHAIN_PASS" "$KEYCHAIN"
+          keychains=("$KEYCHAIN")
+          while IFS= read -r line; do
+            line="${line//\"/}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            [ -n "$line" ] || continue
+            keychains+=("$line")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "${keychains[@]}"
+          unset MACOS_CERT_PASSWORD KEYCHAIN_PASS
+
+          codesign --force --sign "$got_identity" \
+            --options runtime --timestamp \
+            --entitlements packaging/macos/quicklook/Entitlements/appex.entitlements \
+            --keychain "$KEYCHAIN" \
+            "$APPEX"
+          codesign --verify --strict --verbose=2 "$APPEX"
+          codesign -d --entitlements :- "$APPEX" > "$ENT_PLIST"
+          echo "--- signed entitlements ---"
+          cat "$ENT_PLIST"
+          ditto -c -k --keepParent "$APPEX" "$ZIP"
+
+          submit_status=0
+          xcrun notarytool submit "$ZIP" \
+            --key "$P8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait \
+            --timeout 20m \
+            --output-format json \
+            >"$SUBMIT_JSON" || submit_status=$?
+          echo "--- notarytool submit (exit ${submit_status}) ---"
+          cat "$SUBMIT_JSON"
+          python3 - "$SUBMIT_JSON" "$LOG_JSON" "$submit_status" "$P8" "$ASC_KEY_ID" "$ASC_ISSUER_ID" <<'PY'
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          submit_path, log_path, status, key, key_id, issuer = sys.argv[1:]
+          raw = Path(submit_path).read_text(encoding="utf-8")
+          try:
+              doc = json.loads(raw)
+          except json.JSONDecodeError:
+              doc = {}
+          if not isinstance(doc, dict):
+              doc = {}
+          submission = str(doc.get("id") or "")
+          notary_status = str(doc.get("status") or "")
+          print(f"notary id={submission or 'missing'} status={notary_status or 'missing'}")
+          if submission:
+              log = subprocess.run(
+                  [
+                      "xcrun", "notarytool", "log", submission,
+                      "--key", key,
+                      "--key-id", key_id,
+                      "--issuer", issuer,
+                  ],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+              )
+              Path(log_path).write_text(log.stdout + log.stderr, encoding="utf-8")
+              print("--- notary log ---")
+              print(Path(log_path).read_text(encoding="utf-8"))
+          if status != "0" or notary_status != "Accepted":
+              sys.exit(1)
+          PY
+
+      - name: Upload notary log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: quicklook-notary
+          path: |
+            ${{ runner.temp }}/notary-submit.json
+            ${{ runner.temp }}/notary-log.json
+            ${{ runner.temp }}/signed-entitlements.plist
+          if-no-files-found: warn

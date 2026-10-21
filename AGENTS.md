@@ -76,7 +76,7 @@ native/
   exr_prores/           # optional oxideav-prores PyO3 extension (12-bit ProRes)
 resources/              # icons, style.qss, OCIO config, screenshots
 scripts/                # bump_app_version.py, ensure_ocio.py, package_msix.py, build_oxideav_prores.py, build_quicklook_appex.py, trustmark_detect.py
-packaging/macos/quicklook/  # Swift Quick Look + thumbnail appex (macOS release embeds under Contents/PlugIns)
+packaging/macos/quicklook/  # Swift Quick Look + thumbnail appex (view LUT + flipbook; macOS release embeds under Contents/PlugIns)
 tests/                  # pytest; integration + fixtures under tests/fixtures/
 docs/                   # user-facing Markdown (Astro content source of truth)
 site/                   # Astro site (layouts, styles); loads docs/ → Vercel

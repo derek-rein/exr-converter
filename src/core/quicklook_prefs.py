@@ -21,12 +21,15 @@ off). Finder may keep a cached preview until the Quick Look cache is cleared.
 from __future__ import annotations
 
 import ctypes
+import logging
 import os
 import subprocess
 import sys
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
+import PyOpenColorIO as OCIO
 from PySide6.QtCore import QSettings
 
 from .quicklook_formats import (
@@ -40,6 +43,11 @@ from .quicklook_formats import (
     encode_preferences,
     format_by_key,
 )
+from .quicklook_lut import LUT_FILENAME, bake_view_lut, write_view_lut
+
+_log = logging.getLogger(__name__)
+_lut_lock = threading.Lock()
+_lut_generation = 0
 
 __all__ = [
     "QUICKLOOK_FORMATS",
@@ -52,7 +60,9 @@ __all__ = [
     "load_enabled_map",
     "open_extension_settings",
     "publish_quicklook_preferences",
+    "schedule_quicklook_view_lut",
     "set_format_enabled",
+    "view_lut_destinations",
 ]
 
 
@@ -119,6 +129,46 @@ def default_publish_paths() -> list[Path]:
         paths.append(group / JSON_FILENAME)
     paths.append(application_support_json())
     return paths
+
+
+def view_lut_destinations() -> list[Path]:
+    """Where the running app writes ``view.lut`` (group container, then fallback)."""
+    paths: list[Path] = []
+    group = app_group_container_dir()
+    if group is not None:
+        paths.append(group / LUT_FILENAME)
+    paths.append(application_support_json().with_name(LUT_FILENAME))
+    return paths
+
+
+def schedule_quicklook_view_lut(config: object) -> None:
+    """Bake the active config's default display view on a background thread.
+
+    No-op off macOS and while pytest is running, so a GUI test does not write
+    the runner's Application Support folder. A newer OCIO reload supersedes an
+    in-flight bake.
+    """
+    if sys.platform != "darwin" or os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    if not isinstance(config, OCIO.Config):
+        return
+    global _lut_generation
+    with _lut_lock:
+        _lut_generation += 1
+        token = _lut_generation
+
+    def run() -> None:
+        try:
+            data = bake_view_lut(config)
+        except Exception:
+            _log.warning("Could not bake the Quick Look view LUT", exc_info=True)
+            return
+        with _lut_lock:
+            if token != _lut_generation:
+                return
+        write_view_lut(data, view_lut_destinations())
+
+    threading.Thread(target=run, name="quicklook-view-lut", daemon=True).start()
 
 
 def publish_quicklook_preferences(

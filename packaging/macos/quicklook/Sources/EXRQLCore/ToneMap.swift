@@ -1,15 +1,11 @@
 import Darwin
 import Foundation
 
-/// Display approximation for scene-linear pictures.
+/// Filmic fallback used when ``view.lut`` is missing.
 ///
-/// The app's EXR → video default is OCIO ``scene_linear`` → ``Output - Rec.709``
-/// on the bundled ACES config. Linking OpenColorIO into a Quick Look extension
-/// would add tens of megabytes, so this is the Narkowicz 2015 ACES filmic fit:
-/// a curve that expects linear Rec.709 / sRGB primaries and returns encoded
-/// sRGB. It is not the ACES Output Transform. ImageIO's OpenEXR reader supplies
-/// the linear RGB (typically extended linear sRGB). ACEScg plates will be close
-/// enough to recognise, not a color-critical match to the app.
+/// The preview's real display transform is the baked OCIO cube in ``ViewLUT``.
+/// This Narkowicz 2015 fit is only the backup. It expects linear Rec.709 / sRGB
+/// primaries and returns encoded sRGB. It is not the ACES Output Transform.
 enum ToneMap {
     static func acesFilmic(_ x: Float) -> Float {
         let clamped = max(x, 0)

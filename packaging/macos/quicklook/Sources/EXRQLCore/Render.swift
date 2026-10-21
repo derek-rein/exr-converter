@@ -23,6 +23,21 @@ enum PreviewError: Error, CustomStringConvertible {
 
 enum PreviewRenderer {
     static func decide(url: URL, maxPixel: Int) -> PreviewOutcome {
+        switch frame(url: url, maxPixel: maxPixel) {
+        case .decline:
+            return .decline
+        case .image(let image, _):
+            let label = SequenceLabel.overlay(
+                filename: url.lastPathComponent,
+                directory: url.deletingLastPathComponent()
+            )
+            return .image(image, label: label)
+        }
+    }
+
+    /// Picture only. The flipbook draws its own caption so a directory listing
+    /// is not repeated for every frame.
+    static func frame(url: URL, maxPixel: Int) -> PreviewOutcome {
         let ext = url.pathExtension
         guard let format = FormatCatalog.format(forExtension: ext) else {
             return .decline
@@ -30,14 +45,13 @@ enum PreviewRenderer {
         if !QuickLookPreferences.isEnabled(format.key) {
             return .decline
         }
-        let label = SequenceLabel.overlay(filename: url.lastPathComponent, directory: url.deletingLastPathComponent())
         do {
             let image = try render(url: url, format: format, maxPixel: max(maxPixel, 1))
-            return .image(image, label: label)
+            return .image(image, label: nil)
         } catch {
             let message = String(describing: error)
             if let fallback = errorImage(message: message) {
-                return .image(fallback, label: label)
+                return .image(fallback, label: nil)
             }
             return .decline
         }
@@ -118,49 +132,50 @@ enum PreviewRenderer {
             || name.localizedCaseInsensitiveContains("extended")
     }
 
-    /// Draw into a 32-bit float linear buffer, apply the filmic curve, return sRGB.
+    /// Scene-linear pixels through the baked OCIO cube, or the filmic curve when
+    /// that cube is missing. The result is 8-bit sRGB.
     static func toneMap(_ image: CGImage) -> CGImage? {
-        let width = image.width
-        let height = image.height
-        guard width > 0, height > 0 else { return nil }
-        guard
-            let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB),
-            let context = CGContext(
-                data: nil,
-                width: width,
-                height: height,
-                bitsPerComponent: 32,
-                bytesPerRow: width * MemoryLayout<Float>.size * 4,
-                space: linear,
-                bitmapInfo: CGBitmapInfo.floatComponents.rawValue
-                    | CGBitmapInfo.byteOrder32Little.rawValue
-                    | CGImageAlphaInfo.premultipliedLast.rawValue
-            ),
-            let raw = context.data
-        else {
-            return nil
+        guard let linear = LinearRGBA.read(image) else { return nil }
+        if let lut = ViewLUTStore.preferred() {
+            if let cubed = ColorCube.apply(linear: linear, lut: lut) {
+                return cubed
+            }
+            if let cpu = applyCPU(linear, lut: lut) {
+                return cpu
+            }
         }
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let count = width * height
-        let floats = raw.bindMemory(to: Float.self, capacity: count * 4)
+        return filmic(linear)
+    }
+
+    private static func applyCPU(_ linear: LinearRGBA, lut: ViewLUT) -> CGImage? {
+        let count = linear.width * linear.height
         var encoded = [UInt8](repeating: 0, count: count * 4)
         for i in 0..<count {
-            var r = floats[i * 4]
-            var g = floats[i * 4 + 1]
-            var b = floats[i * 4 + 2]
-            let a = floats[i * 4 + 3]
-            if a > 1e-4 {
-                r /= a
-                g /= a
-                b /= a
-            }
-            encoded[i * 4] = DPXDecoder.quantize(ToneMap.acesFilmic(r))
-            encoded[i * 4 + 1] = DPXDecoder.quantize(ToneMap.acesFilmic(g))
-            encoded[i * 4 + 2] = DPXDecoder.quantize(ToneMap.acesFilmic(b))
-            let alpha = min(max(a, 0), 1)
-            encoded[i * 4 + 3] = DPXDecoder.quantize(alpha)
+            let base = i * 4
+            let rgb = lut.sample(
+                r: linear.channels[base],
+                g: linear.channels[base + 1],
+                b: linear.channels[base + 2]
+            )
+            encoded[base] = DPXDecoder.quantize(rgb.0)
+            encoded[base + 1] = DPXDecoder.quantize(rgb.1)
+            encoded[base + 2] = DPXDecoder.quantize(rgb.2)
+            encoded[base + 3] = DPXDecoder.quantize(linear.channels[base + 3])
         }
-        return try? imageFromRGBA(encoded, width: width, height: height)
+        return try? imageFromRGBA(encoded, width: linear.width, height: linear.height)
+    }
+
+    private static func filmic(_ linear: LinearRGBA) -> CGImage? {
+        let count = linear.width * linear.height
+        var encoded = [UInt8](repeating: 0, count: count * 4)
+        for i in 0..<count {
+            let base = i * 4
+            encoded[base] = DPXDecoder.quantize(ToneMap.acesFilmic(linear.channels[base]))
+            encoded[base + 1] = DPXDecoder.quantize(ToneMap.acesFilmic(linear.channels[base + 1]))
+            encoded[base + 2] = DPXDecoder.quantize(ToneMap.acesFilmic(linear.channels[base + 2]))
+            encoded[base + 3] = DPXDecoder.quantize(linear.channels[base + 3])
+        }
+        return try? imageFromRGBA(encoded, width: linear.width, height: linear.height)
     }
 
     private static func dngImage(url: URL, maxPixel: Int) throws -> CGImage {
@@ -236,7 +251,7 @@ enum PreviewRenderer {
         return context.makeImage()
     }
 
-    private static func drawLabel(
+    static func drawLabel(
         _ label: String,
         in context: CGContext,
         bounds: CGRect,
@@ -269,7 +284,7 @@ enum PreviewRenderer {
         CTLineDraw(line, context)
     }
 
-    private static func aspectFit(imageSize: CGSize, in bounds: CGRect) -> CGRect {
+    static func aspectFit(imageSize: CGSize, in bounds: CGRect) -> CGRect {
         guard imageSize.width > 0, imageSize.height > 0 else { return bounds }
         let scale = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
         let width = imageSize.width * scale
