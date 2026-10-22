@@ -1,8 +1,10 @@
-"""Background proxy jobs and the GUI watch-folder poller.
+"""Background encode jobs and the GUI watch-folder poller.
 
-:class:`ProxyQueue` runs proxy transcodes one at a time on a worker
-:class:`~PySide6.QtCore.QThread`. Batch conversions and the watch folder both
-feed it, so a clip dropped into the watch folder mid-batch just joins the line.
+:class:`JobQueue` runs jobs one at a time on a worker
+:class:`~PySide6.QtCore.QThread`. :class:`ProxyQueue` (Video → Proxy) and
+:class:`TranscodeQueue` (Transcode) are the two flavours. Batch conversions
+and the proxy watch folder both feed a queue, so a clip dropped into the watch
+folder mid-batch just joins the line.
 
 :class:`WatchPoller` scans a :class:`~src.core.watch_folder.WatchFolder` on its
 own thread so a slow network share never stalls the window.
@@ -12,8 +14,9 @@ from __future__ import annotations
 
 import threading
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 
@@ -30,16 +33,60 @@ class ProxyJob(NamedTuple):
     watermark_strength: float = 1.0
 
 
-class _ProxyJobWorker(QObject):
-    """Runs one :class:`ProxyJob` on a worker thread."""
+class TranscodeJob(NamedTuple):
+    """One Transcode tab job (see :class:`~src.core.transcode.TranscodeSettings`)."""
+
+    source: str
+    output: str
+    settings: Any  # TranscodeSettings (kept Any so this module stays light)
+
+
+JobRunner = Callable[
+    [Any, Callable[[int, int], None], Callable[[], bool], Callable[[str], None]], Any
+]
+
+
+def run_proxy_job(job: ProxyJob, progress, cancel_check, log) -> None:
+    from ..core.proxy import run_video_to_proxy
+
+    run_video_to_proxy(
+        job.source,
+        job.output,
+        codec_key=job.codec_key,
+        resolution=job.resolution,
+        audio=job.audio,
+        watermark_text=job.watermark_text,
+        watermark_strength=job.watermark_strength,
+        progress=progress,
+        cancel_check=cancel_check,
+        log=log,
+    )
+
+
+def run_transcode_job(job: TranscodeJob, progress, cancel_check, log) -> None:
+    from ..core.transcode import run_transcode
+
+    run_transcode(
+        job.source,
+        job.output,
+        job.settings,
+        progress=progress,
+        cancel_check=cancel_check,
+        log=log,
+    )
+
+
+class _JobWorker(QObject):
+    """Runs one job on a worker thread."""
 
     progress = Signal(int, int)
     log_message = Signal(str)
     done = Signal(bool, str)  # ok, error ("" on success or cancel)
 
-    def __init__(self, job: ProxyJob) -> None:
+    def __init__(self, job: Any, runner: JobRunner) -> None:
         super().__init__()
         self._job = job
+        self._runner = runner
         self._cancel = threading.Event()
 
     def cancel(self) -> None:
@@ -47,47 +94,47 @@ class _ProxyJobWorker(QObject):
 
     @Slot()
     def run(self) -> None:
-        from ..core.proxy import run_video_to_proxy
-
-        job = self._job
         try:
-            run_video_to_proxy(
-                job.source,
-                job.output,
-                codec_key=job.codec_key,
-                resolution=job.resolution,
-                audio=job.audio,
-                watermark_text=job.watermark_text,
-                watermark_strength=job.watermark_strength,
-                progress=self.progress.emit,
-                cancel_check=self._cancel.is_set,
-                log=self.log_message.emit,
-            )
+            self._runner(self._job, self.progress.emit, self._cancel.is_set, self.log_message.emit)
         except ConversionCancelled:
             self.done.emit(False, "")
         except Exception as e:
             if self._cancel.is_set():
                 self.done.emit(False, "")
             else:
-                self.done.emit(False, str(e))
+                self.done.emit(False, str(e) or type(e).__name__)
         else:
             self.done.emit(True, "")
 
 
-class ProxyQueue(QObject):
-    """Serial queue of proxy jobs (GUI-thread object; work runs off-thread)."""
+class JobQueue(QObject):
+    """Serial queue of encode jobs (GUI-thread object; work runs off-thread).
+
+    Jobs are any object with ``source`` and ``output`` attributes; *runner*
+    does the work on the worker thread. *noun* names the jobs in log lines.
+    """
 
     progress = Signal(int, int)
     log_message = Signal(str)
     busy_changed = Signal(bool)
     queue_changed = Signal(int)  # jobs waiting + running
+    job_started = Signal(str, str)  # source, output
     job_finished = Signal(str, str, bool)  # source, output, ok
+    job_failed = Signal(str, str)  # source, error
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        *,
+        runner: JobRunner = run_proxy_job,
+        noun: str = "Proxy",
+    ) -> None:
         super().__init__(parent)
-        self._jobs: deque[ProxyJob] = deque()
-        self._current: ProxyJob | None = None
-        self._worker: _ProxyJobWorker | None = None
+        self._runner = runner
+        self._noun = noun
+        self._jobs: deque[Any] = deque()
+        self._current: Any = None
+        self._worker: _JobWorker | None = None
         self._thread: QThread | None = None
         self._busy = False
         self.completed = 0
@@ -99,6 +146,9 @@ class ProxyQueue(QObject):
     def pending(self) -> int:
         return len(self._jobs) + (1 if self._current is not None else 0)
 
+    def current_source(self) -> str:
+        return str(self._current.source) if self._current is not None else ""
+
     def is_queued(self, output: str) -> bool:
         """True if a job already targets *output* (running or waiting)."""
         key = str(Path(output))
@@ -106,7 +156,13 @@ class ProxyQueue(QObject):
             return True
         return any(str(Path(j.output)) == key for j in self._jobs)
 
-    def add(self, job: ProxyJob) -> bool:
+    def queued_outputs(self) -> set[str]:
+        outs = {str(Path(j.output)) for j in self._jobs}
+        if self._current is not None:
+            outs.add(str(Path(self._current.output)))
+        return outs
+
+    def add(self, job: Any) -> bool:
         if self.is_queued(job.output):
             return False
         self._jobs.append(job)
@@ -121,7 +177,7 @@ class ProxyQueue(QObject):
         if self._worker is not None:
             self._worker.cancel()
         if dropped:
-            self.log_message.emit(f"Proxy queue cleared ({dropped} waiting)")
+            self.log_message.emit(f"{self._noun} queue cleared ({dropped} waiting)")
         self.queue_changed.emit(self.pending())
 
     def shutdown(self, timeout_ms: int = 8000) -> None:
@@ -139,7 +195,7 @@ class ProxyQueue(QObject):
         job = self._jobs.popleft()
         self._current = job
         thread = QThread(self)
-        worker = _ProxyJobWorker(job)
+        worker = _JobWorker(job, self._runner)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progress.connect(self.progress)
@@ -153,6 +209,7 @@ class ProxyQueue(QObject):
         if not self._busy:
             self._busy = True
             self.busy_changed.emit(True)
+        self.job_started.emit(str(job.source), str(job.output))
         thread.start()
 
     @Slot(bool, str)
@@ -163,13 +220,15 @@ class ProxyQueue(QObject):
         self._thread = None
         if job is not None:
             name = Path(job.source).name
+            noun = self._noun.lower()
             if ok:
                 self.completed += 1
             elif err:
                 self.failed += 1
-                self.log_message.emit(f"ERROR: proxy failed for {name}: {err}")
+                self.log_message.emit(f"ERROR: {noun} failed for {name}: {err}")
+                self.job_failed.emit(str(job.source), err)
             else:
-                self.log_message.emit(f"Proxy cancelled: {name}")
+                self.log_message.emit(f"{self._noun} cancelled: {name}")
             self.job_finished.emit(job.source, job.output, ok)
         self.queue_changed.emit(self.pending())
         if self._jobs:
@@ -178,6 +237,20 @@ class ProxyQueue(QObject):
         else:
             self._busy = False
             self.busy_changed.emit(False)
+
+
+class ProxyQueue(JobQueue):
+    """Serial queue of :class:`ProxyJob` items (Video → Proxy tab)."""
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent, runner=run_proxy_job, noun="Proxy")
+
+
+class TranscodeQueue(JobQueue):
+    """Serial queue of :class:`TranscodeJob` items (Transcode tab)."""
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent, runner=run_transcode_job, noun="Transcode")
 
 
 class _PollWorker(QObject):

@@ -82,3 +82,18 @@ class FrameWatermark:
         out = np.array(rgb, copy=True)
         out[top : top + region_h, left : left + region_w] = marked
         return out
+
+    def apply_u16(self, rgb: np.ndarray) -> np.ndarray:
+        """Return a new uint16 RGB frame with the watermark added.
+
+        The mark is computed on the top 8 bits (what the model expects), and
+        the per-pixel change is added back at 16-bit precision. 10-bit and
+        12-bit codecs keep their extra precision instead of passing through
+        8-bit RGB.
+        """
+        if rgb.ndim != 3 or rgb.shape[2] != 3 or rgb.dtype != np.uint16:
+            raise ValueError("Watermark expects uint16 HxWx3 RGB.")
+        cover = (rgb >> 8).astype(np.uint8)
+        delta = self.apply(cover).astype(np.int32) - cover.astype(np.int32)
+        out = rgb.astype(np.int32) + delta * 257
+        return np.clip(out, 0, 65535).astype(np.uint16)
