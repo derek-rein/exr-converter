@@ -58,6 +58,20 @@ def load_video_thumbnail_rgb(
     # SIGSEGVs in libav (same crash as Inspect metadata on .r3d).
     from ..core.braw import is_braw_path
     from ..core.r3d import is_r3d_path
+    from ..core.source_plugins import plugin_for_path
+
+    plugin = plugin_for_path(path)
+    if plugin is not None:
+        try:
+            if not plugin.is_available():
+                return None
+            rgb = plugin.thumbnail_rgb(path)
+            if rgb is None:
+                return None
+            disp = np.clip(np.asarray(rgb, dtype=np.float32), 0.0, 1.0)
+            return _downscale_uint8_rgb(disp, max_edge)
+        except Exception:
+            return None
 
     if is_r3d_path(path):
         try:
