@@ -391,6 +391,7 @@ class SequencePlayer(QWidget):
             from ...core.braw import is_braw_path
             from ...core.braw import scale_for_decode_mode as braw_scale_for_mode
             from ...core.r3d import DECODE_PREVIEW, is_r3d_path, scale_for_decode_mode
+            from ...core.source_plugins import plugin_for_path
             from ...core.video import probe_video, resolve_video_src_colorspace
 
             w, h, probed_fps, n_frames = probe_video(path)
@@ -409,7 +410,17 @@ class SequencePlayer(QWidget):
         # R3D player path uses DECODE_PREVIEW (half) — set resolution from the
         # decode ladder so the viewer matches actual prefetch buffers.
         if w > 0 and h > 0 and (resolution is None or resolution[0] <= 0 or resolution[1] <= 0):
-            if is_r3d_path(path):
+            plugin = plugin_for_path(path)
+            if plugin is not None:
+                try:
+                    ladder = float(plugin.preview_scale())
+                except Exception:
+                    ladder = 1.0
+                self.set_resolution(
+                    max(1, int(round(w * ladder))),
+                    max(1, int(round(h * ladder))),
+                )
+            elif is_r3d_path(path):
                 ladder = scale_for_decode_mode(DECODE_PREVIEW)
                 self.set_resolution(
                     max(1, int(round(w * ladder))),
