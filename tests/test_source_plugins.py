@@ -133,6 +133,8 @@ def fake_plugin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (mod_dir / "fake_src_plugin.py").write_text(FAKE_PLUGIN, encoding="utf-8")
     (mod_dir / "broken_src_plugin.py").write_text("raise ImportError('boom')\n", encoding="utf-8")
     monkeypatch.syspath_prepend(str(mod_dir))
+    # Ignore any private plugins a local private build may have dropped in.
+    monkeypatch.setattr(source_plugins, "ENABLED_MODULE", "src.plugins._no_such_module")
     monkeypatch.setenv(
         source_plugins.ENV_PLUGINS, "broken_src_plugin, fake_src_plugin, missing_src_plugin"
     )
@@ -145,6 +147,7 @@ def fake_plugin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_no_plugins_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(source_plugins.ENV_PLUGINS, raising=False)
+    monkeypatch.setattr(source_plugins, "ENABLED_MODULE", "src.plugins._no_such_module")
     source_plugins.reset_for_tests()
     try:
         assert source_plugins.plugins() == []
