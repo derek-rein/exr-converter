@@ -13,8 +13,14 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- New **Transcode** tab for batch video to video transcodes: ProRes 422 Proxy / LT / 422 / HQ / 4444 / 4444 XQ (plus VideoToolbox ProRes on macOS), DNxHR LB / SQ / HQ / HQX / 444, H.264, HEVC 8 / 10 / 12-bit, and AV1 when the FFmpeg build has SVT-AV1. The container follows the codec (`.mov`, `.mxf` for DNxHR, `.mp4`, `.mkv` for AV1). Options for size (keep, 75 / 50 / 25%, fit 2160p / 1080p / 720p, or custom), frame rate (keep or conform), audio (copy, AAC, 24-bit PCM, or none), CRF or target bitrate and speed preset for long-GOP codecs, output folder, a `<name>_<codec>` style file name pattern, and skip / overwrite / add-a-number when the file exists. No color change by default; an optional OCIO transform uses the window's config. The invisible TrustMark watermark from Video → Proxy is available too. Each clip in the list shows its progress, then a check mark or the error. Settings are remembered between sessions.
+- `transcode` CLI subcommand with the same options as the tab, and `--mode transcode` to open the GUI on that tab.
+
 ### Changed
 
+- Video → Proxy now runs on the same encode engine as the Transcode tab. With the invisible watermark on, the mark is added at 16-bit precision instead of passing frames through 8-bit RGB. HEVC proxies are tagged `hvc1` so QuickTime plays them.
 - The docs site describes the Video → Proxy tab in more detail: source formats, each proxy codec with its container and bit depth, what the watch folder skips, and which settings are remembered. It has a new **Invisible watermark** section covering the payload, strength, model download and cache folders, `scripts/trustmark_detect.py`, and what can remove the mark. The home page lists the invisible watermark, shows the latest release version, and notes that the Windows `.msix` / `.msixupload` files are for the Microsoft Store while the setup `.exe` stays the direct download.
 
 ---

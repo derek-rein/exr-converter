@@ -64,6 +64,7 @@ usage modes
   video2exr           Video → OCIO → EXR sequence (CLI convert)
   exr2video           EXR sequence → OCIO → video (CLI convert)
   proxy               Video → small editing proxies (batch or --watch folder daemon)
+  transcode           Video → video (ProRes, DNxHR, H.264, HEVC, AV1), optional OCIO
 
 GUI launch (no subcommand)
   %(prog)s
@@ -85,6 +86,9 @@ CLI convert examples
       → ./A001_card/Proxy/<clip>.mov  (ProRes 422 Proxy, half resolution)
   %(prog)s proxy --watch /Volumes/Ingest
       → keeps running; proxies every new clip once it finishes copying
+
+  %(prog)s transcode -i A001C003.mxf --codec prores
+      → ./A001C003_ProRes422HQ.mov  (ProRes 422 HQ, no color change)
 
 Color / OCIO
   Defaults: probe + OCIO-aware equivalents for --src/--dst when omitted.
@@ -134,6 +138,23 @@ examples:
 Omit -o to write <source_dir>/Proxy/<clip>.<ext> (same name as the source, so
 editors such as DaVinci Resolve can relink). Existing proxies are skipped
 unless --overwrite. --watch runs until Ctrl-C.
+See docs/cli.md for the full option list.
+"""
+
+
+_TRANSCODE_EPILOG = """\
+examples:
+  %(prog)s -i A001C003.mxf
+  %(prog)s -i ./day1 --recursive -o /deliveries --codec dnxhr_hqx --container mxf
+  %(prog)s -i plate.mov --codec h264 --crf 18 --preset slow --resolution 1080
+  %(prog)s -i plate.mov --codec hevc --bitrate 25 --audio aac
+  %(prog)s -i clip.mov --codec prores_4444 --width 2048 --height 0 --fps 24
+  %(prog)s -i log.mov --src "ARRI LogC4" --dst "Rec.1886 Rec.709 - Display"
+  %(prog)s -i clip.mov --name "<name>_<codec>_<width>x<height>" --if-exists rename
+
+Default output: next to each clip as <name>_<codec>.<ext> (see --name).
+No color change unless --src and --dst are both given. Existing files are
+skipped unless --if-exists overwrite or rename.
 See docs/cli.md for the full option list.
 """
 
@@ -208,9 +229,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--mode",
-        choices=["auto", "video2exr", "exr2video", "proxy"],
+        choices=["auto", "video2exr", "exr2video", "proxy", "transcode"],
         default="auto",
-        help="GUI: which tab to show (default: auto from --open). proxy = Video → Proxy tab.",
+        help=(
+            "GUI: which tab to show (default: auto from --open). proxy = Video → Proxy tab, "
+            "transcode = Transcode tab."
+        ),
     )
     sub = p.add_subparsers(dest="command")
 
@@ -466,7 +490,242 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    _add_transcode_parser(sub)
+
     return p
+
+
+def _add_transcode_parser(sub) -> None:
+    from .core.transcode import (
+        AUDIO_MODES,
+        DEFAULT_AUDIO_MODE,
+        DEFAULT_NAME_PATTERN,
+        DEFAULT_OVERWRITE,
+        DEFAULT_TRANSCODE_CODEC,
+        DEFAULT_TRANSCODE_RESOLUTION,
+        OVERWRITE_MODES,
+        TRANSCODE_RESOLUTIONS,
+        X26X_PRESETS,
+        available_transcode_codecs,
+    )
+
+    tc = sub.add_parser(
+        "transcode",
+        help="Video → video (ProRes, DNxHR, H.264, HEVC, AV1) with optional OCIO.",
+        description=(
+            "Transcode video files for VFX and post. No color change by default: the "
+            "picture, timecode, and color tags pass through. Give --src and --dst for "
+            "an OCIO transform."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_TRANSCODE_EPILOG,
+    )
+    tc.add_argument("-i", "--input", nargs="+", required=True, help="Video files and/or folders")
+    tc.add_argument(
+        "-o",
+        "--output-dir",
+        default=None,
+        help="Folder for all outputs (default: next to each clip)",
+    )
+    tc.add_argument(
+        "--codec",
+        default=DEFAULT_TRANSCODE_CODEC,
+        choices=[spec.key for spec in available_transcode_codecs()],
+        help=f"Video codec (default: {DEFAULT_TRANSCODE_CODEC} = ProRes 422 HQ)",
+    )
+    tc.add_argument(
+        "--container",
+        default="",
+        choices=["", "mov", "mxf", "mp4", "mkv"],
+        help="mov / mxf / mp4 / mkv (default: the codec's usual container)",
+    )
+    tc.add_argument(
+        "--resolution",
+        default=DEFAULT_TRANSCODE_RESOLUTION,
+        choices=[r.key for r in TRANSCODE_RESOLUTIONS],
+        help=(
+            f"Output size (default: {DEFAULT_TRANSCODE_RESOLUTION}). Percentages and fit "
+            "sizes never upscale. --width / --height imply custom."
+        ),
+    )
+    tc.add_argument("--width", type=int, default=0, help="Custom width (0 = keep aspect)")
+    tc.add_argument("--height", type=int, default=0, help="Custom height (0 = keep aspect)")
+    tc.add_argument(
+        "--fps",
+        type=float,
+        default=0.0,
+        help="Conform to this frame rate (same frames, new timing; drops audio). 0 = keep",
+    )
+    tc.add_argument(
+        "--audio",
+        default=DEFAULT_AUDIO_MODE,
+        choices=[m for m, _ in AUDIO_MODES],
+        help=f"First audio track (default: {DEFAULT_AUDIO_MODE})",
+    )
+    tc.add_argument("--crf", type=int, default=None, help="H.264 / HEVC / AV1 quality (CRF)")
+    tc.add_argument(
+        "--bitrate",
+        type=float,
+        default=0.0,
+        help="H.264 / HEVC / AV1 target bitrate in Mb/s (instead of CRF)",
+    )
+    tc.add_argument(
+        "--preset", default="", choices=["", *X26X_PRESETS], help="Encoder speed preset"
+    )
+    tc.add_argument(
+        "--name",
+        default=DEFAULT_NAME_PATTERN,
+        help=(
+            f"File name pattern (default: {DEFAULT_NAME_PATTERN}). Tokens: <name> <codec> "
+            "<width> <height> <fps> <date>"
+        ),
+    )
+    tc.add_argument(
+        "--if-exists",
+        default=DEFAULT_OVERWRITE,
+        choices=[m for m, _ in OVERWRITE_MODES],
+        help=f"When the output exists (default: {DEFAULT_OVERWRITE})",
+    )
+    tc.add_argument("--ocio", default=None, help="OCIO config file (default: bundled / $OCIO)")
+    tc.add_argument("--src", default=None, help="OCIO source color space (with --dst)")
+    tc.add_argument("--dst", default=None, help="OCIO destination color space or display")
+    tc.add_argument(
+        "--watermark",
+        default="",
+        help="Invisible TrustMark payload (up to 8 ASCII characters). Off when omitted.",
+    )
+    tc.add_argument(
+        "--watermark-strength",
+        type=float,
+        default=1.0,
+        help="TrustMark strength from 0.1 to 2.0 (default: 1.0)",
+    )
+    tc.add_argument("--recursive", action="store_true", help="Include subfolders of input folders")
+
+
+def run_transcode_cli(args: argparse.Namespace) -> int:
+    """``transcode`` subcommand: batch video → video."""
+    from .core.transcode import (
+        RATE_BITRATE,
+        RATE_CRF,
+        RES_CUSTOM,
+        TranscodeSettings,
+        collect_transcode_sources,
+        plan_output,
+        run_transcode,
+        validate_settings,
+    )
+
+    def _log(msg: str) -> None:
+        print(msg, file=sys.stderr)
+
+    def _progress(cur: int, total: int) -> None:
+        pct = int(100 * cur / total) if total else 0
+        print(f"\r[{pct:3d}%] {cur}/{total}", end="", file=sys.stderr, flush=True)
+
+    watermark_text = ""
+    strength = float(args.watermark_strength)
+    if str(args.watermark or "").strip():
+        try:
+            watermark_text = normalize_watermark_text(args.watermark)
+            strength = normalize_strength(strength)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+
+    color_src = color_dst = config_source = config_path = ""
+    if args.src or args.dst:
+        if not (args.src and args.dst):
+            print("Error: --src and --dst go together.", file=sys.stderr)
+            return 2
+        try:
+            cfg = resolve_ocio_for_cli(args.ocio)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+        for name in (args.src, args.dst):
+            hit = find_equivalent_space(cfg, name)
+            if not hit and name not in list(cfg.getDisplays()):
+                print(f"Error: color space not in the OCIO config: {name}", file=sys.stderr)
+                return 2
+        color_src = find_equivalent_space(cfg, args.src) or args.src
+        color_dst = find_equivalent_space(cfg, args.dst) or args.dst
+        config_source, config_path = _resolve_config_source(args.ocio)
+
+    resolution = args.resolution
+    if args.width or args.height:
+        resolution = RES_CUSTOM
+    try:
+        settings = validate_settings(
+            TranscodeSettings(
+                codec_key=args.codec,
+                container=args.container,
+                resolution=resolution,
+                custom_width=max(0, args.width),
+                custom_height=max(0, args.height),
+                fps=args.fps,
+                audio=args.audio,
+                rate_control=RATE_BITRATE if args.bitrate > 0 else RATE_CRF,
+                crf=args.crf,
+                bitrate_mbps=args.bitrate,
+                preset=args.preset,
+                color_src=color_src,
+                color_dst=color_dst,
+                config_source=config_source,
+                config_path=config_path,
+                watermark_text=watermark_text,
+                watermark_strength=strength,
+            )
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
+
+    _cli_cancel.clear()
+    _install_cli_sigint()
+    failures = 0
+    taken: set[str] = set()
+    try:
+        sources = collect_transcode_sources(args.input, recursive=args.recursive)
+        if not sources:
+            _log("No video clips found in the given input.")
+            return 1
+        for i, src in enumerate(sources, 1):
+            if _cli_cancel.is_set():
+                raise ConversionCancelled()
+            _log(f"[{i}/{len(sources)}] {src}")
+            try:
+                out = plan_output(
+                    src,
+                    settings,
+                    output_dir=args.output_dir,
+                    pattern=args.name,
+                    overwrite=args.if_exists,
+                    taken=taken,
+                )
+                if out is None:
+                    _log("Skip (file exists)")
+                    continue
+                taken.add(str(out))
+                run_transcode(
+                    src,
+                    out,
+                    settings,
+                    progress=_progress,
+                    cancel_check=_cli_cancel.is_set,
+                    log=_log,
+                )
+                print(file=sys.stderr)
+            except ConversionCancelled:
+                raise
+            except Exception as e:
+                failures += 1
+                print(f"\nError: {src.name}: {e}", file=sys.stderr)
+    except (ConversionCancelled, KeyboardInterrupt):
+        _cli_cancel.set()
+        print("\nCancelled.", file=sys.stderr)
+        return 130
+    return 1 if failures else 0
 
 
 def run_proxy_cli(args: argparse.Namespace) -> int:
@@ -807,6 +1066,8 @@ def resolve_e2v_spaces(cfg, args: argparse.Namespace, log) -> tuple[str, str]:
 def run_cli(args: argparse.Namespace) -> int:
     if args.command == "proxy":
         return run_proxy_cli(args)
+    if args.command == "transcode":
+        return run_transcode_cli(args)
 
     def _progress(cur: int, total: int) -> None:
         pct = int(100 * cur / total) if total else 0

@@ -102,6 +102,7 @@ site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 | Slate dialog / viewer | `src/gui/slate_widgets.py` (composes player + overlay hooks), `src/gui/ocio_gpu_plane.py`, `src/services/slate_model.py` |
 | Background convert | `src/services/worker.py` |
 | Video → Proxy tab / watch folder | `src/gui/proxy_tab.py`, `src/core/proxy.py`, `src/core/watch_folder.py`, `src/services/proxy_queue.py` (CLI `proxy` in `src/cli.py`). Optional invisible watermark: `src/core/trustmark/` (ONNX Runtime, encoder downloaded on first use) and `scripts/trustmark_detect.py` |
+| Transcode tab (video → video) | `src/gui/transcode_tab.py`, `src/core/transcode.py` (shared PyAV encode engine: codecs/containers, sizes, audio, naming, OCIO, watermark; `run_video_to_proxy` is a thin wrapper over it), `TranscodeQueue` in `src/services/proxy_queue.py` (CLI `transcode` in `src/cli.py`) |
 
 ## Commands (local)
 
@@ -578,7 +579,7 @@ Branch protection on `main` should require `ci-ok`.
 | [README.md](./README.md) | Product overview, install, short CLI |
 | [docs/](./docs/) | User-facing Markdown (**must update** when behavior changes) |
 | [site/](./site/) | Astro site; loads `docs/` → Vercel (`site/vercel.json`) |
-| [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`) + GUI launch flags |
+| [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`, `transcode`) + GUI launch flags |
 | [docs/gui.md](./docs/gui.md) | GUI tabs, overlays, preferences, post-convert |
 | [docs/prores.md](./docs/prores.md) | Software vs VideoToolbox vs oxideav ProRes |
 | [docs/nuke.md](./docs/nuke.md) | Nuke menu integration |
