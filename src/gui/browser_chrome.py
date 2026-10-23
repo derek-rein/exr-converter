@@ -561,6 +561,7 @@ _VIDEO_EXTS = frozenset(
         ".braw",
         ".ari",
         ".arx",
+        ".crm",
         ".mj2",
     }
 )

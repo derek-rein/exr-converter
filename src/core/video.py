@@ -293,7 +293,15 @@ def decode_video_frames(container, stream, deinterlace: str = "auto", log=None):
             raise
 
 
-_LIBAV_UNSAFE_SUFFIXES = frozenset({".r3d", ".nev", ".braw", ".ari", ".arx"})
+# Camera RAW containers decoded only by optional plugins / native bridges.
+# suffix -> (format label, short codec label, message when no decoder is installed)
+_OPTIONAL_RAW_FORMATS: dict[str, tuple[str, str, str]] = {
+    ".ari": ("ARRIRAW", "ARI", "ARRIRAW (.ari) is not supported"),
+    ".arx": ("ARRIRAW", "ARX", "ARRIRAW (.arx) is not supported"),
+    ".crm": ("Canon RAW", "CRM", "Canon RAW support not installed"),
+}
+
+_LIBAV_UNSAFE_SUFFIXES = frozenset({".r3d", ".nev", ".braw", *_OPTIONAL_RAW_FORMATS})
 
 
 def is_libav_unsafe_media(path: str) -> bool:
@@ -309,10 +317,26 @@ def is_libav_unsafe_media(path: str) -> bool:
     return plugin_for_path(path) is not None
 
 
-def _arriraw_unsupported_message(path: str) -> str:
+def _unsupported_raw_message(path: str) -> str:
+    """User-facing error for camera RAW with no installed decoder."""
     from pathlib import Path
 
-    return f"ARRIRAW ({Path(path).suffix.lower()}) is not supported"
+    suffix = Path(path).suffix.lower()
+    fmt = _OPTIONAL_RAW_FORMATS.get(suffix)
+    if fmt is not None:
+        return fmt[2]
+    return f"Camera RAW ({suffix}) is not supported"
+
+
+# Backwards-compatible name (callers predate non-ARRI optional formats).
+_arriraw_unsupported_message = _unsupported_raw_message
+
+
+_UNSUPPORTED_ROW_CODEC: dict[str, str] = {
+    ".ari": "ARRIRAW (unsupported)",
+    ".arx": "ARX (unsupported)",
+    ".crm": "Canon RAW (not installed)",
+}
 
 
 def detect_interlaced(path: str) -> bool | None:
@@ -484,6 +508,7 @@ _VIDEO_SUFFIXES = {
     ".braw",
     ".ari",
     ".arx",
+    ".crm",
 }
 
 # OS / desktop metadata that often sits next to media and can share an extension
@@ -626,7 +651,7 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
 
         if suffix in _LIBAV_UNSAFE_SUFFIXES:
             row["resolution"] = ""
-            row["codec"] = "ARX (unsupported)" if suffix == ".arx" else "ARRIRAW (unsupported)"
+            row["codec"] = _UNSUPPORTED_ROW_CODEC.get(suffix, "RAW (unsupported)")
             row["fps"] = ""
             row["duration"] = ""
             row["frames"] = ""
@@ -802,7 +827,8 @@ def probe_video_metadata(path: str) -> dict[str, str]:
     """Return a dict of human-readable video metadata.
 
     Camera RAW (``.r3d`` / ``.nev`` / ``.braw``) uses the optional SDK bridges.
-    Unsupported camera RAW (``.ari`` / ``.arx``) and OS sidecars never go to
+    Camera RAW without an installed decoder (``.ari`` / ``.arx`` / ``.crm``)
+    and OS sidecars never go to
     PyAV; decoding those containers SIGSEGVs in libav.
     """
     from pathlib import Path
@@ -826,11 +852,12 @@ def probe_video_metadata(path: str) -> dict[str, str]:
         return _probe_braw_metadata(path)
     if is_libav_unsafe_media(path):
         suffix = Path(path).suffix.lower()
-        codec = "ARX" if suffix == ".arx" else "ARI"
+        default = ("Camera RAW", suffix.lstrip(".").upper(), "")
+        fmt, codec, _msg = _OPTIONAL_RAW_FORMATS.get(suffix, default)
         return {
-            "Format": "ARRIRAW",
+            "Format": fmt,
             "Video codec": codec,
-            "error": _arriraw_unsupported_message(path),
+            "error": _unsupported_raw_message(path),
         }
 
     import av
