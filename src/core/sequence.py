@@ -218,48 +218,104 @@ def _match_seq_by_stem(
     return None
 
 
-def probe_pixel_colorspace(filepath: str) -> str:
-    """Return the OCIO colorspace of the *pixels* in *filepath*, if known.
+# EXR ``chromaticities`` (R, G, B, white xy) → OCIO colour space for linear data.
+# Names resolve through find_equivalent_space in ACES and non-ACES configs.
+_KNOWN_CHROMATICITIES: tuple[tuple[str, tuple[float, ...]], ...] = (
+    ("Linear Rec.709 (sRGB)", (0.64, 0.33, 0.30, 0.60, 0.15, 0.06, 0.3127, 0.3290)),
+    ("ACEScg", (0.713, 0.293, 0.165, 0.830, 0.128, 0.044, 0.32168, 0.33767)),
+    ("ACES2065-1", (0.7347, 0.2653, 0.0, 1.0, 0.0001, -0.0770, 0.32168, 0.33767)),
+    ("Linear P3-D65", (0.680, 0.320, 0.265, 0.690, 0.150, 0.060, 0.3127, 0.3290)),
+    ("Linear Rec.2020", (0.708, 0.292, 0.170, 0.797, 0.131, 0.046, 0.3127, 0.3290)),
+)
+_CHROMATICITY_TOL = 0.002
+
+
+def colorspace_from_chromaticities(values: object) -> str:
+    """Linear colour space for an EXR ``chromaticities`` attribute, or ``""``.
+
+    Recognises Rec.709 / sRGB (D65), ACES AP1 and AP0 (ACES white), P3-D65 and
+    Rec.2020. Anything else returns ``""`` (unknown primaries).
+    """
+    try:
+        xy = [float(v) for v in values]  # type: ignore[union-attr]
+    except (TypeError, ValueError):
+        return ""
+    if len(xy) != 8:
+        return ""
+    for name, ref in _KNOWN_CHROMATICITIES:
+        if all(abs(a - b) <= _CHROMATICITY_TOL for a, b in zip(xy, ref, strict=True)):
+            return name
+    return ""
+
+
+def probe_pixel_colorspace_detail(filepath: str) -> tuple[str, str]:
+    """``(colour space, where it came from)`` for the pixels in *filepath*.
 
     Preference order:
 
-    1. ``exrconverter:dstColorSpace`` — space we wrote after OCIO (always correct
-       for files from this app).
-    2. ``oiio:ColorSpace`` — third-party / OIIO tag (often mangled to
-       ``lin_rec709`` for any scene-linear EXR; treat as weak hint only when
-       our attribute is missing).
+    1. ``exrconverter:dstColorSpace``: the space we wrote after OCIO (always
+       correct for files from this app).
+    2. ``colorInteropID``: OpenEXR 3.4 / OCIO 2.5 interop id written by
+       Blender 5 and other current apps (for example ``lin_rec709_scene``).
+    3. EXR ``chromaticities``: primaries mapped to a linear space
+       (Rec.709 / sRGB, AP1, AP0, P3-D65, Rec.2020).
+    4. ``oiio:ColorSpace``: third-party / OIIO tag (often mangled to
+       ``lin_rec709`` for any scene-linear EXR; weak hint only).
+
+    The second item is the attribute name (``"chromaticities"``, …), or
+    ``""`` when nothing was found.
     """
     try:
         import OpenImageIO as oiio
 
         inp = oiio.ImageInput.open(filepath)
         if not inp:
-            return ""
+            return "", ""
         try:
             spec = inp.spec()
             ours = spec.getattribute("exrconverter:dstColorSpace")
             if ours:
-                return str(ours)
+                return str(ours), "exrconverter:dstColorSpace"
+            is_exr = Path(filepath).suffix.lower() in (".exr", ".sxr", ".mxr")
+            if is_exr:
+                interop = spec.getattribute("colorInteropID")
+                if interop:
+                    return str(interop), "colorInteropID"
+                chroma = spec.getattribute("chromaticities")
+                if chroma is not None:
+                    named = colorspace_from_chromaticities(chroma)
+                    if named:
+                        return named, "chromaticities"
             oiio_cs = spec.getattribute("oiio:ColorSpace")
             if oiio_cs:
-                return str(oiio_cs)
+                return str(oiio_cs), "oiio:ColorSpace"
         finally:
             inp.close()
     except Exception:
         pass
-    return ""
+    return "", ""
+
+
+def probe_pixel_colorspace(filepath: str) -> str:
+    """Return the OCIO colorspace of the *pixels* in *filepath*, if known.
+
+    See :func:`probe_pixel_colorspace_detail` for the order of the hints.
+    """
+    return probe_pixel_colorspace_detail(filepath)[0]
 
 
 def probe_exr_colorspace(directory: str) -> str:
     """Return the pixel colorspace of the preferred sequence in *directory*, or ''."""
+    return probe_exr_colorspace_detail(directory)[0]
+
+
+def probe_exr_colorspace_detail(directory: str) -> tuple[str, str]:
+    """:func:`probe_pixel_colorspace_detail` for the preferred sequence in *directory*."""
     for s in _find_image_seqs(directory):
         first_frame = list(s.frameSet())[0]
         path = s.frame(first_frame)
-        cs = probe_pixel_colorspace(path)
-        if cs:
-            return cs
-        break
-    return ""
+        return probe_pixel_colorspace_detail(path)
+    return "", ""
 
 
 def resolve_sequence_src_colorspace(

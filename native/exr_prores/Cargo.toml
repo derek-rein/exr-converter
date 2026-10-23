@@ -12,9 +12,15 @@ crate-type = ["cdylib"]
 
 [dependencies]
 oxideav-core = "0.1"
-oxideav-prores = "0.1"
+oxideav-prores = "=0.1.1"
 numpy = "0.29"
 pyo3 = { version = "0.29", features = ["extension-module"] }
+
+# oxideav-prores 0.1.1 writes 4:4:4 chroma blocks in the wrong order for
+# FFmpeg and other standard decoders. Build against the vendored, patched copy
+# until upstream fixes it. See vendor/oxideav-prores/EXR_CONVERTER_PATCH.md.
+[patch.crates-io]
+oxideav-prores = { path = "vendor/oxideav-prores" }
 
 [profile.release]
 lto = true

@@ -24,6 +24,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QSettings, Signal
 from PySide6.QtGui import QUndoStack
 
+from ..core.fps import fps_to_float
 from ..render.burnin import burnin_fields_from_slate
 from .slate_commands import (
     SetBurninFieldsCommand,
@@ -163,7 +164,7 @@ class SlateModel(QObject):
         for key, env, default in _SLATE_FIELDS:
             self._slate_data[key] = _load_slate_field(settings, key, env, default)
         self._slate_version = _settings_int(settings, "slate/version_num", 1)
-        self._slate_fps = _settings_float(settings, "slate/fps", 24.0)
+        self._slate_fps = fps_to_float(settings.value("slate/fps", 24.0), 24.0)
         self._slate_resolution = (
             _settings_int(settings, "slate/res_w", 1920),
             _settings_int(settings, "slate/res_h", 1080),
@@ -295,7 +296,7 @@ class SlateModel(QObject):
         self.set_slate_fields(
             fields,
             version=int(version) if version is not None else None,
-            fps=float(fps) if fps is not None else None,
+            fps=fps_to_float(fps, self._slate_fps) if fps is not None else None,
             resolution=res_t,
             record_undo=record_undo,
         )
@@ -315,7 +316,7 @@ class SlateModel(QObject):
             if key in fields:
                 merged[key] = str(fields[key] or default)
         next_version = int(version) if version is not None else self._slate_version
-        next_fps = float(fps) if fps is not None else self._slate_fps
+        next_fps = fps_to_float(fps, self._slate_fps) if fps is not None else self._slate_fps
         next_res = tuple(resolution) if resolution is not None else self._slate_resolution
         next_res_t = (int(next_res[0]), int(next_res[1]))
 
