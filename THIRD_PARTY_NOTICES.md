@@ -28,3 +28,16 @@ Inference uses the `onnxruntime` package (CPU execution provider only).
 Release builds include the ONNX Runtime shared library inside the app. On
 macOS that library is signed and notarized with the rest of the application
 under Medeu Global LLC.
+
+## oxideav-prores
+
+The experimental cross-platform ProRes writer (`prores_ox_*` codecs) uses the
+`oxideav-prores` crate, version 0.1.1, built into the `exr_prores` extension.
+
+- Project: https://github.com/OxideAV/oxideav-prores
+- License: MIT. Copyright 2026 Karpelès Lab Inc.
+
+A patched copy of the crate source lives in
+`native/exr_prores/vendor/oxideav-prores`. The patch changes the 4:4:4 chroma
+block order and is described in `EXR_CONVERTER_PATCH.md` in that folder. The
+crate's `LICENSE` file is kept alongside the source.

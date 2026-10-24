@@ -1,12 +1,28 @@
 //! Minimal QuickTime MOV writer for intra-only ProRes (ap4h / ap4x).
 //!
 //! Layout: `[ftyp][mdat][moov]` with moov-at-end. Sample entry is a plain
-//! VisualSampleEntry plus an explicit `colr`/`nclc` BT.709 tag (oxideav docs
-//! warn that unknown 4444 colour metadata can break some NLE decoders).
+//! VisualSampleEntry plus an explicit `colr`/`nclc` tag (oxideav docs warn
+//! that unknown 4444 colour metadata can break some NLE decoders). The tag
+//! codes come from the caller so they match the destination colour space;
+//! code 2 means "unspecified" (H.273 / QuickTime).
 
 use std::fs::File;
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::Path;
+
+/// QuickTime `compressorname` written into the sample description.
+///
+/// Neutral on purpose: this encoder is RDD 36 ProRes-compatible, not Apple
+/// ProRes, and the docs ask us not to call it "Apple ProRes". Max 31 bytes.
+pub const COMPRESSOR_NAME: &[u8] = b"RDD 36 ProRes-compatible";
+
+/// `colr` / `nclc` codes (H.273 numbering, as QuickTime uses them).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NclcColor {
+    pub primaries: u16,
+    pub transfer: u16,
+    pub matrix: u16,
+}
 
 pub struct ProResMovWriter {
     file: File,
@@ -15,6 +31,7 @@ pub struct ProResMovWriter {
     fps_num: u32,
     fps_den: u32,
     fourcc: [u8; 4],
+    color: NclcColor,
     /// Absolute file offsets of each sample start.
     sample_offsets: Vec<u64>,
     sample_sizes: Vec<u32>,
@@ -30,6 +47,7 @@ impl ProResMovWriter {
         fps_num: u32,
         fps_den: u32,
         fourcc: [u8; 4],
+        color: NclcColor,
     ) -> io::Result<Self> {
         if width == 0 || height == 0 || width > 65535 || height > 65535 {
             return Err(io::Error::new(
@@ -66,6 +84,7 @@ impl ProResMovWriter {
             fps_num,
             fps_den,
             fourcc,
+            color,
             sample_offsets: Vec::new(),
             sample_sizes: Vec::new(),
             mdat_size_pos,
@@ -128,6 +147,7 @@ impl ProResMovWriter {
             self.fps_num,
             self.fps_den,
             self.fourcc,
+            self.color,
             &self.sample_offsets,
             &self.sample_sizes,
         )?;
@@ -173,6 +193,7 @@ fn write_moov(
     fps_num: u32,
     fps_den: u32,
     fourcc: [u8; 4],
+    color: NclcColor,
     sample_offsets: &[u64],
     sample_sizes: &[u32],
 ) -> io::Result<()> {
@@ -280,7 +301,7 @@ fn write_moov(
         // stsd
         let mut stsd_content = Vec::new();
         stsd_content.extend_from_slice(&1u32.to_be_bytes()); // entry_count
-        let entry = prores_sample_entry(width, height, fourcc);
+        let entry = prores_sample_entry(width, height, fourcc, color);
         stsd_content.extend_from_slice(&entry);
         append_full_box(&mut stbl, b"stsd", 0, 0, &stsd_content);
     }
@@ -342,7 +363,7 @@ fn write_moov(
     write_box(w, b"moov", &moov)
 }
 
-fn prores_sample_entry(width: u32, height: u32, fourcc: [u8; 4]) -> Vec<u8> {
+fn prores_sample_entry(width: u32, height: u32, fourcc: [u8; 4], color: NclcColor) -> Vec<u8> {
     // [size][fourcc][VisualSampleEntry 78][colr]
     let mut visual = [0u8; 78];
     visual[6] = 0;
@@ -354,19 +375,20 @@ fn prores_sample_entry(width: u32, height: u32, fourcc: [u8; 4]) -> Vec<u8> {
     visual[32..36].copy_from_slice(&dpi.to_be_bytes());
     visual[40..42].copy_from_slice(&1u16.to_be_bytes()); // frame_count
     // Pascal compressor name
-    let name = b"Apple ProRes";
+    let name = COMPRESSOR_NAME;
+    debug_assert!(name.len() <= 31);
     visual[42] = name.len() as u8;
     visual[43..43 + name.len()].copy_from_slice(name);
     // depth: 24 (no alpha). Apple often uses 32 for 4444+alpha.
     visual[74..76].copy_from_slice(&0x0018u16.to_be_bytes());
     visual[76..78].copy_from_slice(&(-1i16).to_be_bytes());
 
-    // colr / nclc — BT.709 (primaries=1, transfer=1, matrix=1)
+    // colr / nclc: primaries, transfer, matrix (caller-supplied H.273 codes).
     let mut colr = Vec::with_capacity(18);
     colr.extend_from_slice(b"nclc");
-    colr.extend_from_slice(&1u16.to_be_bytes());
-    colr.extend_from_slice(&1u16.to_be_bytes());
-    colr.extend_from_slice(&1u16.to_be_bytes());
+    colr.extend_from_slice(&color.primaries.to_be_bytes());
+    colr.extend_from_slice(&color.transfer.to_be_bytes());
+    colr.extend_from_slice(&color.matrix.to_be_bytes());
     let colr_box = make_box(b"colr", &colr);
 
     let body_len = visual.len() + colr_box.len();

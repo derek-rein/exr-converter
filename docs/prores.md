@@ -76,7 +76,9 @@ back to software ProRes.
 ## Software ProRes (FFmpeg)
 
 Cross-platform FFmpeg `prores_ks`. Every profile encodes **10-bit**, including
-**4444** and **XQ**. Those files may *probe* as 12-bit after decode (FFmpeg
+**4444** and **XQ**. RGB is converted to BT.709 limited-range YCbCr
+in the app (exact float math) and the stream is tagged BT.709 matrix. An alpha
+plane is written only when the source frames have alpha. Those files may *probe* as 12-bit after decode (FFmpeg
 presentation); mid-bin round-trips still collapse to a 10-bit lattice. Do not
 treat software 4444/XQ as true 12-bit.
 
@@ -128,8 +130,25 @@ Implementation status and tests:
 [plan-12bit-prores-oxideav.md](./plan-12bit-prores-oxideav.md).
 
 The built-in player, browser thumbs, and Video→EXR decode these MOVs through
-PyAV. FFmpeg may present oxideav frames as YUV with an RGB colorspace tag;
-the app strips that before RGB convert so preview is not blank.
+PyAV.
+
+Files written by EXR Converter name their compressor `RDD 36 ProRes-compatible`
+in the MOV sample description. The frame headers and the MOV `colr` atom carry
+BT.709 matrix coefficients. Primaries and transfer follow the destination
+colour space when it has an H.273 code (for example Rec.1886 Rec.709 is
+BT.709 / BT.709, sRGB is BT.709 / sRGB). Log and ACES encodings such as
+ACEScct have no H.273 code, so primaries and transfer are written as
+unspecified. Older oxideav files (0.12.4 and earlier) tag everything BT.709
+or leave the frame header colour fields at zero; the app still strips the
+RGB colorspace tag FFmpeg derives from those before converting to RGB.
+
+The app builds `oxideav-prores` 0.1.1 from a vendored, patched copy in
+`native/exr_prores/vendor/oxideav-prores`. The patch writes and reads 4:4:4
+chroma blocks in the column order FFmpeg and Apple decoders use. 0.12.4 and
+earlier wrote them in luma order, which swapped the top-right and bottom-left
+8x8 chroma blocks of every macroblock in 4444 and XQ files (blocky colour
+errors when decoded by FFmpeg, Resolve, or QuickTime). Re-encode 4444 and XQ
+files made with those versions.
 
 ---
 
