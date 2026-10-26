@@ -7,8 +7,8 @@ description: Spacebar previews and Finder icons for EXR, DPX, and optional still
 Release builds of **EXR Converter** on macOS include two app extensions inside
 `EXR Converter.app`:
 
-- **Quick Look** — the Spacebar / column preview
-- **Thumbnails** — the Finder icon
+- **Quick Look**: the Spacebar / column preview
+- **Thumbnails**: the Finder icon
 
 They are macOS 12 and later. The Windows and Linux builds do not include them.
 The extensions are small and link system frameworks (ImageIO, Core Image, the
