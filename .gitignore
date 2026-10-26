@@ -46,3 +46,8 @@ slim/
 .tmp-braw-sample/
 .r3d-bridge/
 .braw-bridge/
+
+# Optional private source plugins (private builds only — never commit)
+src/plugins/*
+!src/plugins/__init__.py
+.source-plugins/

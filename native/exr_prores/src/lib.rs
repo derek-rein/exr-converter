@@ -19,19 +19,25 @@ use oxideav_core::{
     VideoPlane,
 };
 use oxideav_prores::encoder::{make_encoder_with_config, EncoderConfig};
-use oxideav_prores::frame::Profile;
+use oxideav_prores::frame::{frame_rate_code_from_rational, FrameMeta, Profile};
 use oxideav_prores::{fourcc_for_profile, CODEC_ID_STR};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
 use crate::color::{rgb48_to_yuv422_p12_le, rgb48_to_yuv444_p12_le};
-use crate::mov::ProResMovWriter;
+use crate::mov::{NclcColor, ProResMovWriter, COMPRESSOR_NAME};
 
 /// Extension / crate version string.
 #[pyfunction]
 fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
+}
+
+/// QuickTime compressor name written into every MOV sample description.
+#[pyfunction]
+fn compressor_name() -> String {
+    String::from_utf8_lossy(COMPRESSOR_NAME).into_owned()
 }
 
 #[pyclass(name = "ProResMovWriter")]
@@ -56,8 +62,24 @@ impl PyProResMovWriter {
     /// *profile*: ``proxy`` / ``lt`` / ``422`` / ``hq`` (4:2:2) or
     /// ``4444`` / ``xq`` (4:4:4).
     /// *fps_num* / *fps_den*: frame rate as a rational (e.g. 24000/1001).
+    /// *color_primaries* / *transfer_characteristic* / *matrix_coefficients*:
+    /// H.273 codes written to both the MOV ``colr``/``nclc`` atom and every
+    /// ProRes frame header. 2 means "unspecified" (use it for ACES / log
+    /// spaces that have no code). The default matrix is BT.709 (1), which is
+    /// the matrix the RGB conversion uses.
     #[new]
-    #[pyo3(signature = (path, width, height, fps_num, fps_den, profile="4444"))]
+    #[pyo3(signature = (
+        path,
+        width,
+        height,
+        fps_num,
+        fps_den,
+        profile="4444",
+        color_primaries=2,
+        transfer_characteristic=2,
+        matrix_coefficients=1,
+    ))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         path: PathBuf,
         width: u32,
@@ -65,6 +87,9 @@ impl PyProResMovWriter {
         fps_num: u32,
         fps_den: u32,
         profile: &str,
+        color_primaries: u8,
+        transfer_characteristic: u8,
+        matrix_coefficients: u8,
     ) -> PyResult<Self> {
         let profile = parse_profile(profile)?;
         let fourcc = *fourcc_for_profile(profile);
@@ -84,10 +109,28 @@ impl PyProResMovWriter {
         });
         params.frame_rate = Some(Rational::new(i64::from(fps_num), i64::from(fps_den)));
 
-        let cfg = EncoderConfig::signature_for_profile(profile);
+        // Frame-header colour fields must agree with the container tag:
+        // FFmpeg copies them onto every decoded frame. Leaving them at 0
+        // ("unknown") made decoders report an RGB matrix.
+        let meta = FrameMeta {
+            aspect_ratio_information: 0,
+            frame_rate_code: frame_rate_code_from_rational(Rational::new(
+                i64::from(fps_num),
+                i64::from(fps_den),
+            )),
+            color_primaries,
+            transfer_characteristic,
+            matrix_coefficients,
+        };
+        let cfg = EncoderConfig::signature_for_profile(profile).with_meta(meta);
         let encoder = make_encoder_with_config(&params, cfg).map_err(ox_err)?;
 
-        let mov = ProResMovWriter::create(&path, width, height, fps_num, fps_den, fourcc)
+        let color = NclcColor {
+            primaries: u16::from(color_primaries),
+            transfer: u16::from(transfer_characteristic),
+            matrix: u16::from(matrix_coefficients),
+        };
+        let mov = ProResMovWriter::create(&path, width, height, fps_num, fps_den, fourcc, color)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
         Ok(Self {
@@ -312,6 +355,7 @@ fn ox_err(e: oxideav_core::Error) -> PyErr {
 #[pymodule]
 fn exr_prores(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
+    m.add_function(wrap_pyfunction!(compressor_name, m)?)?;
     m.add_class::<PyProResMovWriter>()?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

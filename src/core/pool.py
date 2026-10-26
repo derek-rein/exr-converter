@@ -13,7 +13,7 @@ import threading
 import numpy as np
 import PyOpenColorIO as OCIO
 
-from .exr_io import read_image, write_exr
+from .exr_io import read_image, read_image_alpha, write_exr
 from .ocio_utils import load_config_from_source_info, make_export_processor
 
 # Workers cache up to two CPUProcessors: one for src→working (OCIO load
@@ -70,6 +70,11 @@ def _ensure_export_cpu(
         return proc
 
 
+def quantize_u16(values: np.ndarray) -> np.ndarray:
+    """0..1 float → uint16 codes, rounded to nearest (not truncated)."""
+    return np.clip(np.rint(values * 65535.0), 0.0, 65535.0).astype(np.uint16)
+
+
 def _alpha_over_rgb(bg_rgb: np.ndarray, fg_rgba: np.ndarray) -> np.ndarray:
     """Composite *fg_rgba* over *bg_rgb* (both float32, working space)."""
     a = fg_rgba[..., 3:4]
@@ -116,8 +121,12 @@ def process_frame_e2v(
     working_space: str,
     dst_space: str,
     overlay_working: np.ndarray | None = None,
+    with_alpha: bool = False,
 ) -> tuple[int, np.ndarray]:
     """Read one still (EXR/PNG/JPG/…), run working-space comp, return (idx, rgb_u16).
+
+    With *with_alpha* the array is H×W×4: the source alpha (clipped to 0..1,
+    opaque when the frame has none) is appended as a fourth uint16 channel.
 
     Pipeline:
 
@@ -148,5 +157,12 @@ def process_frame_e2v(
     desc2 = OCIO.PackedImageDesc(rgb, w, h, 3)
     cpu_to_display.apply(desc2)
 
-    rgb_u16 = np.clip(rgb * 65535.0, 0.0, 65535.0).astype(np.uint16)
+    rgb_u16 = quantize_u16(rgb)
+    if with_alpha:
+        alpha = read_image_alpha(path)
+        if alpha is None or alpha.shape[:2] != (h, w):
+            a_u16 = np.full((h, w, 1), 65535, dtype=np.uint16)
+        else:
+            a_u16 = quantize_u16(alpha)[..., None]
+        rgb_u16 = np.ascontiguousarray(np.concatenate([rgb_u16, a_u16], axis=-1))
     return idx, rgb_u16

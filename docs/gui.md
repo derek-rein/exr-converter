@@ -81,6 +81,21 @@ directory still resolves a default sequence on disk (EXR first, then DPX;
 prefers a basename matching the folder name when several sequences share the
 folder). The slate editor reuses the player with live burn-in/watermark overlays.
 
+**Find sequence (fuzzy search):** the field above the sequence list searches
+image sequences by name, tolerating typos and partial names (``shto_010_comp``
+or ``010_comp`` finds ``shot_010_comp``). Each folder you open in the browser
+is indexed with its subfolders in the background, so the dialog stays
+responsive and results fill in while indexing runs. Results replace the list
+while the field has text: up to 50 sequences, best match first, each showing
+its pattern, frame count, range, and folder. Click a result, or press **Enter**
+for the highlighted one (**Up/Down** move the highlight), to jump to its folder
+in the tree with the sequence selected. **Esc** or clearing the field returns
+to List / Grid / Preview unchanged. The index holds sequences (not individual
+frames), only file names are read, so cloud online-only frames are never
+downloaded, and it is discarded when the browser closes or the list of mounted
+volumes changes. Symlinked folders are not followed, and online-only folders,
+hidden folders, and system folders are skipped.
+
 **Video browser filters:** only real media extensions are listed (``.r3d``,
 ``.nev``, ``.braw``, ``.ari``, ``.arx``, ``.mov``, ``.mp4``, …). macOS **AppleDouble** Finder sidecars
 (``._clip.R3D``) that appear next to clips on network shares or non-HFS

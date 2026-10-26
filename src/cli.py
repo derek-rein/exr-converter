@@ -36,6 +36,7 @@ from .core.constants import (
     video_codec_by_key,
 )
 from .core.errors import ConversionCancelled
+from .core.fps import fps_arg
 from .core.ocio_utils import find_equivalent_space, resolve_ocio_for_cli
 from .core.trustmark.payload import normalize_strength, normalize_watermark_text
 
@@ -345,9 +346,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     e2v.add_argument(
         "--fps",
-        type=float,
+        type=fps_arg,
         default=24.0,
-        help="Frame rate (default: 24)",
+        help="Frame rate as a number or a ratio, e.g. 24, 23.976 or 24000/1001 (default: 24)",
     )
     e2v.add_argument("--ocio", default=None, help="OCIO config file (default: bundled / $OCIO)")
     e2v.add_argument(
@@ -992,7 +993,11 @@ def resolve_e2v_spaces(cfg, args: argparse.Namespace, log) -> tuple[str, str]:
     EXR defaults toward scene-linear; display-encoded stills (PNG/JPEG/…) default
     toward sRGB so OCIO does not treat 8-bit sRGB as linear light.
     """
-    from .core.sequence import probe_exr_colorspace, sequence_looks_scene_referred
+    from .core.sequence import (
+        probe_exr_colorspace_detail,
+        probe_pixel_colorspace_detail,
+        sequence_looks_scene_referred,
+    )
 
     scene_linear = True
     try:
@@ -1002,27 +1007,40 @@ def resolve_e2v_spaces(cfg, args: argparse.Namespace, log) -> tuple[str, str]:
 
     src_arg = args.src
     if src_arg is None:
-        probed = ""
+        probed, probed_from = "", ""
         try:
-            from .core.sequence import probe_pixel_colorspace
-
             p = Path(args.input)
             if p.is_file():
                 # Frame path: probe *this* sequence, not sorted[0] in the folder.
-                probed = probe_pixel_colorspace(str(p)) or ""
+                probed, probed_from = probe_pixel_colorspace_detail(str(p))
             else:
                 probe_dir = str(p if p.is_dir() else p.parent)
-                probed = probe_exr_colorspace(probe_dir) or ""
+                probed, probed_from = probe_exr_colorspace_detail(probe_dir)
         except Exception:
-            probed = ""
-        if scene_linear:
-            fallbacks = ([probed] if probed else []) + [
-                DEFAULT_SRC_E2V,
-                "ACEScg",
-                "ACES2065-1",
-                "linear",
-            ]
-            role = "scene_linear"
+            probed, probed_from = "", ""
+        probed_hit = find_equivalent_space(cfg, probed) if probed else ""
+        if probed_hit:
+            src = probed_hit
+            log(f"Image metadata color space ({probed_from}): {probed} → {src}")
+        elif scene_linear:
+            src = _resolve_space(
+                cfg,
+                None,
+                fallbacks=[DEFAULT_SRC_E2V, "ACEScg", "ACES2065-1", "linear"],
+                role="scene_linear",
+                log=lambda _msg: None,
+            )
+            reason = (
+                f"its {probed_from} value {probed!r} is not in this OCIO config"
+                if probed
+                else "it has no chromaticities, colorInteropID or OCIO colour space attribute"
+            )
+            log(
+                f"Warning: cannot tell the source colour space from the image metadata "
+                f"({reason}). Assuming {src} (the OCIO scene_linear role). Renders from "
+                f'Blender and most DCCs are usually "Linear Rec.709 (sRGB)"; pass --src '
+                f"to set the source colour space."
+            )
         else:
             fallbacks = ([probed] if probed else []) + [
                 "sRGB Encoded Rec.709 (sRGB)",
@@ -1031,11 +1049,7 @@ def resolve_e2v_spaces(cfg, args: argparse.Namespace, log) -> tuple[str, str]:
                 "sRGB",
                 "Output - Rec.709",
             ]
-            role = "color_picking"
-        src = _resolve_space(cfg, None, fallbacks=fallbacks, role=role, log=log)
-        if probed:
-            log(f"Image metadata color space: {probed} → {src}")
-        elif not scene_linear:
+            src = _resolve_space(cfg, None, fallbacks=fallbacks, role="color_picking", log=log)
             log(f"Display still sequence — source color space: {src}")
     else:
         src = _resolve_space(

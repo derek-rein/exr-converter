@@ -17,9 +17,11 @@ import av
 import numpy as np
 import PyOpenColorIO as OCIO
 
+from .color_tags import ColorTags, apply_to_codec_context, color_tags_for_destination
 from .constants import OXIDEAV_PRORES_KEYS
 from .errors import ConversionCancelled
-from .exr_io import read_image, write_exr
+from .exr_io import image_has_alpha, read_image, read_image_alpha, write_exr
+from .fps import FpsValue, format_fps
 from .ocio_utils import (
     export_dest_label,
     get_compositing_space,
@@ -32,8 +34,9 @@ from .ocio_utils import (
 )
 from .oxideav_prores import is_available as oxideav_prores_available
 from .oxideav_prores import open_writer, unavailable_reason, write_rgb48_frame
-from .pool import _alpha_over_rgb, process_frame_e2v, process_frame_v2e
+from .pool import _alpha_over_rgb, process_frame_e2v, process_frame_v2e, quantize_u16
 from .sequence import find_exr_sequence
+from .yuv import is_ycbcr_pix_fmt, pix_fmt_has_alpha, pix_fmt_without_alpha, rgb48_to_video_frame
 
 ProgressCallback = Callable[[int, int], None]
 LogCallback = Callable[[str], None]
@@ -98,8 +101,20 @@ def _frame_num_from_path(filepath: str) -> int | None:
     return None
 
 
-def _fps_to_rate(fps: float) -> Fraction | int:
-    """Return a libav-compatible frame rate (prefer exact rationals)."""
+def _fps_to_rate(fps: FpsValue) -> Fraction | int:
+    """Return a libav-compatible frame rate (prefer exact rationals).
+
+    A :class:`~fractions.Fraction` (``--fps 24000/1001``) is used as given.
+    Decimals snap to the usual NTSC rationals (23.976 → 24000/1001).
+    """
+    if isinstance(fps, Fraction):
+        if fps <= 0:
+            return 24
+        if fps.denominator == 1:
+            return int(fps.numerator)
+        if fps.denominator > 1_000_000:
+            fps = fps.limit_denominator(1_000_000)
+        return fps
     if fps <= 0:
         return 24
     # Exact integer rates.
@@ -248,21 +263,125 @@ def _bake_slate_to_display(
     return rgb
 
 
+def _resize_u16(arr: np.ndarray, ow: int, oh: int) -> np.ndarray:
+    """Resize HxWx3 (rgb48le) or HxW (gray16le) uint16 with swscale."""
+    fmt = "rgb48le" if arr.ndim == 3 else "gray16le"
+    vf = av.VideoFrame.from_ndarray(np.ascontiguousarray(arr), format=fmt)
+    vf = vf.reformat(width=ow, height=oh)
+    return np.ascontiguousarray(vf.to_ndarray(format=fmt))
+
+
+def _encode_rgb_u16(
+    stream,
+    container,
+    rgb_u16: np.ndarray,
+    pix_fmt: str,
+    ow: int,
+    oh: int,
+    alpha_u16: np.ndarray | None = None,
+) -> None:
+    """Encode one full-range RGB48 frame (optional HxW alpha) as *pix_fmt*.
+
+    Y'CbCr conversion is done by :func:`~src.core.yuv.rgb48_to_video_frame`
+    (BT.709, rounded) instead of the encoder's implicit swscale step.
+    """
+    if rgb_u16.ndim == 3 and rgb_u16.shape[2] == 4:
+        if alpha_u16 is None:
+            alpha_u16 = rgb_u16[..., 3]
+        rgb_u16 = rgb_u16[..., :3]
+    h, w = rgb_u16.shape[:2]
+    if (w, h) != (ow, oh):
+        rgb_u16 = _resize_u16(rgb_u16, ow, oh)
+        if alpha_u16 is not None:
+            alpha_u16 = _resize_u16(alpha_u16, ow, oh)
+    vf = rgb48_to_video_frame(rgb_u16, pix_fmt, alpha_u16)
+    for packet in stream.encode(vf):
+        container.mux(packet)
+
+
+def _select_software_pix_fmt(
+    pix_fmt_out: str, first_path: str, log: LogCallback | None
+) -> tuple[str, bool]:
+    """Return ``(pix_fmt, carry_alpha)``: drop the alpha plane when the source has none."""
+    if not pix_fmt_has_alpha(pix_fmt_out):
+        return pix_fmt_out, False
+    try:
+        has_alpha = image_has_alpha(first_path)
+    except Exception:
+        has_alpha = False
+    if has_alpha:
+        if log:
+            log(f"Source has alpha: writing it to the {pix_fmt_out} alpha plane")
+        return pix_fmt_out, True
+    no_alpha = pix_fmt_without_alpha(pix_fmt_out)
+    if log and no_alpha != pix_fmt_out:
+        log(f"Source has no alpha: writing {no_alpha} (no alpha plane)")
+    return no_alpha, False
+
+
+def _setup_software_stream(
+    container,
+    video_codec: str,
+    rate,
+    width: int,
+    height: int,
+    pix_fmt: str,
+    codec_key: str,
+    codec_opts: dict[str, str] | None,
+    tags: ColorTags,
+):
+    stream = container.add_stream(video_codec, rate=rate)
+    stream.width = width
+    stream.height = height
+    stream.pix_fmt = pix_fmt
+    if is_ycbcr_pix_fmt(pix_fmt):
+        apply_to_codec_context(stream.codec_context, tags)
+    _configure_stream(stream, codec_key, codec_opts)
+    return stream
+
+
+def _open_output_container(output_video: Path, pix_fmt: str):
+    """Open the output; MOV/MP4 always get a ``colr`` atom for Y'CbCr video.
+
+    FFmpeg's muxer skips ``colr`` unless primaries, transfer and matrix are
+    all known. ACEScct and other log masters leave primaries / transfer
+    unspecified, but players still need the BT.709 matrix tag.
+    """
+    options: dict[str, str] = {}
+    if Path(output_video).suffix.lower() in (".mov", ".mp4", ".m4v") and is_ycbcr_pix_fmt(pix_fmt):
+        options["movflags"] = "+write_colr"
+    return av.open(str(output_video), mode="w", options=options)
+
+
+def _log_color_tags(log: LogCallback | None, tags: ColorTags) -> None:
+    if not log:
+        return
+    if tags.is_unspecified:
+        log(
+            "Colour tags: matrix BT.709, primaries and transfer unspecified "
+            "(no H.273 code for the destination)"
+        )
+    else:
+        log(
+            f"Colour tags: matrix {tags.matrix}, primaries {tags.primaries}, "
+            f"transfer {tags.transfer} (H.273)"
+        )
+
+
 def _encode_slate_video_frame(
     slate_rgb_display: np.ndarray,
     stream,
     container,
     ow: int,
     oh: int,
-    do_resize: bool,
+    pix_fmt: str = "",
 ) -> None:
-    """Encode a slate (float32 RGB **already in display space**) as a video frame."""
-    rgb_u16 = np.clip(slate_rgb_display * 65535.0, 0.0, 65535.0).astype(np.uint16)
-    vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
-    if do_resize:
-        vf = vf.reformat(width=ow, height=oh)
-    for packet in stream.encode(vf):
-        container.mux(packet)
+    """Encode a slate (float32 RGB **already in display space**) as a video frame.
+
+    Resizes when the slate is not *ow* × *oh*.
+    """
+    rgb_u16 = quantize_u16(slate_rgb_display)
+    _encode_rgb_u16(stream, container, rgb_u16, pix_fmt or str(stream.pix_fmt), ow, oh)
 
 
 def _rgb_u16_display(
@@ -272,7 +391,7 @@ def _rgb_u16_display(
     do_resize: bool,
 ) -> np.ndarray:
     """Quantise display-space float RGB to contiguous HxWx3 uint16 (optionally scaled)."""
-    rgb_u16 = np.clip(slate_rgb_display * 65535.0, 0.0, 65535.0).astype(np.uint16)
+    rgb_u16 = quantize_u16(slate_rgb_display)
     if not do_resize:
         return np.ascontiguousarray(rgb_u16)
     vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
@@ -280,7 +399,7 @@ def _rgb_u16_display(
     return np.ascontiguousarray(vf.to_ndarray(format="rgb48le"))
 
 
-def _fps_num_den(fps: float) -> tuple[int, int]:
+def _fps_num_den(fps: FpsValue) -> tuple[int, int]:
     rate = _fps_to_rate(fps)
     if isinstance(rate, Fraction):
         return int(rate.numerator), int(rate.denominator)
@@ -294,7 +413,7 @@ def _e2v_oxideav(
     src_space: str,
     working_space: str,
     dst_space: str,
-    fps: float,
+    fps: FpsValue,
     progress: ProgressCallback | None,
     cancel_check: Callable[[], bool] | None,
     log: LogCallback | None,
@@ -330,7 +449,9 @@ def _e2v_oxideav(
             f"(oxideav-prores {codec_key}, in-process)"
         )
 
-    writer = open_writer(output_video, ow, oh, fps_num, fps_den, codec_key)
+    tags = color_tags_for_destination(ocio_cfg, working_space, dst_space)
+    _log_color_tags(log, tags)
+    writer = open_writer(output_video, ow, oh, fps_num, fps_den, codec_key, color_tags=tags)
     finished = 0
     try:
         if slate_frame is not None:
@@ -450,7 +571,7 @@ def _e2v_oxideav(
                     frame_buf = np.ascontiguousarray(frame_buf, dtype=np.float32)
 
                 cpu_to_display.apply(OCIO.PackedImageDesc(frame_buf, fw, fh, 3))
-                rgb_u16 = np.clip(frame_buf * 65535.0, 0.0, 65535.0).astype(np.uint16)
+                rgb_u16 = quantize_u16(frame_buf)
                 if do_resize or (fw, fh) != (ow, oh):
                     vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
                     vf = vf.reformat(width=ow, height=oh)
@@ -463,7 +584,7 @@ def _e2v_oxideav(
         writer.close()
 
     if log:
-        log(f"Wrote {output_video} ({finished} frames, {fps} fps, oxideav)")
+        log(f"Wrote {output_video} ({finished} frames, {format_fps(fps)} fps, oxideav)")
 
 
 # ---- video -> exr ----------------------------------------------------------
@@ -517,6 +638,11 @@ def run_video_to_exr(
         deinterlace=deinterlace,
         log_fn=log,
     ) as src:
+        if not output_name:
+            # Sources may suggest a better default stem (e.g. frame-per-file RAW).
+            hint = Path(str(getattr(src, "output_stem", "") or "")).name.strip()
+            if hint:
+                stem = hint
         info = src.info
         ow, oh = src.output_size
         total = info.frame_count
@@ -727,7 +853,7 @@ def run_exr_to_video(
     ocio_cfg: OCIO.Config | None,
     src_space: str,
     dst_space: str,
-    fps: float,
+    fps: FpsValue,
     progress: ProgressCallback | None = None,
     cancel_check: Callable[[], bool] | None = None,
     log: LogCallback | None = None,
@@ -889,17 +1015,19 @@ def run_exr_to_video(
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
 
+    pix_fmt_out, carry_alpha = _select_software_pix_fmt(pix_fmt_out, paths[0], log)
+    tags = color_tags_for_destination(ocio_cfg, working_space, dst_space)
+    if is_ycbcr_pix_fmt(pix_fmt_out):
+        _log_color_tags(log, tags)
+
     rate = _fps_to_rate(fps)
-    container = av.open(str(output_video), mode="w")
+    container = _open_output_container(output_video, pix_fmt_out)
     container.metadata.update(_video_metadata(src_space, dst_space, codec_key))
-    stream = container.add_stream(video_codec, rate=rate)
-    stream.width = ow
-    stream.height = oh
-    stream.pix_fmt = pix_fmt_out
-    _configure_stream(stream, codec_key, codec_opts)
+    stream = _setup_software_stream(
+        container, video_codec, rate, ow, oh, pix_fmt_out, codec_key, codec_opts, tags
+    )
 
     max_inflight = n_workers * 2
-    do_resize = scale < 1.0
 
     try:
         if slate_frame is not None:
@@ -911,7 +1039,7 @@ def run_exr_to_video(
                 dst_space,
                 slate_overlay_working,
             )
-            _encode_slate_video_frame(slate_display, stream, container, ow, oh, do_resize)
+            _encode_slate_video_frame(slate_display, stream, container, ow, oh, pix_fmt_out)
             if log:
                 log("Slate frame encoded as first video frame")
 
@@ -924,7 +1052,7 @@ def run_exr_to_video(
             inv = (1.0 / scale) if 0.0 < scale < 1.0 else 1.0
             est_w = max(ow, int(ow * inv + 0.5))
             est_h = max(oh, int(oh * inv + 0.5))
-            frame_bytes_est = max(1, est_h * est_w * 3 * 2)
+            frame_bytes_est = max(1, est_h * est_w * (4 if carry_alpha else 3) * 2)
 
             def _submit_batch() -> None:
                 nonlocal submit_idx
@@ -949,6 +1077,7 @@ def run_exr_to_video(
                         working_space,
                         dst_space,
                         burnin_working,
+                        carry_alpha,
                     )
                     pending[fut] = frame_idx
 
@@ -957,11 +1086,7 @@ def run_exr_to_video(
                 while next_encode in ready:
                     rgb_u16 = ready.pop(next_encode)
                     ready_bytes -= _array_nbytes(rgb_u16)
-                    vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
-                    if do_resize:
-                        vf = vf.reformat(width=ow, height=oh)
-                    for packet in stream.encode(vf):
-                        container.mux(packet)
+                    _encode_rgb_u16(stream, container, rgb_u16, pix_fmt_out, ow, oh)
                     if progress:
                         progress(next_encode, total)
                     next_encode += 1
@@ -988,7 +1113,7 @@ def run_exr_to_video(
         container.close()
 
     if log:
-        log(f"Wrote {output_video} ({total} frames, {fps} fps)")
+        log(f"Wrote {output_video} ({total} frames, {format_fps(fps)} fps)")
 
 
 def _e2v_serial(
@@ -998,7 +1123,7 @@ def _e2v_serial(
     src_space: str,
     working_space: str,
     dst_space: str,
-    fps: float,
+    fps: FpsValue,
     progress: ProgressCallback | None,
     cancel_check: Callable[[], bool] | None,
     log: LogCallback | None,
@@ -1028,16 +1153,17 @@ def _e2v_serial(
     output_video = Path(output_video)
     output_video.parent.mkdir(parents=True, exist_ok=True)
 
-    rate = _fps_to_rate(fps)
-    container = av.open(str(output_video), mode="w")
-    container.metadata.update(_video_metadata(src_space, dst_space, codec_key))
-    stream = container.add_stream(video_codec, rate=rate)
-    stream.width = w
-    stream.height = h
-    stream.pix_fmt = pix_fmt_out
-    _configure_stream(stream, codec_key, codec_opts)
+    pix_fmt_out, carry_alpha = _select_software_pix_fmt(pix_fmt_out, paths[0], log)
+    tags = color_tags_for_destination(ocio_cfg, working_space, dst_space)
+    if is_ycbcr_pix_fmt(pix_fmt_out):
+        _log_color_tags(log, tags)
 
-    do_resize = scale < 1.0
+    rate = _fps_to_rate(fps)
+    container = _open_output_container(output_video, pix_fmt_out)
+    container.metadata.update(_video_metadata(src_space, dst_space, codec_key))
+    stream = _setup_software_stream(
+        container, video_codec, rate, w, h, pix_fmt_out, codec_key, codec_opts, tags
+    )
 
     try:
         if slate_frame is not None:
@@ -1049,7 +1175,7 @@ def _e2v_serial(
                 dst_space,
                 slate_overlay_working,
             )
-            _encode_slate_video_frame(slate_display, stream, container, w, h, do_resize)
+            _encode_slate_video_frame(slate_display, stream, container, w, h, pix_fmt_out)
             if log:
                 log("Slate frame encoded as first video frame")
 
@@ -1081,13 +1207,14 @@ def _e2v_serial(
                 frame_buf = np.ascontiguousarray(frame_buf, dtype=np.float32)
 
             cpu_to_display.apply(OCIO.PackedImageDesc(frame_buf, fw, fh, 3))
-            rgb_u16 = np.clip(frame_buf * 65535.0, 0.0, 65535.0).astype(np.uint16)
+            rgb_u16 = quantize_u16(frame_buf)
 
-            vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
-            if do_resize or (fw, fh) != (w, h):
-                vf = vf.reformat(width=w, height=h)
-            for packet in stream.encode(vf):
-                container.mux(packet)
+            alpha_u16: np.ndarray | None = None
+            if carry_alpha:
+                alpha = read_image_alpha(path)
+                if alpha is not None and alpha.shape[:2] == (fh, fw):
+                    alpha_u16 = quantize_u16(alpha)
+            _encode_rgb_u16(stream, container, rgb_u16, pix_fmt_out, w, h, alpha_u16)
             if progress:
                 progress(idx, total)
         for packet in stream.encode():
@@ -1096,4 +1223,4 @@ def _e2v_serial(
         container.close()
 
     if log:
-        log(f"Wrote {output_video} ({total} frames, {fps} fps)")
+        log(f"Wrote {output_video} ({total} frames, {format_fps(fps)} fps)")

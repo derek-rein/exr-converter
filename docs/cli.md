@@ -147,9 +147,9 @@ uv run python main.py exr2video -i ./plate --codec h264 --crf 18
 |--------|---------|--------|
 | `-i` / `--input` | *(required)* | Sequence **directory** or any **existing frame** from the sequence (``name.####.ext`` or ``name_####.ext``; not a literal `####` path that does not exist on disk) |
 | `-o` / `--output` | next to sequence | Video path; default extension follows codec family (below) |
-| `--fps` | `24` | Frame rate |
+| `--fps` | `24` | Frame rate. Accepts whole numbers, decimals (`23.976`, `29.97`), and exact rationals (`24000/1001`, `30000/1001`). A rational is written to the file exactly. |
 | `--ocio` | bundled / `$OCIO` | Config file path |
-| `--src` | format-aware | EXR/DPX: metadata / `scene_linear`. PNG/JPEG/WebP: sRGB-ish display space |
+| `--src` | format-aware | EXR/DPX: image metadata (EXR Converter tag, `colorInteropID`, then EXR `chromaticities`: Rec.709, ACES AP1, ACES AP0, P3-D65, and Rec.2020 primaries are recognised). With no usable metadata, the OCIO `scene_linear` role is assumed and a warning names that colour space. Pass `--src` when the warning appears. PNG/JPEG/WebP: sRGB-ish display space |
 | `--dst` | `Output - Rec.709` | Display / delivery space. On ACES 2.0 configs that name remaps to **Rec.1886 Rec.709 - Display**; convert then applies the viewing-rule default view (**ACES 2.0 - SDR 100 nits (Rec.709)** for ACEScg), not Un-tone-mapped. Pass a utility encoding (``sRGB Encoded Rec.709 (sRGB)``) for colorimetric-only. |
 | `--scale` | `1.0` | Output scale |
 | `--codec` | `prores` | Codec key. See the ladder below (default = ProRes 422 HQ, **10-bit** software) |

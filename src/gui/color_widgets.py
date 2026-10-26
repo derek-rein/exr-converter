@@ -26,6 +26,7 @@ from ..core.constants import (
     OCIO_SOURCE_ENV,
     OCIO_SOURCE_FILE,
 )
+from ..core.fps import fps_to_float
 from ..core.nuke_discover import (
     is_nuke_source_key,
     nuke_source_label,
@@ -359,7 +360,7 @@ class FpsCombo(QWidget):
         lock_form_row_height(self._spin)
         lock_form_row_height(self)
 
-        saved = float(settings.value(key, 24.0))
+        saved = fps_to_float(settings.value(key, 24.0), 24.0)
         self._restore(saved)
 
         self._combo.currentIndexChanged.connect(self._on_combo_changed)
