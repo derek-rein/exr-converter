@@ -29,6 +29,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Fixed
 
+- On Windows, Transcode **Add a number** treats two planned output paths as the same file when they differ only by letter case, so a batch does not write two clips to one name.
 - oxideav ProRes 4444 and XQ (`prores_ox_4444`, `prores_ox_xq`) wrote the chroma 8x8 blocks of each macroblock in the wrong order. FFmpeg, Resolve, and QuickTime swapped the top-right and bottom-left chroma blocks, which showed as blocky colour errors (up to 0.18 in ACEScct). The writer and the built-in decoder now use the standard column order. A test decodes the output with FFmpeg and checks the chroma. Re-encode 4444 and XQ files made with 0.12.4 or earlier.
 - `exr2video --fps` accepts rational rates such as `24000/1001` and `30000/1001`, and decimals such as `23.976`. Rationals are written to the file exactly.
 - Packaged (Nuitka) builds no longer print `the program tried to call itself with '-c' argument` and a `resource_tracker` warning when converting with worker processes. Python 3.13.7 changed how the multiprocessing resource tracker starts, and the build's old rewrite of that command no longer matched. The app now sets up multiprocessing at startup: `freeze_support()`, the `spawn` start method, the app executable for workers, and the resource tracker started through the app's own flag.

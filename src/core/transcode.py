@@ -592,7 +592,9 @@ def plan_output(
 
     Without *output_dir* the file goes next to the source. The output can never
     be the source file itself. *taken* holds paths already planned in this
-    batch so "Add a number" does not hand two clips the same name.
+    batch so "Add a number" does not hand two clips the same name. Entries are
+    compared with :func:`_norm` (absolute path, and case-folded on Windows),
+    so a raw ``str(path)`` from the GUI or CLI matches.
     """
     src = Path(source)
     container = resolve_container(settings.codec_key, settings.container)
@@ -603,10 +605,10 @@ def plan_output(
         pattern, src, codec_key=settings.codec_key, width=width, height=height, fps=fps
     )
     out = folder / f"{stem}.{container}"
-    taken = taken if taken is not None else set()
+    taken_norm = {_norm(p) for p in (taken or set())}
 
     def _busy(p: Path) -> bool:
-        return p.exists() or _norm(p) in taken
+        return p.exists() or _norm(p) in taken_norm
 
     if _norm(out) == _norm(src):
         if overwrite != OVERWRITE_RENAME:

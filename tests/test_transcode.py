@@ -249,7 +249,9 @@ class TestNaming:
         assert plan_output(src, s, overwrite=OVERWRITE_SKIP) is None
         assert plan_output(src, s, overwrite=OVERWRITE_REPLACE) == out
         assert plan_output(src, s, overwrite=OVERWRITE_RENAME) == tmp_path / "clip_H264_1.mp4"
-        taken = {str(tmp_path / "clip_H264_1.mp4")}
+        # Callers store str(path), not a pre-normalized key. A non-canonical
+        # form (and, on Windows, different letter case) must still count as taken.
+        taken = {str(tmp_path / "subdir" / ".." / "clip_H264_1.mp4")}
         assert (
             plan_output(src, s, overwrite=OVERWRITE_RENAME, taken=taken)
             == tmp_path / "clip_H264_2.mp4"
