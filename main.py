@@ -51,6 +51,13 @@ def main() -> int:
         from PySide6.QtGui import QIcon
 
         app.setWindowIcon(QIcon(":/icon.png"))
+    else:
+        # Publish Quick Look toggles before the first preview. Import stays on
+        # the GUI path so `video2exr` does not load Qt settings for this.
+        from src.core.quicklook_prefs import publish_quicklook_preferences
+        from src.services.app_settings import get_app_settings
+
+        publish_quicklook_preferences(get_app_settings().qsettings)
 
     win = MainWindow()
     # Nuke / shell launch: pre-fill media + OCIO before the event loop runs.

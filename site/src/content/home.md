@@ -35,6 +35,8 @@ The macOS build is signed and notarized, so it opens normally. First launch may 
 
 Release DMGs are signed with a Developer ID Application certificate for **Medeu Global LLC**, then notarized and stapled.
 
+Release builds also include Quick Look and Finder thumbnail extensions for OpenEXR and DPX. Spacebar uses the app’s default OCIO display view, and numbered frames play when the folder can be read. Enable the extensions under **System Settings → General → Login Items & Extensions**. See [Quick Look on macOS](docs/quicklook/).
+
 ### Install by platform
 
 **macOS** (Apple Silicon and Intel). Open the DMG and drag **EXR Converter** to Applications. The app is `EXR Converter.app`.
@@ -96,8 +98,9 @@ uv run python main.py proxy -i ./A001_card --watermark ABCD1234
 
 | Guide | Description |
 |---|---|
-| [CLI reference](docs/cli/) | `video2exr`, `exr2video`, `proxy` (including `--watch` and `--watermark`), GUI launch flags |
-| [GUI](docs/gui/) | Tabs, Video → Proxy, the watch folder, the invisible watermark, browsers, player, overlays, preferences |
+| [CLI reference](docs/cli/) | `video2exr`, `exr2video`, `proxy` (including `--watch` and `--watermark`), `transcode`, GUI launch flags |
+| [GUI](docs/gui/) | Tabs, Video → Proxy, the watch folder, Transcode, the invisible watermark, browsers, player, overlays, preferences |
+| [Quick Look on macOS](docs/quicklook/) | Spacebar previews and Finder icons for EXR, DPX, and optional stills |
 | [ProRes and VideoToolbox](docs/prores/) | Software vs Apple VideoToolbox vs oxideav, with honest bit depths |
 | [RED R3D / N-RAW](docs/r3d/) | Optional RED SDK for `.r3d` and `.nev` |
 | [Blackmagic RAW](docs/braw/) | Optional BRAW SDK for `.braw` (Linear ACES AP0) |

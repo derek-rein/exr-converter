@@ -103,6 +103,8 @@ The macOS build is signed and notarized, so it opens normally. First launch may 
 
 Release DMGs are signed with a Developer ID Application certificate for **Medeu Global LLC**, then notarized and stapled.
 
+Release builds also include Quick Look and Finder thumbnail extensions for OpenEXR and DPX. Spacebar uses the app’s default OCIO display view, and numbered frames play when the folder can be read. Enable the extensions under **System Settings → General → Login Items & Extensions**, then choose formats in **File → Preferences… → Quick Look**. See [Quick Look on macOS](docs/quicklook.md).
+
 ### Install by platform
 
 <details>
@@ -259,6 +261,7 @@ Guides live under [`docs/`](docs/) (Markdown source of truth). The public site i
 | --- | --- |
 | [CLI](docs/cli.md) | `video2exr` / `exr2video` / `proxy` / `transcode` / GUI launch flags |
 | [GUI](docs/gui.md) | Tabs, Video → Proxy and watch folder, Transcode, overlays, preferences, post-convert, codec picker |
+| [Quick Look on macOS](docs/quicklook.md) | Spacebar previews and Finder icons for EXR, DPX, and optional stills |
 | [ProRes and VideoToolbox](docs/prores.md) | Software vs Apple VideoToolbox vs oxideav; honest bit depths |
 | [R3D / N-RAW](docs/r3d.md) | Optional RED SDK (license, build, CI, preview) |
 | [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship when `BRAW_SDK_READ_TOKEN` is set) |

@@ -122,6 +122,28 @@ def validate_identity(identity: str) -> str:
     return cleaned
 
 
+def quicklook_appex_entitlements_path() -> Path:
+    """Sandbox + App Group entitlements for the Quick Look and thumbnail appexes."""
+    return (
+        Path(__file__).resolve().parents[1]
+        / "packaging"
+        / "macos"
+        / "quicklook"
+        / "Entitlements"
+        / "appex.entitlements"
+    )
+
+
+def iter_plugin_appexes(app: Path) -> list[Path]:
+    """``Contents/PlugIns/*.appex``, name order. Empty when Quick Look is not embedded."""
+    plugins = app / "Contents" / "PlugIns"
+    if not plugins.is_dir():
+        return []
+    found = [path for path in plugins.iterdir() if path.is_dir() and path.name.endswith(".appex")]
+    found.sort(key=lambda path: path.name)
+    return found
+
+
 def sign_argv(
     target: Path | str,
     *,
@@ -129,12 +151,17 @@ def sign_argv(
     entitlements: Path | None = None,
     keychain: Path | None = None,
     hardened_runtime: bool = True,
+    allow_adhoc_entitlements: bool = False,
 ) -> list[str]:
     """One ``codesign`` invocation. Never includes ``--deep``."""
     identity = validate_identity(identity)
     cmd = ["codesign", "--force", "--sign", identity]
     if is_adhoc_identity(identity):
         cmd.append("--timestamp=none")
+        # Appexes must carry the sandbox entitlement even on an ad-hoc seal.
+        # The host executable still omits entitlements for ad-hoc.
+        if allow_adhoc_entitlements and entitlements is not None:
+            cmd.extend(["--entitlements", str(entitlements)])
     else:
         if keychain is not None:
             cmd.extend(["--keychain", str(keychain)])
@@ -502,9 +529,14 @@ def plan_resign(
     """Return codesign argv lists. Never includes ``--deep``.
 
     Ad-hoc (``identity='-'``) keeps ``--timestamp=none`` and ignores keychain
-    and entitlements. Developer ID signs every Mach-O with the hardened
-    runtime and a secure timestamp; entitlements are applied only to
-    ``Contents/MacOS/exr_converter`` and the ``.app``.
+    and entitlements on the host. Developer ID signs every Mach-O with the
+    hardened runtime and a secure timestamp; host entitlements are applied
+    only to ``Contents/MacOS/exr_converter`` and the ``.app``.
+
+    ``Contents/PlugIns/*.appex`` is signed as a bundle after the Mach-Os
+    inside it and before the outer app, with the Quick Look sandbox
+    entitlements. Ad-hoc keeps those appex entitlements so the sandbox bit
+    is present; Developer ID re-seals the same entitlements with a timestamp.
     """
     identity = validate_identity(identity)
     adhoc = is_adhoc_identity(identity)
@@ -536,6 +568,25 @@ def plan_resign(
 
     for macho in iter_macho_files(app):
         _add(macho)
+    appexes = iter_plugin_appexes(app)
+    if appexes:
+        appex_entitlements = quicklook_appex_entitlements_path()
+        if not appex_entitlements.is_file():
+            raise SystemExit(f"Quick Look entitlements missing: {appex_entitlements}")
+        for appex in appexes:
+            key = str(appex)
+            if key in seen:
+                continue
+            seen.add(key)
+            cmds.append(
+                sign_argv(
+                    appex,
+                    identity=identity,
+                    entitlements=appex_entitlements,
+                    keychain=use_keychain,
+                    allow_adhoc_entitlements=True,
+                )
+            )
     for bundle in iter_nested_bundles(app):
         _add(bundle)
     for fw in iter_nested_frameworks(app):
