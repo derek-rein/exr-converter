@@ -29,6 +29,15 @@ Release builds include the ONNX Runtime shared library inside the app. On
 macOS that library is signed and notarized with the rest of the application
 under Medeu Global LLC.
 
+## RapidFuzz
+
+The sequence browser's fuzzy search scores names with the `rapidfuzz` package.
+
+- Project: https://github.com/rapidfuzz/RapidFuzz
+- License: MIT. Copyright 2020-present Max Bachmann, Copyright 2011 Adam Cohen.
+
+Release builds include its compiled extension modules inside the app.
+
 ## oxideav-prores
 
 The experimental cross-platform ProRes writer (`prores_ox_*` codecs) uses the
