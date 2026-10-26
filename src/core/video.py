@@ -298,7 +298,7 @@ def decode_video_frames(container, stream, deinterlace: str = "auto", log=None):
 _OPTIONAL_RAW_FORMATS: dict[str, tuple[str, str, str]] = {
     ".ari": ("ARRIRAW", "ARI", "ARRIRAW (.ari) is not supported"),
     ".arx": ("ARRIRAW", "ARX", "ARRIRAW (.arx) is not supported"),
-    ".crm": ("Canon RAW", "CRM", "Canon RAW support not installed"),
+    ".crm": ("Camera RAW", "CRM", "Camera RAW plugin not installed"),
 }
 
 _LIBAV_UNSAFE_SUFFIXES = frozenset({".r3d", ".nev", ".braw", *_OPTIONAL_RAW_FORMATS})
@@ -335,7 +335,7 @@ _arriraw_unsupported_message = _unsupported_raw_message
 _UNSUPPORTED_ROW_CODEC: dict[str, str] = {
     ".ari": "ARRIRAW (unsupported)",
     ".arx": "ARX (unsupported)",
-    ".crm": "Canon RAW (not installed)",
+    ".crm": "Camera RAW (plugin not installed)",
 }
 
 

@@ -106,12 +106,12 @@ def test_optional_raw_messages_without_plugin(tmp_path: Path, monkeypatch) -> No
     clip = tmp_path / "A001C001.CRM"
     clip.write_bytes(b"not-real")
     meta = probe_video_metadata(str(clip))
-    assert meta["Format"] == "Canon RAW"
-    assert meta["error"] == "Canon RAW support not installed"
-    with pytest.raises(RuntimeError, match="Canon RAW support not installed"):
+    assert meta["Format"] == "Camera RAW"
+    assert meta["error"] == "Camera RAW plugin not installed"
+    with pytest.raises(RuntimeError, match="Camera RAW plugin not installed"):
         open_ingest_source(str(clip))
     rows = scan_video_files(str(tmp_path))
-    assert [r["codec"] for r in rows] == ["Canon RAW (not installed)"]
+    assert [r["codec"] for r in rows] == ["Camera RAW (plugin not installed)"]
     ari = tmp_path / "x.ari"
     ari.write_bytes(b"not-real")
     assert probe_video_metadata(str(ari))["error"] == "ARRIRAW (.ari) is not supported"

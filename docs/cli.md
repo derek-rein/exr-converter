@@ -130,6 +130,10 @@ the bridge when secret `BRAW_SDK_READ_TOKEN` is set. Without it, `.braw`
 inputs error with a clear missing-SDK message. Decode is Linear ACES AP0
 (Metal / CUDA / OpenCL when available, otherwise CPU).
 
+**`.crm` camera RAW:** the video browser lists these files. Without a source
+plugin, Inspect and `video2exr` report `Camera RAW plugin not installed`. The
+file is never opened with PyAV. `proxy` and `transcode` do not accept it.
+
 ---
 
 ## `exr2video`: image sequence to video
@@ -314,7 +318,7 @@ Cache locations, what survives re-encoding, and other limits:
 The watch folder polls instead of relying on OS file events, so it works on
 network shares and removable volumes. Proxies are written to a hidden
 `.name.partial.ext` file and renamed when complete. RAW clips (`.r3d`, `.nev`,
-`.braw`, ARRIRAW) are not supported by `proxy`.
+`.braw`, ARRIRAW, `.crm`) are not supported by `proxy`.
 
 ---
 
@@ -397,8 +401,8 @@ first audio track is carried according to `--audio`.
 **Camera RAW.** `.r3d` / `.nev` and `.braw` are accepted when the
 [R3D](./r3d.md) or [BRAW](./braw.md) bridge is available. They decode to float
 RGB in the camera space the SDK reports (R3D Log3G10 / REDWideGamutRGB, BRAW
-Linear ACES AP0), have no audio, and usually want `--src` / `--dst`. ARRIRAW is
-not supported.
+Linear ACES AP0), have no audio, and usually want `--src` / `--dst`. ARRIRAW and
+`.crm` are not supported.
 
 Outputs are written to a hidden `.name.partial.ext` file and renamed when
 complete. A clip that fails is reported and the batch continues (exit code

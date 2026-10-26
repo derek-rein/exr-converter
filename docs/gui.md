@@ -97,7 +97,7 @@ volumes changes. Symlinked folders are not followed, and online-only folders,
 hidden folders, and system folders are skipped.
 
 **Video browser filters:** only real media extensions are listed (``.r3d``,
-``.nev``, ``.braw``, ``.ari``, ``.arx``, ``.mov``, ``.mp4``, …). macOS **AppleDouble** Finder sidecars
+``.nev``, ``.braw``, ``.ari``, ``.arx``, ``.crm``, ``.mov``, ``.mp4``, …). macOS **AppleDouble** Finder sidecars
 (``._clip.R3D``) that appear next to clips on network shares or non-HFS
 volumes are hidden. They share the media extension but are resource-fork
 metadata, not video. RED **`.RMD`** metadata files are never listed (not a
@@ -105,7 +105,10 @@ video extension). Selecting **`.r3d` / `.nev` / `.braw`** uses the optional
 SDK bridges for listing, **Inspect**, Preview, and grid thumbs. Never
 PyAV/FFmpeg (those containers are not libav-safe). Without the SDK, the clip
 still appears; Inspect shows SDK missing. **`.ari` / `.arx`** are listed as
-unsupported camera RAW and are never opened with PyAV.
+unsupported camera RAW and are never opened with PyAV. **`.crm`** is listed
+the same way. Without a source plugin, the codec column shows
+**Camera RAW (plugin not installed)**, and Inspect and convert report
+**Camera RAW plugin not installed**.
 
 **Cloud placeholders (Dropbox / iCloud / OneDrive):** folders managed by a
 cloud client often contain “online-only” stubs (macOS File Provider dataless
@@ -290,7 +293,7 @@ only overlay this tab can add is the optional
 [invisible watermark](#invisible-watermark).
 
 **Source formats:** `.mov`, `.mp4`, `.m4v`, `.mxf`, `.mkv`, `.avi`, `.webm`,
-`.ts`, `.mts`, and `.m2ts`. Camera RAW (`.r3d`, `.nev`, `.braw`, ARRIRAW) is
+`.ts`, `.mts`, and `.m2ts`. Camera RAW (`.r3d`, `.nev`, `.braw`, ARRIRAW, `.crm`) is
 not offered here. Hidden files and macOS `._` sidecars are skipped.
 
 | Section | Control | Default | Notes |
@@ -437,8 +440,8 @@ through. The matching CLI is
 `.m4v`, `.mxf`, `.mkv`, `.avi`, `.webm`, `.ts`, `.mts`, `.m2ts`), plus
 `.r3d` / `.nev` and `.braw` when the [R3D](./r3d.md) or [BRAW](./braw.md)
 bridge is available. Camera RAW decodes to the camera space the SDK reports
-and has no audio, so it usually wants the OCIO transform. ARRIRAW is not
-supported.
+and has no audio, so it usually wants the OCIO transform. ARRIRAW and `.crm`
+are not supported.
 
 | Section | Control | Default | Notes |
 |---------|---------|---------|-------|
