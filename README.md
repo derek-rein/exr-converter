@@ -74,6 +74,8 @@
 
 **Video to proxy:** a third tab (and the `proxy` CLI) makes Resolve-style editing proxies (ProRes 422 Proxy at half size by default) in a `Proxy` folder next to each clip, keeping source look, timecode, and audio. A **watch folder** converts new clips automatically once they finish copying. An optional invisible TrustMark watermark (off by default) can be written into every proxy frame. See [docs/gui.md](docs/gui.md#video--proxy).
 
+**Transcode:** a fourth tab (and the `transcode` CLI) batch-transcodes video files to ProRes, DNxHR (`.mov` or `.mxf`), H.264, HEVC, or AV1, with size, frame-rate conform, audio, quality, and file-naming options. No color change by default, with an optional OCIO transform. See [docs/gui.md](docs/gui.md#transcode).
+
 **Optional RED R3D / N-RAW:** when built with the official RED R3D SDK bridge, **Video to EXR** can decode `.r3d` and `.nev` (IPP2 primary to Log3G10 REDWideGamutRGB for OCIO), including browser thumbnails, sequence-player preview, and camera/timecode metadata on written EXRs. Release binaries may ship only RED's allowed Redistributable libraries in a private app folder. See [docs/r3d.md](docs/r3d.md) and **Help → About** for the redistributable notice.
 
 **Optional Blackmagic RAW:** when built with the official Blackmagic RAW SDK bridge, **Video to EXR** can decode `.braw` (Linear + ACES AP0 / `ACES2065-1` for OCIO). Without the SDK the extension is recognized but conversion fails with a clear missing-SDK message. Public Release binaries ship the runtime libraries in a private app folder when secret `BRAW_SDK_READ_TOKEN` is configured. See [docs/braw.md](docs/braw.md).
@@ -91,7 +93,7 @@ Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-p
 | Windows x64 | [**Installer (.exe)**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe) |
 | macOS Apple Silicon | [**DMG**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-arm64.dmg) |
 | macOS Intel | [**DMG**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-x86_64.dmg) |
-| Linux x86_64 | [**AppImage**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage) |
+| Linux x86_64 | [**AppImage**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage) · [tarball](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz) · [RPM](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm) |
 
 All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) and carry [GitHub build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The [releases page](https://github.com/derek-rein/exr-converter/releases) has the `cosign verify-blob` and `gh attestation verify` commands.
 
@@ -100,6 +102,8 @@ All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.de
 The macOS build is signed and notarized, so it opens normally. First launch may still show the standard "downloaded from the internet" prompt.
 
 Release DMGs are signed with a Developer ID Application certificate for **Medeu Global LLC**, then notarized and stapled.
+
+Release builds also include Quick Look and Finder thumbnail extensions for OpenEXR and DPX. Spacebar uses the app’s default OCIO display view, and numbered frames play when the folder can be read. Enable the extensions under **System Settings → General → Login Items & Extensions**, then choose formats in **File → Preferences… → Quick Look**. See [Quick Look on macOS](docs/quicklook.md).
 
 ### Install by platform
 
@@ -139,16 +143,22 @@ A release may also attach `exr_converter-windows-x86_64.msixupload` for Microsof
 </details>
 
 <details>
-<summary><b>Linux</b> (x86_64 AppImage)</summary>
+<summary><b>Linux</b> (x86_64, RHEL 8+)</summary>
 
 #### Install on Linux
 
-Download [exr_converter-linux-x86_64.AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage).
+Built on Rocky Linux 8 (glibc 2.28). Runs on RHEL, Rocky, and Alma 8 and newer. Details: [docs/linux.md](docs/linux.md).
+
+**AppImage** (artists). Download [exr_converter-linux-x86_64.AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage).
 
 ```bash
 chmod +x exr_converter-linux-x86_64.AppImage
 ./exr_converter-linux-x86_64.AppImage
 ```
+
+**Tarball** (studio deploy, `/opt`, `/software`, Rez). Download [exr_converter-linux-x86_64.tar.gz](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz), extract it, and run `exr-converter` from that folder. The folder does not need to be writable. Settings go to the XDG directories.
+
+**RPM** (IT, RHEL / Rocky). Download [exr_converter-linux-x86_64.rpm](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm). It installs to `/opt/exr-converter`, links `/usr/bin/exr-converter`, and adds a desktop file and icon. Vendor is Medeu Global LLC. License is MIT.
 
 </details>
 
@@ -213,7 +223,7 @@ Packaged apps use the same flags. Per-platform launch commands are in [Install b
 | Layer | Notes |
 | --- | --- |
 | **Language and tooling** | Python 3.13, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [Nuitka](https://nuitka.net/) for standalone bundles |
-| **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.8), Nuke-inspired dark theme |
+| **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.9.2 on every platform), Nuke-inspired dark theme |
 | **Imaging and color** | [OpenImageIO](https://openimageio.org/) (`OpenImageIO` 3.1+), [OpenColorIO 2.5](https://opencolorio.org/). Bundles **ACES Studio Config v4**. Overlay compositing is described below. |
 | **Video and sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences and ranges. Optional **RED R3D SDK** bridge for `.r3d` / `.nev`. Optional **Blackmagic RAW SDK** bridge for `.braw`. Optional **oxideav-prores** PyO3 extension (`exr_prores`) for experimental cross-platform RDD-36 ProRes in release builds (4444 and XQ are 12-bit; 422 is 12-bit internal and 10-bit to other apps) |
 | **Slate, burn-in, watermark** | Native **QPainter** preview and offscreen capture. Burn-in and watermark are linearised into the working space and alpha-composited per frame, then OCIO-transformed to display before encode |
@@ -255,8 +265,10 @@ Guides live under [`docs/`](docs/) (Markdown source of truth). The public site i
 
 | Guide | |
 | --- | --- |
-| [CLI](docs/cli.md) | `video2exr` / `exr2video` / `proxy` / GUI launch flags |
-| [GUI](docs/gui.md) | Tabs, Video → Proxy and watch folder, overlays, preferences, post-convert, codec picker |
+| [CLI](docs/cli.md) | `video2exr` / `exr2video` / `proxy` / `transcode` / GUI launch flags |
+| [GUI](docs/gui.md) | Tabs, Video → Proxy and watch folder, Transcode, overlays, preferences, post-convert, codec picker |
+| [Linux](docs/linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
+| [Quick Look on macOS](docs/quicklook.md) | Spacebar previews and Finder icons for EXR, DPX, and optional stills |
 | [ProRes and VideoToolbox](docs/prores.md) | Software vs Apple VideoToolbox vs oxideav; honest bit depths |
 | [R3D / N-RAW](docs/r3d.md) | Optional RED SDK (license, build, CI, preview) |
 | [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship when `BRAW_SDK_READ_TOKEN` is set) |
@@ -272,7 +284,7 @@ make docs-build   # write site/public/
 
 **Full reference:** [docs/cli.md](docs/cli.md) · **GUI:** [docs/gui.md](docs/gui.md) · **Nuke:** [docs/nuke.md](docs/nuke.md)
 
-Use the `video2exr`, `exr2video`, or `proxy` subcommand to convert, or run with **no** subcommand to open the GUI (optionally with `--open` / `--gui-ocio`).
+Use the `video2exr`, `exr2video`, `proxy`, or `transcode` subcommand to convert, or run with **no** subcommand to open the GUI (optionally with `--open` / `--gui-ocio`).
 
 ### Codecs
 
@@ -322,6 +334,7 @@ uv run python main.py exr2video -i ./dpx_seq -o review.mov --fps 24
 ```bash
 uv run python main.py proxy -i ./A001_card          # → ./A001_card/Proxy/*.mov
 uv run python main.py proxy --watch /Volumes/Ingest # watch folder, Ctrl-C to stop
+uv run python main.py transcode -i clip.mxf --codec dnxhr_hqx --container mxf
 ```
 
 ##### GUI with a path pre-loaded
@@ -409,7 +422,7 @@ This uses [Nuitka](https://nuitka.net/) to produce a standalone distributable:
 | Platform | Output |
 | --- | --- |
 | macOS | `dist/EXR Converter.app` |
-| Linux | `dist/exr_converter` (single binary) |
+| Linux | Release job on Rocky Linux 8: AppImage, tarball, and RPM (see [docs/linux.md](docs/linux.md)). `make bundle` is the macOS app |
 | Windows | `dist\main.dist\` (folder with `exr_converter.exe` and dependencies) |
 
 Nuitka will auto-download `ccache` on first run. See the `Makefile` for the full set of flags.

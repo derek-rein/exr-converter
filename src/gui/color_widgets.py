@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QStandardItemModel
 from PySide6.QtWidgets import (
     QComboBox,
@@ -26,6 +26,7 @@ from ..core.constants import (
     OCIO_SOURCE_ENV,
     OCIO_SOURCE_FILE,
 )
+from ..core.fps import fps_to_float
 from ..core.nuke_discover import (
     is_nuke_source_key,
     nuke_source_label,
@@ -75,15 +76,18 @@ class ColorSpaceButton(QToolButton):
     space_changed = Signal(str)
 
     # Visual cue when the displayed name is not in the current config.
+    # No min-height here. On macOS with Qt 6.9.2 a widget stylesheet
+    # min-height replaces the fixed row height. Padding matches the app QSS.
     _INVALID_STYLE = (
         "QToolButton { color: #e07070; border: 1px solid #a04040; "
-        "background-color: #3a2020; min-height: 22px; }"
+        "background-color: #3a2020; border-radius: 3px; padding: 4px 8px; "
+        "text-align: left; font-size: 13px; }"
     )
     # Brief cue when the space was chosen by media auto-detect (not sticky).
     _AUTO_STYLE = (
         "QToolButton { color: #e8dcc0; border: 1px solid #8a6a30; "
         "background-color: #3a3020; border-radius: 3px; padding: 4px 8px; "
-        "text-align: left; font-size: 13px; min-height: 22px; }"
+        "text-align: left; font-size: 13px; }"
     )
     _AUTO_FLASH_MS = 1200
 
@@ -104,6 +108,17 @@ class ColorSpaceButton(QToolButton):
         self._auto_timer.timeout.connect(self._end_auto_flash)
         self._set_display("(none)")
         self._apply_valid_style()
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        # App and widget stylesheets are polished after construction. Qt 6.9.2
+        # on macOS then drops setFixedHeight when a QSS min-height is present.
+        if event.type() == QEvent.Type.StyleChange:
+            lock_form_row_height(self)
+
+    def showEvent(self, event: QEvent) -> None:
+        super().showEvent(event)
+        lock_form_row_height(self)
 
     def current_space(self) -> str:
         """Canonical space name if valid; empty string when invalid/unset."""
@@ -288,6 +303,7 @@ class ColorSpaceButton(QToolButton):
             self.setStyleSheet("")
         else:
             self.setStyleSheet(self._INVALID_STYLE)
+        lock_form_row_height(self)
 
     @staticmethod
     def _find_action(menu: QMenu, name: str) -> bool:
@@ -359,7 +375,7 @@ class FpsCombo(QWidget):
         lock_form_row_height(self._spin)
         lock_form_row_height(self)
 
-        saved = float(settings.value(key, 24.0))
+        saved = fps_to_float(settings.value(key, 24.0), 24.0)
         self._restore(saved)
 
         self._combo.currentIndexChanged.connect(self._on_combo_changed)

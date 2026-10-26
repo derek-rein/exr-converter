@@ -136,8 +136,6 @@ dependencies = [
 [[package]]
 name = "oxideav-prores"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62324df6b4a40e1af30e6a885946b1b56d0e83aa3b6cb5706701de3fca042b09"
 dependencies = [
  "oxideav-core",
 ]

@@ -7,9 +7,13 @@ import sys
 from src.cli import build_parser, run_cli
 from src.core.app_paths import leave_read_only_install_cwd
 from src.core.constants import APP_NAME, APP_ORG, APP_VERSION
+from src.core.mp_support import configure_multiprocessing
 
 
 def main() -> int:
+    # Before anything can start a worker pool (CLI and GUI convert both do).
+    configure_multiprocessing()
+
     # Store launch uses the MSIX package root as the working directory. That
     # folder is read-only. Move to the user profile before any relative write.
     leave_read_only_install_cwd()
@@ -47,6 +51,13 @@ def main() -> int:
         from PySide6.QtGui import QIcon
 
         app.setWindowIcon(QIcon(":/icon.png"))
+    else:
+        # Publish Quick Look toggles before the first preview. Import stays on
+        # the GUI path so `video2exr` does not load Qt settings for this.
+        from src.core.quicklook_prefs import publish_quicklook_preferences
+        from src.services.app_settings import get_app_settings
+
+        publish_quicklook_preferences(get_app_settings().qsettings)
 
     win = MainWindow()
     # Nuke / shell launch: pre-fill media + OCIO before the event loop runs.
@@ -73,6 +84,19 @@ def main() -> int:
         except Exception as e:
             print(f"SMOKE FAIL: Python ssl unavailable: {e}", file=sys.stderr)
             return 4
+
+        # Sequence browser fuzzy search (rapidfuzz C extension) must load frozen.
+        try:
+            from rapidfuzz import fuzz as _fuzz
+            from rapidfuzz import process as _process
+
+            _match = _process.extractOne("shto_010_comp", ["shot_010_comp"], scorer=_fuzz.WRatio)
+            if not _match or _match[1] < 60:
+                raise RuntimeError(f"unexpected score {_match!r}")
+            print(f"smoke: rapidfuzz OK (score {_match[1]:.0f})")
+        except Exception as e:
+            print(f"SMOKE FAIL: rapidfuzz unavailable: {e}", file=sys.stderr)
+            return 5
 
         ver = _OCIO.GetVersion()
         nums = tuple(int(x) for x in ver.split(".")[:3] if x.isdigit())

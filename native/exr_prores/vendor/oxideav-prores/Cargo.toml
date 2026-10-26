@@ -1,0 +1,22 @@
+# Vendored copy of oxideav-prores 0.1.1 (https://crates.io/crates/oxideav-prores,
+# https://github.com/OxideAV/oxideav-prores), MIT licence (see LICENSE), with
+# the EXR Converter patch described in EXR_CONVERTER_PATCH.md. Wired in through
+# [patch.crates-io] in ../../Cargo.toml. Only the library sources are kept; the
+# upstream tests, benches and examples are not vendored.
+[package]
+name = "oxideav-prores"
+version = "0.1.1"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+repository = "https://github.com/OxideAV/oxideav-prores"
+authors = ["Mark Karpeles"]
+description = "Pure-Rust Apple ProRes codec (vendored for EXR Converter with a 4:4:4 chroma block order fix)"
+readme = "README.md"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+oxideav-core = "0.1"

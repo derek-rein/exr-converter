@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from .color_tags import ColorTags
+
 _IMPORT_ERROR: str | None
 try:
     import exr_prores as _native  # pyright: ignore[reportMissingImports]
@@ -81,11 +83,18 @@ def open_writer(
     fps_num: int,
     fps_den: int,
     codec_key: str,
+    color_tags: ColorTags | None = None,
 ) -> Any:
-    """Open an in-process ProRes MOV writer for *codec_key*."""
+    """Open an in-process ProRes MOV writer for *codec_key*.
+
+    *color_tags* sets the H.273 primaries / transfer / matrix written to the
+    ``colr`` atom and every frame header. ``None`` writes BT.709 matrix with
+    primaries and transfer unspecified.
+    """
     if not is_available():
         raise RuntimeError(unavailable_reason())
     profile = profile_for_codec_key(codec_key)
+    tags = color_tags or ColorTags()
     return _native.ProResMovWriter(
         str(path),
         int(width),
@@ -93,6 +102,9 @@ def open_writer(
         int(fps_num),
         int(fps_den),
         profile=profile,
+        color_primaries=int(tags.primaries),
+        transfer_characteristic=int(tags.transfer),
+        matrix_coefficients=int(tags.matrix),
     )
 
 

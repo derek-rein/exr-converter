@@ -1,19 +1,19 @@
 ---
 title: CLI reference
 weight: 10
-description: video2exr, exr2video, proxy, and GUI launch flags
+description: video2exr, exr2video, proxy, transcode, and GUI launch flags
 ---
 
 Command-line interface for **video and OpenEXR** conversion with **OpenColorIO**.
 The same entry point launches the **GUI** when no convert subcommand is given.
 
-**Outputs:** `video2exr` writes an OpenEXR sequence. `exr2video` and `proxy`
-write a video file. PNG, JPEG, WebP, and DPX are **inputs** for `exr2video`
+**Outputs:** `video2exr` writes an OpenEXR sequence. `exr2video`, `proxy`, and
+`transcode` write a video file. PNG, JPEG, WebP, and DPX are **inputs** for `exr2video`
 (image sequences). The app does not write PNG or other still-image output.
 
 Slate, burn-in, the visible text watermark, and post-convert toggles are
 **GUI-only**. See [GUI](./gui.md). The invisible proxy watermark is available
-from the CLI as `proxy --watermark`.
+from the CLI as `proxy --watermark` and `transcode --watermark`.
 
 ```bash
 # From a source checkout
@@ -23,10 +23,13 @@ uv run python main.py exr2video --help
 
 # Packaged binary (examples)
 exr_converter --help
+exr-converter --help
 "/Applications/EXR Converter.app/Contents/MacOS/exr_converter" --help
 ```
 
-Related: [GUI](./gui.md) · [ProRes and VideoToolbox](./prores.md) · [Nuke integration](./nuke.md) · [README](../README.md)
+On Linux, `exr-converter` is the launcher in the tarball and the RPM. Install options are in [Linux](./linux.md).
+
+Related: [Linux](./linux.md) · [GUI](./gui.md) · [ProRes and VideoToolbox](./prores.md) · [Nuke integration](./nuke.md) · [README](../README.md)
 
 ---
 
@@ -38,6 +41,7 @@ Related: [GUI](./gui.md) · [ProRes and VideoToolbox](./prores.md) · [Nuke inte
 | `main.py video2exr …` | CLI: video → OCIO → EXR sequence |
 | `main.py exr2video …` | CLI: image sequence (EXR / PNG / JPG / …) → OCIO → video |
 | `main.py proxy …` | CLI: video → editing proxies, as a batch or a `--watch` folder daemon |
+| `main.py transcode …` | CLI: video → video (ProRes, DNxHR, H.264, HEVC, AV1), with an optional OCIO transform |
 
 Global flags (before the subcommand; convert flags may also appear after it):
 
@@ -48,7 +52,7 @@ Global flags (before the subcommand; convert flags may also appear after it):
 | `--smoke-test` | CI: launch GUI briefly, verify OCIO/ssl, exit |
 | `--open PATH` | **GUI only:** open this media on launch |
 | `--gui-ocio PATH` | **GUI only:** load this OCIO config on launch |
-| `--mode auto\|video2exr\|exr2video\|proxy` | **GUI only:** which tab (`auto` from `--open`; `proxy` = Video → Proxy, and `--open` adds that path to the clip list) |
+| `--mode auto\|video2exr\|exr2video\|proxy\|transcode` | **GUI only:** which tab (`auto` from `--open`; `proxy` = Video → Proxy and `transcode` = Transcode, where `--open` adds that path to the clip list) |
 
 **Interrupt:** during CLI convert, **Ctrl-C** sets a cancel flag so the
 pipeline stops cooperatively (pool work is cancelled) and the process exits
@@ -146,9 +150,9 @@ uv run python main.py exr2video -i ./plate --codec h264 --crf 18
 |--------|---------|--------|
 | `-i` / `--input` | *(required)* | Sequence **directory** or any **existing frame** from the sequence (``name.####.ext`` or ``name_####.ext``; not a literal `####` path that does not exist on disk) |
 | `-o` / `--output` | next to sequence | Video path; default extension follows codec family (below) |
-| `--fps` | `24` | Frame rate |
+| `--fps` | `24` | Frame rate. Accepts whole numbers, decimals (`23.976`, `29.97`), and exact rationals (`24000/1001`, `30000/1001`). A rational is written to the file exactly. |
 | `--ocio` | bundled / `$OCIO` | Config file path |
-| `--src` | format-aware | EXR/DPX: metadata / `scene_linear`. PNG/JPEG/WebP: sRGB-ish display space |
+| `--src` | format-aware | EXR/DPX: image metadata (EXR Converter tag, `colorInteropID`, then EXR `chromaticities`: Rec.709, ACES AP1, ACES AP0, P3-D65, and Rec.2020 primaries are recognised). With no usable metadata, the OCIO `scene_linear` role is assumed and a warning names that colour space. Pass `--src` when the warning appears. PNG/JPEG/WebP: sRGB-ish display space |
 | `--dst` | `Output - Rec.709` | Display / delivery space. On ACES 2.0 configs that name remaps to **Rec.1886 Rec.709 - Display**; convert then applies the viewing-rule default view (**ACES 2.0 - SDR 100 nits (Rec.709)** for ACEScg), not Un-tone-mapped. Pass a utility encoding (``sRGB Encoded Rec.709 (sRGB)``) for colorimetric-only. |
 | `--scale` | `1.0` | Output scale |
 | `--codec` | `prores` | Codec key. See the ladder below (default = ProRes 422 HQ, **10-bit** software) |
@@ -314,22 +318,112 @@ network shares and removable volumes. Proxies are written to a hidden
 
 ---
 
+## `transcode`: video to video
+
+Batch transcodes for VFX and post: camera or editorial files into ProRes,
+DNxHR, H.264, HEVC, or AV1. Same engine as the GUI's **Transcode** tab (and
+the one `proxy` runs on). By default there is **no color change**: the
+picture, timecode, and the source color tags pass through. Give `--src` and
+`--dst` for an OCIO transform.
+
+```bash
+# One clip → ./A001C003_ProRes422HQ.mov (ProRes 422 HQ, source size, audio copied)
+uv run python main.py transcode -i A001C003.mxf
+
+# A folder into DNxHR HQX MXF in one delivery folder
+uv run python main.py transcode -i ./day1 --recursive -o /deliveries --codec dnxhr_hqx --container mxf
+
+# H.264 review copy, fit to 1080p, CRF 18, slow preset
+uv run python main.py transcode -i plate.mov --codec h264 --crf 18 --preset slow --resolution 1080
+
+# HEVC at a target bitrate, AAC audio
+uv run python main.py transcode -i plate.mov --codec hevc --bitrate 25 --audio aac
+
+# Custom width (height from the aspect ratio), conformed to 24 fps
+uv run python main.py transcode -i clip.mov --codec prores_4444 --width 2048 --fps 24
+
+# Log footage to a Rec.709 display with the bundled ACES config
+uv run python main.py transcode -i log.mov --src "ARRI LogC3 (EI800)" --dst "Rec.1886 Rec.709 - Display"
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `-i`, `--input PATH …` | (required) | Clips and/or folders of clips |
+| `-o`, `--output-dir DIR` | next to each clip | One folder for all outputs |
+| `--codec KEY` | `prores` (ProRes 422 HQ) | See the codec table below. The list in `--help` is what this machine can encode |
+| `--container EXT` | codec default | `mov`, `mxf`, `mp4`, or `mkv`, where the codec allows it (table below) |
+| `--resolution KEY` | `original` | `original`, `75`, `half`, `quarter`, `eighth` (scale), `2160`, `1080`, `720`, `540` (fit to that height), or `custom`. Scale and fit never upscale. Sizes round to even numbers |
+| `--width N` / `--height N` | `0` | Custom size (implies `--resolution custom`). Set one side to `0` to keep the source aspect ratio. Custom sizes can upscale |
+| `--fps N` | `0` (keep) | Conform: the same frames play at the new rate, so the clip gets shorter or longer. Audio is dropped when the rate changes |
+| `--audio MODE` | `copy` | `copy` (stream copy when the container can hold the source codec, else AAC in `.mp4` / `.mkv` and 24-bit PCM in `.mov` / `.mxf`), `aac`, `pcm` (24-bit), or `none` |
+| `--crf N` | 18 (H.264), 20 (HEVC), 28 (AV1) | Constant quality for long-GOP codecs. `0` to `51` (AV1 `0` to `63`). Ignored for ProRes and DNxHR |
+| `--bitrate MBPS` | off | Target bitrate in Mb/s for long-GOP codecs, instead of CRF |
+| `--preset NAME` | `medium` | x264 / x265 speed preset. For AV1 it maps to the matching SVT-AV1 preset number |
+| `--name PATTERN` | `<name>_<codec>` | File name without the extension. Tokens: `<name>` (source name), `<codec>` (for example `ProRes422HQ`, `DNxHR_HQX`, `H264`, `HEVC10`, `AV1`), `<width>`, `<height>`, `<fps>`, `<date>` |
+| `--if-exists MODE` | `skip` | `skip`, `overwrite`, or `rename` (adds `_1`, `_2`, …). The output can never replace its own source |
+| `--ocio PATH` | bundled / `$OCIO` | OCIO config for `--src` / `--dst` |
+| `--src NAME` / `--dst NAME` | (none) | Both together turn on the OCIO transform. `--dst` may be a display, which uses that display's default view |
+| `--watermark TEXT` | off | Invisible TrustMark payload, the same as `proxy --watermark` |
+| `--watermark-strength N` | `1.0` | `0.1` to `2.0` |
+| `--recursive` | off | Include subfolders of `-i` folders (`Proxy` folders are skipped) |
+
+| Codec key | Codec | Containers (default first) | Bit depth |
+|-----------|-------|----------------------------|-----------|
+| `prores_proxy`, `prores_lt`, `prores_422`, `prores` (HQ) | Apple ProRes 422 family (software) | `.mov` | 10-bit 4:2:2 |
+| `prores_4444`, `prores_xq` | Apple ProRes 4444 / 4444 XQ (software) | `.mov` | 10-bit 4:4:4:4 |
+| `prores_vt_*` | VideoToolbox ProRes (macOS only) | `.mov` | as in [Codecs](#codecs-honest-bit-depths) |
+| `dnxhr_lb`, `dnxhr_sq`, `dnxhr_hq` | DNxHR LB / SQ / HQ | `.mov`, `.mxf` | 8-bit 4:2:2 |
+| `dnxhr_hqx` | DNxHR HQX | `.mov`, `.mxf` | 10-bit 4:2:2 |
+| `dnxhr_444` | DNxHR 444 | `.mov`, `.mxf` | 10-bit 4:4:4 |
+| `h264` | H.264 (x264) | `.mp4`, `.mov` | 8-bit 4:2:0 |
+| `hevc_8`, `hevc`, `hevc_12` | H.265 / HEVC (x265), tagged `hvc1` | `.mp4`, `.mov` | 8 / 10 / 12-bit 4:2:0 |
+| `av1` | AV1 (SVT-AV1), only when the FFmpeg build has it | `.mp4`, `.mkv` | 10-bit 4:2:0 |
+
+Software ProRes is 10-bit for every profile, the same as `exr2video`. The
+experimental oxideav ProRes keys are not offered for transcodes. MXF takes
+the broadcast frame rates only (23.976, 24, 25, 29.97, 30, 50, 59.94, 60).
+
+**Color.** Without `--src` / `--dst`, YUV sources go straight to the codec's
+pixel format with no RGB round trip, and the source matrix, primaries, and
+transfer tags are copied when the source has them. With an OCIO transform,
+frames are converted to 16-bit RGB, transformed, and converted back with the
+source's YUV matrix. Only that matrix tag is written, since the primaries and
+transfer of the new picture are no longer the source's.
+
+**Timecode and audio.** Source timecode is carried across. Drop-frame
+timecode becomes non-drop when the output rate is not 29.97 or 59.94. The
+first audio track is carried according to `--audio`.
+
+**Camera RAW.** `.r3d` / `.nev` and `.braw` are accepted when the
+[R3D](./r3d.md) or [BRAW](./braw.md) bridge is available. They decode to float
+RGB in the camera space the SDK reports (R3D Log3G10 / REDWideGamutRGB, BRAW
+Linear ACES AP0), have no audio, and usually want `--src` / `--dst`. ARRIRAW is
+not supported.
+
+Outputs are written to a hidden `.name.partial.ext` file and renamed when
+complete. A clip that fails is reported and the batch continues (exit code
+`1` at the end). Bad options (an unknown container for the codec, `--src`
+without `--dst`, a bad watermark) exit with code `2` before anything is
+converted. Ctrl-C exits with `130`.
+
+---
+
 ## Exit codes
 
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | Convert / argument / codec error (`proxy`: at least one clip failed) |
-| `2` | `proxy`: no `-i` / `--watch`, a bad watch folder, or a bad `--watermark` payload / strength |
+| `1` | Convert / argument / codec error (`proxy` / `transcode`: at least one clip failed, or no clips found) |
+| `2` | `proxy`: no `-i` / `--watch`, a bad watch folder, or a bad `--watermark` payload / strength. `transcode`: invalid options (container, sizes, CRF, color spaces, watermark) |
 | `2` | Smoke test: OCIO runtime &lt; 2.5 (GUI `--smoke-test`) |
 | `3` | Smoke test: bundled config failed to load |
-| `130` | `proxy`: Ctrl-C during the `-i` batch or while a clip is converting. Ctrl-C while `--watch` is waiting exits `0` |
+| `130` | `proxy` / `transcode`: Ctrl-C during the `-i` batch or while a clip is converting. Ctrl-C while `proxy --watch` is waiting exits `0` |
 
 ---
 
 ## See also
 
-- `main.py --help`, `video2exr --help`, `exr2video --help`, `proxy --help` (always current)
+- `main.py --help`, `video2exr --help`, `exr2video --help`, `proxy --help`, `transcode --help` (always current)
 - [GUI](./gui.md)
 - [Nuke integration](./nuke.md)
 - [Releasing](./releasing.md)

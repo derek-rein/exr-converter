@@ -7,6 +7,9 @@
 **/.venv/
 **/.DS_Store
 dist/
+linux-dist/
+release-linux/
+*.AppDir/
 build/
 *.app/
 *.bin
@@ -33,6 +36,9 @@ r3d_sdk/
 .r3d-sdk-location.example
 
 native/exr_prores/target/
+
+# Swift Package Manager output from `swift test` on the Quick Look package.
+packaging/macos/quicklook/.build/
 
 # Local R3D sample copies (do not commit camera originals)
 .tmp-r3d-sample/
