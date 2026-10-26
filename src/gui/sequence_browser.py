@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -88,6 +89,7 @@ from .browser_state import (
 from .browser_volumes import MultiRootDirModel
 from .player.sequence_player import SequencePlayer
 from .segmented_control import SegmentedControl
+from .sequence_search import SEARCH_DEBOUNCE_MS, SequenceHit, SequenceIndex
 from .style import STATUS_DIM
 
 log = logging.getLogger(__name__)
@@ -134,6 +136,9 @@ class SequenceBrowserDialog(QDialog):
         self._selected_frame_path: str = ""
         self._seq_data: list[dict] = []
         self._auto_select_name = select_name
+        # First-frame path to select after the next scan (fuzzy search jump);
+        # disambiguates same-stem sequences with different extensions.
+        self._auto_select_frame = ""
         self._syncing_selection = False
         self._same_path_session = False
         self._pending_preview = False
@@ -281,6 +286,37 @@ class SequenceBrowserDialog(QDialog):
         self._view_stack.addWidget(self._preview_page)  # 2 = preview
         center.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         center.setMinimumWidth(360)
+
+        # Fuzzy sequence search over an in-memory index of folders visited in
+        # this dialog. Results replace the list/grid while the field has text.
+        self._seq_search_edit = QLineEdit()
+        self._seq_search_edit.setPlaceholderText(
+            "\U0001f50d  Find sequence (fuzzy, e.g. shot_010_comp)\u2026"
+        )
+        self._seq_search_edit.setClearButtonEnabled(True)
+        self._seq_search_edit.setToolTip(
+            "Typo-tolerant search over image sequences in folders opened in this "
+            "browser and their subfolders. Enter or click a result to jump to it."
+        )
+        center_layout.addWidget(self._seq_search_edit)
+
+        self._search_page = QWidget()
+        search_layout = QVBoxLayout(self._search_page)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(4)
+        self._search_results = QListWidget()
+        self._search_results.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._search_results.setUniformItemSizes(True)
+        search_layout.addWidget(self._search_results, 1)
+        self._search_empty = QLabel()
+        self._search_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._search_empty.setWordWrap(True)
+        self._search_empty.setStyleSheet(STATUS_DIM)
+        search_layout.addWidget(self._search_empty, 1)
+        self._search_info = QLabel()
+        self._search_info.setStyleSheet(STATUS_DIM)
+        search_layout.addWidget(self._search_info)
+        self._view_stack.addWidget(self._search_page)  # 3 = search results
         center_layout.addWidget(self._view_stack, 1)
 
         # -- Inspect panel (available in list, grid, and preview) --
@@ -355,6 +391,30 @@ class SequenceBrowserDialog(QDialog):
         self._grid.installEventFilter(self)
         self._grid.viewport().installEventFilter(self)
         self.installEventFilter(self)
+
+        # Fuzzy search: index thread + debounced queries (never on the GUI thread).
+        self._seq_index = SequenceIndex()
+        self._seq_index.signals.index_changed.connect(
+            self._on_seq_index_changed, Qt.ConnectionType.QueuedConnection
+        )
+        self._seq_index.signals.search_ready.connect(
+            self._on_seq_search_ready, Qt.ConnectionType.QueuedConnection
+        )
+        # Safety net if the dialog is destroyed without accept/reject/close.
+        _index = self._seq_index
+        self.destroyed.connect(lambda *_: _index.stop(timeout=0.5))
+        self._search_gen = 0
+        self._index_count = 0
+        self._index_busy = False
+        self._search_debounce = QTimer(self)
+        self._search_debounce.setSingleShot(True)
+        self._search_debounce.setInterval(SEARCH_DEBOUNCE_MS)
+        self._search_debounce.timeout.connect(self._run_seq_search)
+        self._seq_search_edit.textChanged.connect(self._on_seq_search_text)
+        self._seq_search_edit.installEventFilter(self)
+        self._search_results.itemActivated.connect(self._on_search_item_activated)
+        self._search_results.itemClicked.connect(self._on_search_item_activated)
+        self._fs_model.volumes_changed.connect(self._on_volumes_changed_index)
 
         # Session restore: layout + inspect always; tree/selection when same dir.
         settings = browser_qsettings()
@@ -576,6 +636,7 @@ class SequenceBrowserDialog(QDialog):
         self._path_edit.setText(directory)
         self._places.set_current_dir(directory)
         self._searchable_tree.set_search_root(directory)
+        self._seq_index.ensure_indexed(directory)
         self._scan_directory(directory)
 
     def _restore_tree_session(self, directory: str) -> None:
@@ -601,6 +662,7 @@ class SequenceBrowserDialog(QDialog):
         self._path_edit.setText(path)
         self._places.set_current_dir(path)
         self._searchable_tree.set_search_root(path)
+        self._seq_index.ensure_indexed(path)
         self._scan_directory(path)
 
     def _on_path_entered(self) -> None:
@@ -629,6 +691,8 @@ class SequenceBrowserDialog(QDialog):
         self._navigate_to(directory)
 
     def _on_view_changed(self, _index: int) -> None:
+        # Picking List / Grid / Preview leaves search results.
+        self._end_seq_search(restore_view=False)
         mode = self._view_seg.currentData()
         settings = browser_qsettings()
         if mode == _SEQ_BROWSER_VIEW_PREVIEW:
@@ -729,7 +793,14 @@ class SequenceBrowserDialog(QDialog):
             self._grid.addItem(gitem)
 
         select_row = -1
-        if self._auto_select_name:
+        if self._auto_select_frame:
+            want = os.path.normpath(self._auto_select_frame)
+            self._auto_select_frame = ""
+            for row, s in enumerate(seqs):
+                if os.path.normpath(str(s.get("first_frame") or "")) == want:
+                    select_row = row
+                    break
+        if select_row < 0 and self._auto_select_name:
             for row, s in enumerate(seqs):
                 if s.get("name") == self._auto_select_name:
                     select_row = row
@@ -894,6 +965,10 @@ class SequenceBrowserDialog(QDialog):
         self._apply_selection(row)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if obj is self._seq_search_edit:
+            if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+                return self._on_seq_search_key(event)
+            return False
         # Paste into Folder path: navigate + select + preview after text updates.
         if obj is self._path_edit and event.type() == QEvent.Type.KeyPress:
             if isinstance(event, QKeyEvent) and event.matches(QKeySequence.StandardKey.Paste):
@@ -1142,6 +1217,7 @@ class SequenceBrowserDialog(QDialog):
         self._previewing = False
         # Invalidate in-flight thumb jobs.
         self._thumb_gen += 1
+        self._shutdown_seq_index()
         player = self._player
         # Keep self._player set until after shutdown so slots still resolve if a
         # queued event races us; then clear the Python ref only (parent still
@@ -1218,3 +1294,151 @@ class SequenceBrowserDialog(QDialog):
         for k, v in meta.items():
             lines.append(f"{k}: {v}")
         self._meta_text.setPlainText("\n".join(lines))
+
+    # -- fuzzy sequence search ---------------------------------------------
+
+    def _shutdown_seq_index(self) -> None:
+        """Stop + join the index thread and discard the in-memory index."""
+        self._search_debounce.stop()
+        self._search_gen += 1
+        self._seq_index.stop()
+
+    def _on_volumes_changed_index(self) -> None:
+        """Root set changed (mount / unmount): rebuild from the current folder."""
+        self._seq_index.clear()
+        if self._selected_dir:
+            self._seq_index.ensure_indexed(self._selected_dir)
+        if self._seq_search_edit.text().strip():
+            self._search_debounce.start()
+
+    def _on_seq_search_text(self, text: str) -> None:
+        if not text.strip():
+            self._end_seq_search()
+            return
+        if self._view_stack.currentIndex() != 3:
+            if self._previewing:
+                self._stop_preview_playback()
+            self._view_stack.setCurrentIndex(3)
+        self._search_debounce.start()
+
+    def _run_seq_search(self) -> None:
+        self._search_debounce.stop()
+        query = self._seq_search_edit.text().strip()
+        if not query:
+            return
+        self._search_gen += 1
+        if self._search_results.count() == 0:
+            self._show_search_empty("Searching\u2026")
+        self._seq_index.search(query, self._search_gen)
+
+    @Slot(int, bool)
+    def _on_seq_index_changed(self, count: int, busy: bool) -> None:
+        self._index_count = count
+        self._index_busy = busy
+        # Refresh visible results as the index grows (debounced like typing).
+        if self._view_stack.currentIndex() == 3 and self._seq_search_edit.text().strip():
+            self._search_debounce.start()
+
+    @Slot(int, str, object, int, bool)
+    def _on_seq_search_ready(
+        self, gen: int, query: str, hits: object, count: int, busy: bool
+    ) -> None:
+        if gen != self._search_gen or query != self._seq_search_edit.text().strip():
+            return  # stale: the query changed while this one was scored
+        self._index_count = count
+        self._index_busy = busy
+        results = [h for h in hits if isinstance(h, SequenceHit)] if isinstance(hits, list) else []
+        prev = self._search_results.currentItem()
+        prev_hit = prev.data(Qt.ItemDataRole.UserRole) if prev is not None else None
+        prev_key = prev_hit.first_frame if isinstance(prev_hit, SequenceHit) else ""
+        indexing = " (still indexing\u2026)" if busy else ""
+        if not results:
+            if count == 0:
+                msg = (
+                    "Indexing sequences\u2026"
+                    if busy
+                    else "No image sequences found in the folders opened in this browser."
+                )
+            else:
+                msg = f"No sequences match \u201c{query}\u201d.{indexing}"
+            self._show_search_empty(msg)
+            self._search_info.setText(f"{count} sequence(s) indexed{indexing}")
+            return
+        self._search_results.clear()
+        select_row = 0
+        for row, hit in enumerate(results):
+            item = QListWidgetItem(
+                f"{hit.pattern}   \u00b7  {hit.frame_count}f  {hit.frame_range}\n{hit.parent}"
+            )
+            item.setData(Qt.ItemDataRole.UserRole, hit)
+            item.setToolTip(f"{hit.first_frame}\nScore {hit.score:.0f}")
+            self._search_results.addItem(item)
+            if prev_key and hit.first_frame == prev_key:
+                select_row = row
+        self._search_results.setVisible(True)
+        self._search_empty.setVisible(False)
+        self._search_results.setCurrentRow(select_row)
+        self._search_info.setText(
+            f"{len(results)} match(es) \u00b7 {count} sequence(s) indexed{indexing}"
+        )
+
+    def _show_search_empty(self, text: str) -> None:
+        self._search_results.clear()
+        self._search_results.setVisible(False)
+        self._search_empty.setText(text)
+        self._search_empty.setVisible(True)
+
+    def _on_seq_search_key(self, event: QKeyEvent) -> bool:
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._seq_search_edit.clear()  # textChanged ends the search
+            return True
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Never let Enter reach the dialog's default (Open) button.
+            if self._search_debounce.isActive() or self._search_results.count() == 0:
+                self._run_seq_search()
+            else:
+                item = self._search_results.currentItem() or self._search_results.item(0)
+                if item is not None:
+                    self._on_search_item_activated(item)
+            return True
+        if key in (Qt.Key.Key_Down, Qt.Key.Key_Up) and self._search_results.count():
+            step = 1 if key == Qt.Key.Key_Down else -1
+            row = self._search_results.currentRow() + step
+            row = max(0, min(row, self._search_results.count() - 1))
+            self._search_results.setCurrentRow(row)
+            return True
+        return False
+
+    def _on_search_item_activated(self, item: QListWidgetItem) -> None:
+        hit = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        if isinstance(hit, SequenceHit):
+            self._jump_to_search_hit(hit)
+
+    def _jump_to_search_hit(self, hit: SequenceHit) -> None:
+        """Navigate the tree to *hit* and select it via the normal scan path."""
+        self._end_seq_search(reload_preview=False)
+        self._auto_select_name = hit.stem
+        self._auto_select_frame = hit.first_frame
+        self._navigate_to(hit.parent)
+
+    def _end_seq_search(self, *, restore_view: bool = True, reload_preview: bool = True) -> None:
+        """Leave search results and show the List / Grid / Preview page again."""
+        self._search_debounce.stop()
+        self._search_gen += 1  # drop in-flight results
+        if self._seq_search_edit.text():
+            self._seq_search_edit.blockSignals(True)
+            self._seq_search_edit.clear()
+            self._seq_search_edit.blockSignals(False)
+        self._search_results.clear()
+        if not restore_view or self._view_stack.currentIndex() != 3:
+            return
+        mode = self._view_seg.currentData()
+        if mode == _SEQ_BROWSER_VIEW_PREVIEW:
+            self._view_stack.setCurrentIndex(2)
+            if reload_preview:
+                self._load_preview_sequence()
+        elif mode == _SEQ_BROWSER_VIEW_GRID:
+            self._view_stack.setCurrentIndex(1)
+        else:
+            self._view_stack.setCurrentIndex(0)

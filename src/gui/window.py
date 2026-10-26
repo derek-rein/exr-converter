@@ -57,13 +57,15 @@ from .preferences import (
 )
 from .proxy_tab import ProxyTab
 from .size_grip import SizeGrip
+from .transcode_tab import TranscodeTab
 from .widgets import ConvertTab, OcioConfigPanel, _select_video_codec_combo_key
 
 # Floor so the log splitter cannot hide the convert form or the log entirely.
 # ConvertTab scrolls internally if the tab page is shorter than the form.
 CONVERT_TABS_MIN_HEIGHT = 200
-# Tab order: Video → EXR, EXR → Video, Video → Proxy.
+# Tab order: Video → EXR, EXR → Video, Video → Proxy, Transcode.
 PROXY_TAB_INDEX = 2
+TRANSCODE_TAB_INDEX = 3
 LOG_PANE_MIN_HEIGHT = 72
 
 
@@ -129,6 +131,16 @@ class AboutDialog(QDialog):
         except Exception:
             braw_line = ""
 
+        plugin_lines = ""
+        try:
+            from html import escape
+
+            from ..core.source_plugins import about_lines as plugin_about_lines
+
+            plugin_lines = "".join(f"<br>{escape(line)}" for line in plugin_about_lines())
+        except Exception:
+            plugin_lines = ""
+
         deps = (
             f"Python {sys.version.split()[0]} · "
             f"PySide6 {__import__('PySide6').__version__}<br>"
@@ -136,6 +148,7 @@ class AboutDialog(QDialog):
             f"OpenImageIO {oiio_ver}"
             f"{r3d_line}"
             f"{braw_line}"
+            f"{plugin_lines}"
         )
 
         body = QTextBrowser()
@@ -185,11 +198,36 @@ class AboutDialog(QDialog):
         braw_btn.setToolTip("End-user terms for optional Blackmagic RAW libraries")
         braw_btn.clicked.connect(self._show_braw_notice)
         notice_row.addWidget(braw_btn)
+        try:
+            from ..core.source_plugins import notices as plugin_notices
+
+            for title_text, notice_text in plugin_notices():
+                btn = QPushButton(f"{title_text}\u2026")
+                btn.clicked.connect(
+                    lambda _checked=False, t=title_text, n=notice_text: self._show_notice(t, n)
+                )
+                notice_row.addWidget(btn)
+        except Exception:
+            pass
         layout.addLayout(notice_row)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
+
+    def _show_notice(self, title: str, notice: str) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumSize(480, 360)
+        lay = QVBoxLayout(dlg)
+        text = QPlainTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText(notice.strip())
+        lay.addWidget(text, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        bb.accepted.connect(dlg.accept)
+        lay.addWidget(bb)
+        dlg.exec()
 
     def _show_red_notice(self) -> None:
         from ..core.r3d import RED_REDISTRIBUTABLE_NOTICE
@@ -276,6 +314,8 @@ class MainWindow(QMainWindow):
         self._proxy_tab = ProxyTab(self._settings)
         self._tabs.addTab(self._e2v_tab, "EXR \u2192 Video")
         self._tabs.addTab(self._proxy_tab, "Video \u2192 Proxy")
+        self._transcode_tab = TranscodeTab(self._settings)
+        self._tabs.addTab(self._transcode_tab, "Transcode")
         saved_tab = int(self._settings.value("ui/tab", 0))
         if 0 <= saved_tab < self._tabs.count():
             self._tabs.setCurrentIndex(saved_tab)
@@ -302,7 +342,7 @@ class MainWindow(QMainWindow):
         prog_row.addWidget(self._cancel_btn)
         top_layout.addLayout(prog_row)
 
-        # Post-convert actions (persisted). Hidden on the proxy tab (batch jobs).
+        # Post-convert actions (persisted). Hidden on the batch tabs (Proxy, Transcode).
         self._after_row_widget = QWidget()
         after_row = QHBoxLayout(self._after_row_widget)
         after_row.setContentsMargins(0, 0, 0, 0)
@@ -386,10 +426,21 @@ class MainWindow(QMainWindow):
         self._e2v_tab.log_message.connect(self._append_log)
         self._v2e_tab.readiness_changed.connect(lambda _: self._update_go_state())
         self._e2v_tab.readiness_changed.connect(lambda _: self._update_go_state())
-        self._proxy_tab.log_message.connect(self._append_log)
-        self._proxy_tab.readiness_changed.connect(lambda _: self._update_go_state())
-        self._proxy_tab.progress.connect(self._on_proxy_progress)
-        self._proxy_tab.busy_changed.connect(self._on_proxy_busy_changed)
+        for batch_tab in (self._proxy_tab, self._transcode_tab):
+            batch_tab.log_message.connect(self._append_log)
+            batch_tab.readiness_changed.connect(lambda _: self._update_go_state())
+        self._proxy_tab.progress.connect(
+            lambda cur, total: self._on_batch_progress(self._proxy_tab, cur, total)
+        )
+        self._proxy_tab.busy_changed.connect(
+            lambda busy: self._on_batch_busy_changed(self._proxy_tab, busy)
+        )
+        self._transcode_tab.progress.connect(
+            lambda cur, total: self._on_batch_progress(self._transcode_tab, cur, total)
+        )
+        self._transcode_tab.busy_changed.connect(
+            lambda busy: self._on_batch_busy_changed(self._transcode_tab, busy)
+        )
         self._update_go_state()
         self._sync_proxy_tab_chrome()
 
@@ -425,14 +476,16 @@ class MainWindow(QMainWindow):
             self._tabs.setCurrentIndex(1)
         elif mode_norm in ("proxy", "video2proxy"):
             self._tabs.setCurrentIndex(PROXY_TAB_INDEX)
+        elif mode_norm in ("transcode", "video2video"):
+            self._tabs.setCurrentIndex(TRANSCODE_TAB_INDEX)
         elif open_path:
             # Prefer extension over filesystem existence (Nuke may pass paths
             # that are not yet fully visible, or sequence tokens).
             p = Path(open_path.split()[0] if open_path else "")
             name = p.name.lower()
             if not is_ignored_media_filename(p.name) and (
-                p.suffix.lower() in self._VIDEO_EXTS
-                or any(name.endswith(ext) for ext in self._VIDEO_EXTS)
+                p.suffix.lower() in self._video_exts()
+                or any(name.endswith(ext) for ext in self._video_exts())
             ):
                 self._tabs.setCurrentIndex(0)
             else:
@@ -443,8 +496,8 @@ class MainWindow(QMainWindow):
             open_name = Path(open_path.split()[0]).name
             if is_ignored_media_filename(open_name):
                 self._append_log(f"Ignored OS metadata path on launch (not media): {open_name}")
-            elif self._is_proxy_tab():
-                self._proxy_tab.add_paths([open_path])
+            elif (batch := self._batch_tab()) is not None:
+                batch.add_paths([open_path])
                 self._append_log(f"Opened (launch): {open_path}")
             else:
                 # Prevent deferred QSettings restore from overwriting --open / Nuke.
@@ -615,6 +668,13 @@ class MainWindow(QMainWindow):
         n_spaces = sum(len(v) for v in families.values())
         self._v2e_tab.populate_spaces(families, ocio_cfg=cfg)
         self._e2v_tab.populate_spaces(families, ocio_cfg=cfg)
+        cs, cp = config_source_info(
+            self._ocio_panel.current_source_key(),
+            self._ocio_panel._file_path,
+        )
+        self._transcode_tab.populate_spaces(
+            families, ocio_cfg=cfg, config_source=cs, config_path=cp
+        )
         self._update_go_state()
         # Surface invalid color spaces after a config switch.
         tab = self._active_tab()
@@ -647,49 +707,67 @@ class MainWindow(QMainWindow):
     def _is_proxy_tab(self) -> bool:
         return self._tabs.currentIndex() == PROXY_TAB_INDEX
 
+    def _is_transcode_tab(self) -> bool:
+        return self._tabs.currentIndex() == TRANSCODE_TAB_INDEX
+
+    def _batch_tab(self) -> ProxyTab | TranscodeTab | None:
+        """The current tab when it is a queued batch tab (Proxy / Transcode)."""
+        if self._is_proxy_tab():
+            return self._proxy_tab
+        if self._is_transcode_tab():
+            return self._transcode_tab
+        return None
+
     def _update_go_state(self) -> None:
         """Enable Convert only when idle and the active tab is ready.
 
-        The proxy tab queues jobs, so Convert stays enabled while proxies run.
+        The batch tabs queue jobs, so Convert stays enabled while they run.
         """
-        if self._is_proxy_tab():
-            self._go.setEnabled(self._proxy_tab.is_ready())
+        batch = self._batch_tab()
+        if batch is not None:
+            self._go.setEnabled(batch.is_ready())
         else:
             busy = self._is_convert_running() or self._busy is not None
             self._go.setEnabled(not busy and self._active_tab().is_ready())
         self._update_cancel_state()
 
     def _update_cancel_state(self) -> None:
-        if self._is_proxy_tab():
-            self._cancel_btn.setEnabled(self._proxy_tab.is_busy())
+        batch = self._batch_tab()
+        if batch is not None:
+            self._cancel_btn.setEnabled(batch.is_busy())
         else:
             self._cancel_btn.setEnabled(self._is_convert_running() or self._busy == "convert")
 
     def _sync_proxy_tab_chrome(self) -> None:
-        """Post-convert actions apply to single convert jobs, not proxy batches."""
-        self._after_row_widget.setVisible(not self._is_proxy_tab())
+        """Post-convert actions apply to single convert jobs, not batch tabs."""
+        self._after_row_widget.setVisible(self._batch_tab() is None)
 
-    def _on_proxy_progress(self, cur: int, total: int) -> None:
-        if self._busy is not None:
+    def _on_batch_progress(self, tab: ProxyTab | TranscodeTab, cur: int, total: int) -> None:
+        if self._busy is not None or self._batch_tab() is not tab:
             return
         if total > 0:
             self._progress.setValue(int(100 * cur / total))
-        pending = self._proxy_tab.queue.pending()
+        pending = tab.queue.pending()
         more = f" \u00b7 {pending - 1} more queued" if pending > 1 else ""
-        self._statusbar.showMessage(f"Proxy frame {cur} / {total}{more}")
+        noun = "Proxy" if tab is self._proxy_tab else "Transcode"
+        self._statusbar.showMessage(f"{noun} frame {cur} / {total}{more}")
 
-    def _on_proxy_busy_changed(self, busy: bool) -> None:
+    def _on_batch_busy_changed(self, tab: ProxyTab | TranscodeTab, busy: bool) -> None:
         if not busy and self._busy is None:
-            self._progress.setValue(0)
-            q = self._proxy_tab.queue
-            self._statusbar.showMessage(
-                f"Proxies done ({q.completed} made, {q.failed} failed).", 6000
-            )
+            if self._batch_tab() is tab:
+                self._progress.setValue(0)
+            q = tab.queue
+            if tab is self._proxy_tab:
+                msg = f"Proxies done ({q.completed} made, {q.failed} failed)."
+            else:
+                msg = f"Transcodes done ({q.completed} made, {q.failed} failed)."
+            self._statusbar.showMessage(msg, 6000)
         self._update_go_state()
 
     def _start(self) -> None:
-        if self._is_proxy_tab():
-            self._proxy_tab.start_batch()
+        batch = self._batch_tab()
+        if batch is not None:
+            batch.start_batch()
             self._update_go_state()
             return
         if self._is_convert_running():
@@ -1133,10 +1211,12 @@ class MainWindow(QMainWindow):
         self._result_player_win = None
 
     def _cancel_run(self) -> None:
-        if self._is_proxy_tab():
-            if self._proxy_tab.is_busy():
-                self._proxy_tab.cancel()
-                self._append_log("Proxy cancellation requested\u2026")
+        batch = self._batch_tab()
+        if batch is not None:
+            if batch.is_busy():
+                batch.cancel()
+                noun = "Proxy" if batch is self._proxy_tab else "Transcode"
+                self._append_log(f"{noun} cancellation requested\u2026")
             return
         if self._worker:
             self._worker.cancel()
@@ -1402,6 +1482,12 @@ class MainWindow(QMainWindow):
         ".braw",
     }
 
+    @classmethod
+    def _video_exts(cls) -> set[str]:
+        from ..core.source_plugins import plugin_suffixes
+
+        return cls._VIDEO_EXTS | set(plugin_suffixes())
+
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         mime = event.mimeData()
         if mime is not None and mime.hasUrls():
@@ -1413,7 +1499,7 @@ class MainWindow(QMainWindow):
                         return
                     if is_ignored_media_filename(p.name):
                         continue
-                    if p.suffix.lower() in (self._VIDEO_EXTS | IMAGE_SEQUENCE_EXTS):
+                    if p.suffix.lower() in (self._video_exts() | IMAGE_SEQUENCE_EXTS):
                         event.acceptProposedAction()
                         return
         event.ignore()
@@ -1422,9 +1508,10 @@ class MainWindow(QMainWindow):
         mime = event.mimeData()
         if mime is None or not mime.hasUrls():
             return
-        if self._is_proxy_tab():
+        batch = self._batch_tab()
+        if batch is not None:
             paths = [url.toLocalFile() for url in mime.urls() if url.isLocalFile()]
-            if self._proxy_tab.add_paths(paths):
+            if batch.add_paths(paths):
                 event.acceptProposedAction()
             return
         for url in mime.urls():
@@ -1433,7 +1520,7 @@ class MainWindow(QMainWindow):
             p = Path(url.toLocalFile())
             if (
                 p.is_file()
-                and p.suffix.lower() in self._VIDEO_EXTS
+                and p.suffix.lower() in self._video_exts()
                 and not is_ignored_media_filename(p.name)
             ):
                 self._tabs.setCurrentIndex(0)
@@ -1467,6 +1554,7 @@ class MainWindow(QMainWindow):
                 pass
         # Stop background work so QApplication tear-down does not race threads.
         self._proxy_tab.shutdown()
+        self._transcode_tab.shutdown()
         if self._worker is not None:
             self._worker.cancel()
         if self._thread is not None and self._thread.isRunning():

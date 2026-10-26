@@ -90,6 +90,7 @@ site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 | Convert pipeline | `src/core/convert.py`, `src/core/video.py`, `src/core/exr_io.py` |
 | Optional R3D / N-RAW | `src/core/r3d/`, bridge source in private `derek-rein/r3d-sdk-private` (macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_r3d_bridge.py`, `scripts/fetch_r3d_sdk.py`, `scripts/install_r3d_into_bundle.py`, [docs/r3d.md](./docs/r3d.md) |
 | Optional BRAW | `src/core/braw/`, bridge source in private `derek-rein/braw-sdk-private` (Linear ACES AP0; macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_braw_bridge.py`, `scripts/fetch_braw_sdk.py`, `scripts/install_braw_into_bundle.py`, [docs/braw.md](./docs/braw.md) |
+| Optional source plugins (generic hook) | `src/core/source_plugins.py` — private builds may drop decoder plugins into `src/plugins/` (git-ignored, listed in generated `src/plugins/_enabled.py`). The public repo ships none; dispatch order is sidecar check → plugins → R3D/BRAW → PyAV. Tests: `tests/test_source_plugins.py` |
 | Optional 12-bit ProRes (oxideav) | `native/exr_prores/` (PyO3), `src/core/oxideav_prores.py`, `make oxideav-prores`, [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) |
 | Private full SDK (local) | R3D: `~/code/r3d-sdk-private/R3DSDKv9_2_1` — CI feed `derek-rein/r3d-sdk-private` release `sdk-9.2.1` (`R3D_SDK_READ_TOKEN`). BRAW: `~/.braw-sdk/` or `~/code/braw-sdk-private/BlackmagicRAWSDK-6.0` — CI feed `derek-rein/braw-sdk-private` release `sdk-6.0` (`BRAW_SDK_READ_TOKEN`). Never commit either SDK. |
 | Codec ladder / bit depth labels | `src/core/constants.py` |
@@ -103,6 +104,7 @@ site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 | Slate dialog / viewer | `src/gui/slate_widgets.py` (composes player + overlay hooks), `src/gui/ocio_gpu_plane.py`, `src/services/slate_model.py` |
 | Background convert | `src/services/worker.py` |
 | Video → Proxy tab / watch folder | `src/gui/proxy_tab.py`, `src/core/proxy.py`, `src/core/watch_folder.py`, `src/services/proxy_queue.py` (CLI `proxy` in `src/cli.py`). Optional invisible watermark: `src/core/trustmark/` (ONNX Runtime, encoder downloaded on first use) and `scripts/trustmark_detect.py` |
+| Transcode tab (video → video) | `src/gui/transcode_tab.py`, `src/core/transcode.py` (shared PyAV encode engine: codecs/containers, sizes, audio, naming, OCIO, watermark; `run_video_to_proxy` is a thin wrapper over it), `TranscodeQueue` in `src/services/proxy_queue.py` (CLI `transcode` in `src/cli.py`) |
 
 ## Commands (local)
 
@@ -579,7 +581,7 @@ Branch protection on `main` should require `ci-ok`.
 | [README.md](./README.md) | Product overview, install, short CLI |
 | [docs/](./docs/) | User-facing Markdown (**must update** when behavior changes) |
 | [site/](./site/) | Astro site; loads `docs/` → Vercel (`site/vercel.json`) |
-| [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`) + GUI launch flags |
+| [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`, `transcode`) + GUI launch flags |
 | [docs/gui.md](./docs/gui.md) | GUI tabs, overlays, preferences, post-convert |
 | [docs/quicklook.md](./docs/quicklook.md) | macOS Quick Look + Finder thumbnails (EXR, DPX, optional stills) |
 | [docs/prores.md](./docs/prores.md) | Software vs VideoToolbox vs oxideav ProRes |

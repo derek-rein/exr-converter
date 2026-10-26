@@ -492,3 +492,168 @@ class TestOxideavConvertPath:
         assert result.returncode == 0
         assert "prores_ox_4444" in result.stdout
         assert "prores_ox_xq" in result.stdout
+
+
+def _decode_yuv_planes(path: Path, *, width: int, height: int) -> list[np.ndarray]:
+    """Decode the first frame with FFmpeg (PyAV) and return Y, Cb, Cr as int arrays."""
+    probe = av.open(str(path))
+    try:
+        frame = next(probe.decode(video=0))
+        planes = []
+        for i in range(3):
+            raw = np.frombuffer(bytes(frame.planes[i]), dtype="<u2")
+            stride = frame.planes[i].line_size // 2
+            planes.append(raw.reshape(-1, stride)[:height, :width].astype(np.int32))
+        return planes
+    finally:
+        probe.close()
+
+
+def _block_pattern(height: int, width: int, seed: int) -> np.ndarray:
+    """Flat 8x8 blocks, each with a different 12-bit value (exposes block order)."""
+    rng = np.random.default_rng(seed)
+    blocks = rng.integers(400, 3700, size=(height // 8, width // 8))
+    return np.kron(blocks, np.ones((8, 8), dtype=np.int64)).astype(np.uint16)
+
+
+@pytest.mark.parametrize("profile", ["4444", "xq"])
+class TestOxideavFfmpegChroma:
+    """4:4:4 chroma must decode in place with FFmpeg, not only with oxideav itself.
+
+    oxideav-prores 0.1.1 wrote the four chroma 8x8 blocks of each macroblock
+    in luma (raster) order; FFmpeg reads column order, so the top-right and
+    bottom-left chroma blocks came back swapped. The vendored copy fixes it.
+    """
+
+    W, H = 96, 48  # partial last slice + several macroblocks
+
+    def test_chroma_blocks_land_in_place(self, tmp_path: Path, profile: str):
+        out = tmp_path / f"blocks_{profile}.mov"
+        y = np.full((self.H, self.W), 2048, dtype=np.uint16)
+        cb = _block_pattern(self.H, self.W, seed=1)
+        cr = _block_pattern(self.H, self.W, seed=2)
+        with exr_prores.ProResMovWriter(str(out), self.W, self.H, 24, 1, profile=profile) as w:
+            w.write_yuv444_p12(y, cb, cr)
+        dy, dcb, dcr = _decode_yuv_planes(out, width=self.W, height=self.H)
+        # Flat blocks code exactly at qi 1-2; allow a code of rounding.
+        assert np.abs(dy - y.astype(np.int32)).max() <= 2
+        assert np.abs(dcb - cb.astype(np.int32)).max() <= 2
+        assert np.abs(dcr - cr.astype(np.int32)).max() <= 2
+
+    def test_rgb_frame_matches_source(self, tmp_path: Path, profile: str):
+        """RGB48 → oxideav → FFmpeg RGB48: only normal ProRes error, no blocky chroma."""
+        out = tmp_path / f"rgb_{profile}.mov"
+        rng = np.random.default_rng(3)
+        # Saturated flat 8x8 blocks next to each other: the worst case for a swap.
+        blocks = rng.integers(2000, 63000, size=(self.H // 8, self.W // 8, 3))
+        rgb = np.kron(blocks, np.ones((8, 8, 1), dtype=np.int64)).astype(np.uint16)
+        with open_writer(out, self.W, self.H, 24, 1, f"prores_ox_{profile}") as writer:
+            write_rgb48_frame(writer, rgb)
+        probe = av.open(str(out))
+        try:
+            frame = next(probe.decode(video=0))
+            assert frame.colorspace == 1  # BT.709 matrix from the frame header
+            back = frame.to_ndarray(format="rgb48le").astype(np.float64)
+        finally:
+            probe.close()
+        err = np.abs(back - rgb.astype(np.float64)) / 65535.0
+        # Before the fix the worst pixels were off by 0.3-0.9 of full scale.
+        assert err.mean() < 0.002, err.mean()
+        assert err.max() < 0.02, err.max()
+
+
+class TestOxideavContainerTags:
+    def test_default_tags_unspecified_primaries(self, tmp_path: Path):
+        out = tmp_path / "tags_default.mov"
+        with open_writer(out, 64, 48, 24, 1, "prores_ox_4444") as writer:
+            write_rgb48_frame(writer, np.full((48, 64, 3), 20000, dtype=np.uint16))
+        cc = av.open(str(out)).streams.video[0].codec_context
+        assert cc.colorspace == 1
+        assert cc.color_primaries == 2
+        assert cc.color_trc == 2
+
+    def test_explicit_tags(self, tmp_path: Path):
+        from src.core.color_tags import ColorTags
+
+        out = tmp_path / "tags_709.mov"
+        with open_writer(
+            out, 64, 48, 24, 1, "prores_ox_hq", color_tags=ColorTags(1, 13, 1)
+        ) as writer:
+            write_rgb48_frame(writer, np.full((48, 64, 3), 20000, dtype=np.uint16))
+        probe = av.open(str(out))
+        cc = probe.streams.video[0].codec_context
+        assert (cc.color_primaries, cc.color_trc, cc.colorspace) == (1, 13, 1)
+        frame = next(probe.decode(video=0))
+        assert (frame.color_primaries, frame.color_trc, frame.colorspace) == (1, 13, 1)
+        probe.close()
+
+    def test_compressor_name_is_neutral(self, tmp_path: Path):
+        out = tmp_path / "name.mov"
+        with open_writer(out, 64, 48, 24, 1, "prores_ox_4444") as writer:
+            write_rgb48_frame(writer, np.full((48, 64, 3), 20000, dtype=np.uint16))
+        data = out.read_bytes()
+        assert b"Apple" not in data
+        name = exr_prores.compressor_name()
+        assert name == "RDD 36 ProRes-compatible"
+        assert name.encode() in data
+
+    def test_convert_acescct_is_unspecified(self, tmp_path: Path):
+        exr_dir = tmp_path / "exr"
+        write_synthetic_exr_sequence(exr_dir, frames=(1, 2), width=64, height=48)
+        out = tmp_path / "acescct.mov"
+        run_exr_to_video(
+            str(exr_dir),
+            out,
+            _ocio_cfg(),
+            "ACEScg",
+            "ACEScct",
+            fps=24,
+            workers=1,
+            video_codec="oxideav_prores",
+            pix_fmt_out="yuv444p12le",
+            codec_key="prores_ox_4444",
+        )
+        cc = av.open(str(out)).streams.video[0].codec_context
+        assert (cc.color_primaries, cc.color_trc, cc.colorspace) == (2, 2, 1)
+
+    def test_convert_rec709_display_is_bt709(self, tmp_path: Path):
+        exr_dir = tmp_path / "exr"
+        write_synthetic_exr_sequence(exr_dir, frames=(1,), width=64, height=48)
+        out = tmp_path / "rec709.mov"
+        run_exr_to_video(
+            str(exr_dir),
+            out,
+            _ocio_cfg(),
+            "ACEScg",
+            "Rec.1886 Rec.709 - Display",
+            fps=24,
+            workers=1,
+            video_codec="oxideav_prores",
+            pix_fmt_out="yuv444p12le",
+            codec_key="prores_ox_4444",
+        )
+        cc = av.open(str(out)).streams.video[0].codec_context
+        assert (cc.color_primaries, cc.color_trc, cc.colorspace) == (1, 1, 1)
+
+    def test_cli_rational_fps(self, tmp_path: Path):
+        exr_dir = tmp_path / "exr"
+        write_synthetic_exr_sequence(exr_dir, frames=(1, 2), width=64, height=48)
+        out = tmp_path / "ntsc.mov"
+        result = run_cli(
+            "exr2video",
+            "-i",
+            str(exr_dir),
+            "-o",
+            str(out),
+            "--fps",
+            "24000/1001",
+            "--codec",
+            "prores_ox_4444",
+            "--workers",
+            "1",
+        )
+        assert result.returncode == 0, result.stderr
+        stream = av.open(str(out)).streams.video[0]
+        rate = stream.average_rate or stream.rate
+        assert rate is not None
+        assert (rate.numerator, rate.denominator) == (24000, 1001)

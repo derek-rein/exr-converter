@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from .local_fs import (
     ONLINE_ONLY_LABEL,
     can_probe_media,
@@ -107,6 +109,13 @@ def probe_video(path: str) -> tuple[int, int, float, int]:
     # Reject OS metadata sidecars early (CLI / forced paths), not only in the browser.
     if is_ignored_media_filename(path):
         raise RuntimeError(f"Not a media file (OS metadata sidecar): {Path(path).name}")
+
+    from .source_plugins import plugin_for_path, require_available
+
+    plugin = plugin_for_path(path)
+    if plugin is not None:
+        require_available(plugin)
+        return plugin.probe(path)
 
     if is_r3d_path(path):
         if not r3d_available():
@@ -293,7 +302,11 @@ def is_libav_unsafe_media(path: str) -> bool:
 
     if is_ignored_media_filename(path):
         return True
-    return Path(path).suffix.lower() in _LIBAV_UNSAFE_SUFFIXES
+    if Path(path).suffix.lower() in _LIBAV_UNSAFE_SUFFIXES:
+        return True
+    from .source_plugins import plugin_for_path
+
+    return plugin_for_path(path) is not None
 
 
 def _arriraw_unsupported_message(path: str) -> str:
@@ -337,7 +350,14 @@ def guess_video_colorspace_candidates(path: str) -> list[str]:
     """
     from .braw import braw_src_colorspace_candidates, is_braw_path
     from .r3d import is_r3d_path, r3d_src_colorspace_candidates
+    from .source_plugins import plugin_for_path
 
+    plugin = plugin_for_path(path)
+    if plugin is not None:
+        try:
+            return list(plugin.colorspace_candidates(path))
+        except Exception:
+            return []
     if is_r3d_path(path):
         return r3d_src_colorspace_candidates(path)
     if is_braw_path(path):
@@ -504,7 +524,10 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
 
     import av
 
+    from .source_plugins import plugin_for_path, plugin_suffixes
+
     results: list[dict[str, str]] = []
+    seen_sequences: set[str] = set()
     entries = sorted(iter_dir_entries(directory), key=lambda e: e.name.lower())
 
     for entry in entries:
@@ -513,7 +536,7 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
         if is_ignored_media_filename(entry.name):
             continue
         suffix = Path(entry.name).suffix.lower()
-        if suffix not in _VIDEO_SUFFIXES:
+        if suffix not in _VIDEO_SUFFIXES and suffix not in plugin_suffixes():
             continue
         row: dict[str, str] = {"name": entry.name, "path": entry.path}
         if not can_probe_media(entry.path, entry=entry):
@@ -527,6 +550,24 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
             row["frames"] = ""
             results.append(row)
             continue
+        plugin = plugin_for_path(entry.path)
+        if plugin is not None:
+            # Frame-per-file formats list one row per sequence (first frame).
+            seq_fn = getattr(plugin, "sequence_key", None)
+            seq_key = ""
+            try:
+                seq_key = str(seq_fn(entry.path)) if seq_fn else ""
+            except Exception:
+                seq_key = ""
+            if seq_key:
+                if seq_key in seen_sequences:
+                    continue
+                seen_sequences.add(seq_key)
+                row["name"] = seq_key
+            _fill_plugin_row(plugin, entry.path, row)
+            results.append(row)
+            continue
+
         # R3D / N-RAW / BRAW — PyAV cannot probe these; use optional SDK bridges.
         from .braw import is_available as braw_available
         from .braw import is_braw_path, probe_braw
@@ -736,6 +777,27 @@ def _probe_braw_metadata(path: str) -> dict[str, str]:
     return result
 
 
+def _fill_plugin_row(plugin: object, path: str, row: dict[str, str]) -> None:
+    """Fill a browser row from a source plugin (never raises)."""
+    p: Any = plugin
+    row.update({"resolution": "", "fps": "", "duration": ""})
+    try:
+        label = p.codec_label(path)
+    except Exception:
+        label = getattr(p, "name", "")
+    try:
+        if not p.is_available():
+            row["codec"] = f"{label} (SDK missing)"
+            return
+        vw, vh, fps, nframes = p.probe(path)
+        row["resolution"] = f"{vw}x{vh}" if vw and vh else ""
+        row["codec"] = label
+        row["fps"] = f"{fps:.3f}".rstrip("0").rstrip(".") if fps else ""
+        row["duration"] = f"{nframes / fps:.2f}s" if nframes and fps else ""
+    except Exception:
+        row.setdefault("codec", label)
+
+
 def probe_video_metadata(path: str) -> dict[str, str]:
     """Return a dict of human-readable video metadata.
 
@@ -750,6 +812,14 @@ def probe_video_metadata(path: str) -> dict[str, str]:
 
     if is_ignored_media_filename(path):
         return {"error": f"Not a media file (OS metadata sidecar): {Path(path).name}"}
+    from .source_plugins import plugin_for_path
+
+    plugin = plugin_for_path(path)
+    if plugin is not None:
+        try:
+            return dict(plugin.probe_metadata(path))
+        except Exception as exc:
+            return {"error": str(exc)}
     if is_r3d_path(path):
         return _probe_r3d_metadata(path)
     if is_braw_path(path):
