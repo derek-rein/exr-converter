@@ -14,6 +14,7 @@ export const LATEST_RELEASE_URL = LATEST_VERSION ? `${RELEASES}/tag/v${LATEST_VE
 
 export const NAV = [
   { name: "Docs", href: "/docs/" },
+  { name: "Linux", href: "/docs/linux/" },
   { name: "CLI", href: "/docs/cli/" },
   { name: "GUI", href: "/docs/gui/" },
   { name: "Proxy", href: "/docs/gui/#video--proxy" },

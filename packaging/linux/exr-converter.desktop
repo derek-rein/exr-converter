@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=EXR Converter
+Comment=Convert video and OpenEXR with OpenColorIO
+Exec=exr-converter
+Icon=exr-converter
+Terminal=false
+Categories=Graphics;Video;

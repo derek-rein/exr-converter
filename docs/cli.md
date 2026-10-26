@@ -23,10 +23,13 @@ uv run python main.py exr2video --help
 
 # Packaged binary (examples)
 exr_converter --help
+exr-converter --help
 "/Applications/EXR Converter.app/Contents/MacOS/exr_converter" --help
 ```
 
-Related: [GUI](./gui.md) · [ProRes and VideoToolbox](./prores.md) · [Nuke integration](./nuke.md) · [README](../README.md)
+On Linux, `exr-converter` is the launcher in the tarball and the RPM. Install options are in [Linux](./linux.md).
+
+Related: [Linux](./linux.md) · [GUI](./gui.md) · [ProRes and VideoToolbox](./prores.md) · [Nuke integration](./nuke.md) · [README](../README.md)
 
 ---
 

@@ -93,7 +93,7 @@ Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-p
 | Windows x64 | [**Installer (.exe)**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe) |
 | macOS Apple Silicon | [**DMG**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-arm64.dmg) |
 | macOS Intel | [**DMG**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-x86_64.dmg) |
-| Linux x86_64 | [**AppImage**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage) |
+| Linux x86_64 | [**AppImage**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage) · [tarball](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz) · [RPM](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm) |
 
 All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) and carry [GitHub build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The [releases page](https://github.com/derek-rein/exr-converter/releases) has the `cosign verify-blob` and `gh attestation verify` commands.
 
@@ -143,16 +143,22 @@ A release may also attach `exr_converter-windows-x86_64.msixupload` for Microsof
 </details>
 
 <details>
-<summary><b>Linux</b> (x86_64 AppImage)</summary>
+<summary><b>Linux</b> (x86_64, RHEL 8+)</summary>
 
 #### Install on Linux
 
-Download [exr_converter-linux-x86_64.AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage).
+Built on Rocky Linux 8 (glibc 2.28). Runs on RHEL, Rocky, and Alma 8 and newer. Details: [docs/linux.md](docs/linux.md).
+
+**AppImage** (artists). Download [exr_converter-linux-x86_64.AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage).
 
 ```bash
 chmod +x exr_converter-linux-x86_64.AppImage
 ./exr_converter-linux-x86_64.AppImage
 ```
+
+**Tarball** (studio deploy, `/opt`, `/software`, Rez). Download [exr_converter-linux-x86_64.tar.gz](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz), extract it, and run `exr-converter` from that folder. The folder does not need to be writable. Settings go to the XDG directories.
+
+**RPM** (IT, RHEL / Rocky). Download [exr_converter-linux-x86_64.rpm](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm). It installs to `/opt/exr-converter`, links `/usr/bin/exr-converter`, and adds a desktop file and icon. Vendor is Medeu Global LLC. License is MIT.
 
 </details>
 
@@ -217,7 +223,7 @@ Packaged apps use the same flags. Per-platform launch commands are in [Install b
 | Layer | Notes |
 | --- | --- |
 | **Language and tooling** | Python 3.13, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [Nuitka](https://nuitka.net/) for standalone bundles |
-| **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.8), Nuke-inspired dark theme |
+| **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.9.2 on every platform), Nuke-inspired dark theme |
 | **Imaging and color** | [OpenImageIO](https://openimageio.org/) (`OpenImageIO` 3.1+), [OpenColorIO 2.5](https://opencolorio.org/). Bundles **ACES Studio Config v4**. Overlay compositing is described below. |
 | **Video and sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences and ranges. Optional **RED R3D SDK** bridge for `.r3d` / `.nev`. Optional **Blackmagic RAW SDK** bridge for `.braw`. Optional **oxideav-prores** PyO3 extension (`exr_prores`) for experimental cross-platform RDD-36 ProRes in release builds (4444 and XQ are 12-bit; 422 is 12-bit internal and 10-bit to other apps) |
 | **Slate, burn-in, watermark** | Native **QPainter** preview and offscreen capture. Burn-in and watermark are linearised into the working space and alpha-composited per frame, then OCIO-transformed to display before encode |
@@ -261,6 +267,7 @@ Guides live under [`docs/`](docs/) (Markdown source of truth). The public site i
 | --- | --- |
 | [CLI](docs/cli.md) | `video2exr` / `exr2video` / `proxy` / `transcode` / GUI launch flags |
 | [GUI](docs/gui.md) | Tabs, Video → Proxy and watch folder, Transcode, overlays, preferences, post-convert, codec picker |
+| [Linux](docs/linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
 | [Quick Look on macOS](docs/quicklook.md) | Spacebar previews and Finder icons for EXR, DPX, and optional stills |
 | [ProRes and VideoToolbox](docs/prores.md) | Software vs Apple VideoToolbox vs oxideav; honest bit depths |
 | [R3D / N-RAW](docs/r3d.md) | Optional RED SDK (license, build, CI, preview) |
@@ -415,7 +422,7 @@ This uses [Nuitka](https://nuitka.net/) to produce a standalone distributable:
 | Platform | Output |
 | --- | --- |
 | macOS | `dist/EXR Converter.app` |
-| Linux | `dist/exr_converter` (single binary) |
+| Linux | Release job on Rocky Linux 8: AppImage, tarball, and RPM (see [docs/linux.md](docs/linux.md)). `make bundle` is the macOS app |
 | Windows | `dist\main.dist\` (folder with `exr_converter.exe` and dependencies) |
 
 Nuitka will auto-download `ccache` on first run. See the `Makefile` for the full set of flags.

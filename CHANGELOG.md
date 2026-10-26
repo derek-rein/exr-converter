@@ -15,6 +15,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Added
 
+- Linux releases are built on Rocky Linux 8 and run on RHEL, Rocky, and Alma 8 and newer (glibc 2.28). The same build publishes the AppImage, a relocatable tarball (`exr_converter-linux-x86_64.tar.gz`) for `/opt`, `/software`, and Rez, and an RPM (`exr_converter-linux-x86_64.rpm`) that installs to `/opt/exr-converter`. Settings and caches stay in the XDG directories, so the install folder can be read-only.
 - macOS Quick Look previews scene-linear OpenEXR and DPX through the app's default OCIO display view (a baked 3D LUT, exposure 0 and gamma 1). Numbered frames play in the Spacebar preview when the folder can be read (home, `/Volumes`, and `/tmp`). Notarization accepts those read-only exceptions. **File → Preferences… → Quick Look** still chooses the formats. Movies, BRAW, R3D, and ARRIRAW are unchanged. See [Quick Look on macOS](docs/quicklook.md).
 - New **Transcode** tab for batch video to video transcodes: ProRes 422 Proxy / LT / 422 / HQ / 4444 / 4444 XQ (plus VideoToolbox ProRes on macOS), DNxHR LB / SQ / HQ / HQX / 444, H.264, HEVC 8 / 10 / 12-bit, and AV1 when the FFmpeg build has SVT-AV1. The container follows the codec (`.mov`, `.mxf` for DNxHR, `.mp4`, `.mkv` for AV1). Options for size (keep, 75 / 50 / 25%, fit 2160p / 1080p / 720p, or custom), frame rate (keep or conform), audio (copy, AAC, 24-bit PCM, or none), CRF or target bitrate and speed preset for long-GOP codecs, output folder, a `<name>_<codec>` style file name pattern, and skip / overwrite / add-a-number when the file exists. No color change by default; an optional OCIO transform uses the window's config. The invisible TrustMark watermark from Video → Proxy is available too. Each clip in the list shows its progress, then a check mark or the error. Settings are remembered between sessions.
 - `transcode` CLI subcommand with the same options as the tab, and `--mode transcode` to open the GUI on that tab.
@@ -22,6 +23,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
+- Qt is pinned to 6.9.2 (PySide6-Essentials and shiboken6) on macOS, Windows, and Linux, down from 6.11.0. All platforms now ship the same Qt. Qt 6.10 and newer Linux wheels need glibc 2.34, which does not run on RHEL 8, so 6.9.2 is the newest release that covers every supported system.
 - Video → Proxy now runs on the same encode engine as the Transcode tab. With the invisible watermark on, the mark is added at 16-bit precision instead of passing frames through 8-bit RGB. HEVC proxies are tagged `hvc1` so QuickTime plays them.
 - The docs site describes the Video → Proxy tab in more detail: source formats, each proxy codec with its container and bit depth, what the watch folder skips, and which settings are remembered. It has a new **Invisible watermark** section covering the payload, strength, model download and cache folders, `scripts/trustmark_detect.py`, and what can remove the mark. The home page lists the invisible watermark, shows the latest release version, and notes that the Windows `.msix` / `.msixupload` files are for the Microsoft Store while the setup `.exe` stays the direct download.
 - Software video encodes (ProRes, DNxHR, H.264, HEVC, CineForm, and the other YCbCr codecs) convert RGB to YCbCr with BT.709 limited-range math and tag the stream BT.709 matrix. Before, FFmpeg's scaler used its BT.601 default and left the file untagged, so other apps decoded colours slightly off. 10-bit and 12-bit 4:4:4 and 4:2:2 formats are converted with exact float math in the app.
@@ -30,6 +32,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Fixed
 
+- The color space button stays the same height as the other convert fields on macOS with Qt 6.9.2.
 - On Windows, Transcode **Add a number** treats two planned output paths as the same file when they differ only by letter case, so a batch does not write two clips to one name.
 - oxideav ProRes 4444 and XQ (`prores_ox_4444`, `prores_ox_xq`) wrote the chroma 8x8 blocks of each macroblock in the wrong order. FFmpeg, Resolve, and QuickTime swapped the top-right and bottom-left chroma blocks, which showed as blocky colour errors (up to 0.18 in ACEScct). The writer and the built-in decoder now use the standard column order. A test decodes the output with FFmpeg and checks the chroma. Re-encode 4444 and XQ files made with 0.12.4 or earlier.
 - `exr2video --fps` accepts rational rates such as `24000/1001` and `30000/1001`, and decimals such as `23.976`. Rationals are written to the file exactly.

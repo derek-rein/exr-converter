@@ -58,7 +58,7 @@ on:
         type: string
         default: ""
       publish:
-        description: "Create the GitHub Release. Default true. Ignored when macos_only is true (never publishes)."
+        description: "Create the GitHub Release. Default true. Ignored when macos_only or linux_only is true (never publishes)."
         required: false
         type: boolean
         default: true
@@ -67,12 +67,17 @@ on:
         required: false
         type: boolean
         default: false
+      linux_only:
+        description: "Rocky Linux 8 AppImage, tarball, and RPM only. Upload Actions artifacts. Do not build macOS or Windows. Do not publish."
+        required: false
+        type: boolean
+        default: false
 
 # One pipeline per tag across push:tags and workflow_dispatch. A macOS signing
 # test uses its own group so it does not queue behind a real release.
 # Never cancel an in-flight Nuitka build — queue the newer run instead.
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_only && format('macos-sign-test-{0}', github.ref_name) || format('release-{0}', github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name) }}
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_only && format('macos-sign-test-{0}', github.ref_name) || github.event_name == 'workflow_dispatch' && inputs.linux_only && format('linux-dist-test-{0}', github.ref_name) || format('release-{0}', github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name) }}
   cancel-in-progress: false
 
 permissions:
@@ -103,10 +108,16 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           SOURCE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || '' }}
           MACOS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_only && 'true' || 'false' }}
+          LINUX_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.linux_only && 'true' || 'false' }}
         run: |
           set -euo pipefail
           if [ "${MACOS_ONLY}" = "true" ]; then
             echo "macos_only signing test: building ${RELEASE_REF}."
+            echo "Not a release. Tag/changelog publish gates are skipped. No GitHub Release will be published."
+            exit 0
+          fi
+          if [ "${LINUX_ONLY}" = "true" ]; then
+            echo "linux_only distro test: Rocky Linux 8 build of ${RELEASE_REF}."
             echo "Not a release. Tag/changelog publish gates are skipped. No GitHub Release will be published."
             exit 0
           fi
@@ -243,22 +254,30 @@ jobs:
     timeout-minutes: 15
     outputs:
       include: ${{ steps.set.outputs.include }}
+      skip_matrix: ${{ steps.set.outputs.skip_matrix }}
     steps:
       - name: Choose build targets
         id: set
         env:
           MACOS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_only && 'true' || 'false' }}
+          LINUX_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.linux_only && 'true' || 'false' }}
         run: |
           set -euo pipefail
+          # Linux is build-linux (Rocky Linux 8), not a cell in this matrix.
           if [ "$MACOS_ONLY" = "true" ]; then
             echo "macos_only: macOS arm64 and x86_64 DMGs only. No GitHub Release."
+            echo "skip_matrix=false" >> "$GITHUB_OUTPUT"
             json='[
               {"os":"macos-latest","artifact":"exr_converter-macos-arm64","ext":"dmg"},
               {"os":"macos-26-intel","artifact":"exr_converter-macos-x86_64","ext":"dmg"}
             ]'
+          elif [ "$LINUX_ONLY" = "true" ]; then
+            echo "linux_only: Rocky Linux 8 job only. No macOS, Windows, or GitHub Release."
+            echo "skip_matrix=true" >> "$GITHUB_OUTPUT"
+            json='[]'
           else
+            echo "skip_matrix=false" >> "$GITHUB_OUTPUT"
             json='[
-              {"os":"ubuntu-24.04","artifact":"exr_converter-linux-x86_64","ext":"AppImage"},
               {"os":"macos-latest","artifact":"exr_converter-macos-arm64","ext":"dmg"},
               {"os":"macos-26-intel","artifact":"exr_converter-macos-x86_64","ext":"dmg"},
               {"os":"windows-latest","artifact":"exr_converter-windows-x86_64-setup","ext":"exe"}
@@ -272,6 +291,7 @@ jobs:
 
   build:
     needs: build-matrix
+    if: needs.build-matrix.outputs.skip_matrix != 'true'
     # Nuitka + packaging can be slow; fail hung jobs instead of burning runner hours.
     # GitHub-hosted jobs cannot run longer than 6h. macOS uses that cap.
     # Notarization submits once, then polls that submission for about 5h, so
@@ -315,14 +335,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --group bundle
 
-      # Linux: fix_bundle_ocio uses patchelf for RPATH / SONAME rewrites.
-      - name: Install patchelf (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends patchelf
-
       # Confirm PyOpenColorIO.so stays on OCIO 2.5 (not a stale/vendored library).
+      # Linux patchelf runs inside the Rocky Linux 8 job (build-linux).
       - name: Ensure OpenColorIO 2.5+ linkage
         run: uv run python scripts/ensure_ocio.py
 
@@ -354,12 +368,6 @@ jobs:
           echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "Fetched R3D SDK → ${SDK_ROOT}"
 
-      - name: R3D bridge build deps (Linux)
-        if: runner.os == 'Linux' && steps.r3d_sdk.outputs.enabled == 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends g++ uuid-dev
-
       # Optional Blackmagic RAW SDK (private feed). Builds libbraw_bridge.
       # Secret BRAW_SDK_READ_TOKEN must read derek-rein/braw-sdk-private releases.
       # Without the secret, Release still ships; BRAW convert reports SDK missing.
@@ -379,12 +387,6 @@ jobs:
           echo "BRAW_SDK_ROOT=${SDK_ROOT}" >> "$GITHUB_ENV"
           echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "Fetched BRAW SDK → ${SDK_ROOT}"
-
-      - name: BRAW bridge build deps (Linux)
-        if: runner.os == 'Linux' && steps.braw_sdk.outputs.enabled == 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends g++
 
       # Puts cl.exe / link.exe on PATH for R3D / BRAW native link steps.
       - name: Enable MSVC environment (Windows)
@@ -783,17 +785,6 @@ jobs:
             exit 1
           fi
 
-      - name: Slim Linux bundle
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          DIST="dist/main.dist"
-          # Never strip private RED / Blackmagic redistributables (license + ABI).
-          find "$DIST" -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) \
-            ! -path '*/r3d/*' ! -path '*/braw/*' -exec strip --strip-unneeded {} +
-          echo "Bundle size after slimming:"
-          du -sh "$DIST"
-
       - name: Slim Windows bundle
         if: runner.os == 'Windows'
         shell: bash
@@ -801,14 +792,6 @@ jobs:
           DIST="dist/main.dist"
           echo "Bundle size after slimming:"
           du -sh "$DIST"
-
-      - name: Install EGL (Linux smoke-test dependency)
-        if: runner.os == 'Linux'
-        run: |
-          # Refresh the index first; the runner image's cached package list can
-          # point at superseded .deb versions that 404 on the mirror.
-          sudo apt-get update
-          sudo apt-get install -y libegl1
 
       - name: List dist contents (debug)
         if: failure() || success()
@@ -1126,37 +1109,6 @@ jobs:
             "$RUNNER_TEMP/notary-submit.json" "$RUNNER_TEMP/notary-info.json"
           echo "Removed temporary keychain and signing files (if any)."
 
-      - name: Create AppImage (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          VERSION="${RELEASE_TAG#v}"
-          APPDIR="${{ matrix.artifact }}.AppDir"
-          mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
-
-          cp -a dist/main.dist/. "${APPDIR}/usr/bin/"
-          chmod +x "${APPDIR}/usr/bin/exr_converter"
-          cp resources/icons/icon.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/exr_converter.png"
-          cp resources/icons/icon.png "${APPDIR}/exr_converter.png"
-
-          printf '[Desktop Entry]\nName=EXR Converter\nExec=exr_converter\nIcon=exr_converter\nType=Application\nCategories=Graphics;\n' \
-            > "${APPDIR}/exr_converter.desktop"
-
-          printf '#!/bin/bash\nSELF="$(readlink -f "$0")"\nHERE="$(dirname "$SELF")"\nexec "$HERE/usr/bin/exr_converter" "$@"\n' \
-            > "${APPDIR}/AppRun"
-          chmod +x "${APPDIR}/AppRun"
-
-          # Pin a release tag (not "continuous") for reproducible packaging.
-          APPIMAGETOOL_VER="1.9.1"
-          APPIMAGETOOL_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
-          curl -fSL -o appimagetool \
-            "https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VER}/appimagetool-x86_64.AppImage"
-          echo "${APPIMAGETOOL_SHA256}  appimagetool" | sha256sum -c -
-          chmod +x appimagetool
-          ARCH=x86_64 VERSION="${VERSION}" ./appimagetool \
-            --no-appstream --comp zstd \
-            "${APPDIR}" "${{ matrix.artifact }}.${{ matrix.ext }}"
-
       - name: Rename standalone folder (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -1370,6 +1322,63 @@ jobs:
           fi
           echo "Submitted exr_converter-windows-x86_64.msixupload to Microsoft Store app ${MSSTORE_APP_ID}."
 
+
+  # Linux is not a matrix cell. One Rocky Linux 8 container builds the
+  # AppImage, relocatable tarball, and RPM from the same Nuitka dist so they
+  # share a glibc 2.28 floor (RHEL / Rocky / Alma 8+). macOS and Windows stay
+  # on the build job above.
+  build-linux:
+    needs: gate
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.macos_only) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: Cache uv and Nuitka (Rocky Linux 8 build)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.cache/Nuitka
+          key: nuitka-rocky8-x86_64-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: nuitka-rocky8-x86_64-
+
+      - name: Build on Rocky Linux 8
+        shell: bash
+        env:
+          R3D_SDK_READ_TOKEN: ${{ secrets.R3D_SDK_READ_TOKEN }}
+          BRAW_SDK_READ_TOKEN: ${{ secrets.BRAW_SDK_READ_TOKEN }}
+          R3D_BRIDGE_REF: bridge-v1
+          BRAW_BRIDGE_REF: bridge-v1
+        run: |
+          set -euo pipefail
+          docker version
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -v "$HOME/.cache/uv:/root/.cache/uv" \
+            -v "$HOME/.cache/Nuitka:/root/.cache/Nuitka" \
+            -w /work \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            -e R3D_SDK_READ_TOKEN \
+            -e BRAW_SDK_READ_TOKEN \
+            -e R3D_BRIDGE_REF \
+            -e BRAW_BRIDGE_REF \
+            rockylinux:8 \
+            bash packaging/linux/build-on-rocky.sh
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: exr_converter-linux-x86_64
+          # Wildcard flattens to the three filenames at the artifact root.
+          path: release-linux/*
+          if-no-files-found: error
+          retention-days: 5
+
   # ── SignPath Foundation (Windows Authenticode) — optional ────────────────
   # Free for qualifying open-source projects. Eliminates SmartScreen warnings.
   #
@@ -1439,10 +1448,12 @@ jobs:
   # the build job (or left ad-hoc when those secrets are unset), so the hashes
   # below match the files users download.
   sign:
-    needs: [build, sign-windows]
+    needs: [build, build-linux, sign-windows]
     # macos_only uploads the DMGs from the build job and skips Cosign. A full
     # publish=false run still Cosigns; it just does not create a GitHub Release.
-    if: ${{ always() && needs.build.result == 'success' && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') && !(github.event_name == 'workflow_dispatch' && inputs.macos_only) }}
+    # linux_only skips this job (the macOS/Windows build is skipped). The Rocky
+    # job uploads its three files; a normal release Cosigns them with the rest.
+    if: ${{ always() && needs.build.result == 'success' && needs.build-linux.result == 'success' && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') && !(github.event_name == 'workflow_dispatch' && inputs.macos_only) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -1536,6 +1547,16 @@ jobs:
               --yes
           done
 
+      # AppImage is in the attest step above. The tarball and RPM get the
+      # same GitHub provenance in a second call so the first subject list
+      # stays the AppImage, DMGs, and Windows setup.
+      - name: Attest Linux tarball and RPM
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/*.tar.gz
+            artifacts/*.rpm
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-assets
@@ -1548,7 +1569,7 @@ jobs:
     # skipped job in the needs chain as non-success for the default success()
     # gate, so we must re-check needs.sign.result explicitly or publish never runs.
     # macos_only and publish=false never create a GitHub Release.
-    if: ${{ always() && needs.sign.result == 'success' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true && inputs.macos_only != true)) }}
+    if: ${{ always() && needs.sign.result == 'success' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true && inputs.macos_only != true && inputs.linux_only != true)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -1609,6 +1630,13 @@ jobs:
             echo '```bash'
             echo "gh attestation verify <ARTIFACT_FILE> -R derek-rein/exr-converter"
             echo '```'
+            echo
+            echo "### Linux"
+            echo
+            echo "The Linux artifacts are built on Rocky Linux 8 (glibc 2.28) and run on RHEL, Rocky, and Alma 8 and newer."
+            echo "\`exr_converter-linux-x86_64.AppImage\` is the single-file download."
+            echo "\`exr_converter-linux-x86_64.tar.gz\` is a relocatable folder for /opt, /software, and Rez. It does not write into its own directory."
+            echo "\`exr_converter-linux-x86_64.rpm\` installs to /opt/exr-converter and links /usr/bin/exr-converter."
             echo
             if [ -n "${MACOS_CERT_P12_BASE64:-}" ] && [ -n "${MACOS_CERT_PASSWORD:-}" ] && [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
               echo "### macOS"

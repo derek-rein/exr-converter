@@ -25,6 +25,7 @@ as the code (and [CHANGELOG.md](../CHANGELOG.md)). See
 | Guide | Topics |
 |-------|--------|
 | [CLI](./cli.md) | `video2exr`, `exr2video`, `proxy` (`--watch`, `--watermark`), `transcode`, GUI launch flags |
+| [Linux](./linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
 | [GUI](./gui.md) | Tabs, Video → Proxy and the watch folder, Transcode, invisible watermark, browsers, player, overlays, preferences, post-convert |
 | [Quick Look on macOS](./quicklook.md) | Spacebar previews and Finder icons for EXR, DPX, and optional stills |
 | [ProRes and VideoToolbox](./prores.md) | Software vs Apple VideoToolbox vs oxideav, bit depths |
