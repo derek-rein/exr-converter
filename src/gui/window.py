@@ -128,6 +128,16 @@ class AboutDialog(QDialog):
         except Exception:
             braw_line = ""
 
+        plugin_lines = ""
+        try:
+            from html import escape
+
+            from ..core.source_plugins import about_lines as plugin_about_lines
+
+            plugin_lines = "".join(f"<br>{escape(line)}" for line in plugin_about_lines())
+        except Exception:
+            plugin_lines = ""
+
         deps = (
             f"Python {sys.version.split()[0]} · "
             f"PySide6 {__import__('PySide6').__version__}<br>"
@@ -135,6 +145,7 @@ class AboutDialog(QDialog):
             f"OpenImageIO {oiio_ver}"
             f"{r3d_line}"
             f"{braw_line}"
+            f"{plugin_lines}"
         )
 
         body = QTextBrowser()
@@ -184,11 +195,36 @@ class AboutDialog(QDialog):
         braw_btn.setToolTip("End-user terms for optional Blackmagic RAW libraries")
         braw_btn.clicked.connect(self._show_braw_notice)
         notice_row.addWidget(braw_btn)
+        try:
+            from ..core.source_plugins import notices as plugin_notices
+
+            for title_text, notice_text in plugin_notices():
+                btn = QPushButton(f"{title_text}\u2026")
+                btn.clicked.connect(
+                    lambda _checked=False, t=title_text, n=notice_text: self._show_notice(t, n)
+                )
+                notice_row.addWidget(btn)
+        except Exception:
+            pass
         layout.addLayout(notice_row)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
+
+    def _show_notice(self, title: str, notice: str) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumSize(480, 360)
+        lay = QVBoxLayout(dlg)
+        text = QPlainTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText(notice.strip())
+        lay.addWidget(text, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        bb.accepted.connect(dlg.accept)
+        lay.addWidget(bb)
+        dlg.exec()
 
     def _show_red_notice(self) -> None:
         from ..core.r3d import RED_REDISTRIBUTABLE_NOTICE
@@ -430,8 +466,8 @@ class MainWindow(QMainWindow):
             p = Path(open_path.split()[0] if open_path else "")
             name = p.name.lower()
             if not is_ignored_media_filename(p.name) and (
-                p.suffix.lower() in self._VIDEO_EXTS
-                or any(name.endswith(ext) for ext in self._VIDEO_EXTS)
+                p.suffix.lower() in self._video_exts()
+                or any(name.endswith(ext) for ext in self._video_exts())
             ):
                 self._tabs.setCurrentIndex(0)
             else:
@@ -1400,6 +1436,12 @@ class MainWindow(QMainWindow):
         ".braw",
     }
 
+    @classmethod
+    def _video_exts(cls) -> set[str]:
+        from ..core.source_plugins import plugin_suffixes
+
+        return cls._VIDEO_EXTS | set(plugin_suffixes())
+
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         mime = event.mimeData()
         if mime is not None and mime.hasUrls():
@@ -1411,7 +1453,7 @@ class MainWindow(QMainWindow):
                         return
                     if is_ignored_media_filename(p.name):
                         continue
-                    if p.suffix.lower() in (self._VIDEO_EXTS | IMAGE_SEQUENCE_EXTS):
+                    if p.suffix.lower() in (self._video_exts() | IMAGE_SEQUENCE_EXTS):
                         event.acceptProposedAction()
                         return
         event.ignore()
@@ -1431,7 +1473,7 @@ class MainWindow(QMainWindow):
             p = Path(url.toLocalFile())
             if (
                 p.is_file()
-                and p.suffix.lower() in self._VIDEO_EXTS
+                and p.suffix.lower() in self._video_exts()
                 and not is_ignored_media_filename(p.name)
             ):
                 self._tabs.setCurrentIndex(0)

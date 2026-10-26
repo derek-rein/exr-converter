@@ -638,6 +638,11 @@ def run_video_to_exr(
         deinterlace=deinterlace,
         log_fn=log,
     ) as src:
+        if not output_name:
+            # Sources may suggest a better default stem (e.g. frame-per-file RAW).
+            hint = Path(str(getattr(src, "output_stem", "") or "")).name.strip()
+            if hint:
+                stem = hint
         info = src.info
         ow, oh = src.output_size
         total = info.frame_count
