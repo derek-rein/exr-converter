@@ -130,6 +130,13 @@ def _find_image_seqs(directory: str) -> list[fileseq.FileSequence]:
         seqs = fileseq.findSequencesOnDisk(directory)
     except OSError:
         return []
+    return filter_image_sequences(seqs)
+
+
+def filter_image_sequences(
+    seqs: list[fileseq.FileSequence],
+) -> list[fileseq.FileSequence]:
+    """Keep supported image sequences from fileseq results (same rules as folder scans)."""
     out = [
         s
         for s in seqs
@@ -142,6 +149,25 @@ def _find_image_seqs(directory: str) -> list[fileseq.FileSequence]:
         out,
         key=lambda s: (image_sequence_ext_priority(s.extension()), s.basename()),
     )
+
+
+def find_image_sequences_in_list(paths: list[str]) -> list[fileseq.FileSequence]:
+    """Image sequences among *paths* (one directory's files) without re-listing the disk.
+
+    Same detection as :func:`scan_exr_sequences` (``fileseq`` grouping +
+    :func:`filter_image_sequences`) for callers that already ran ``scandir``.
+    Pass non-hidden names only, as ``findSequencesOnDisk`` does.
+    """
+    try:
+        seqs = fileseq.findSequencesInList(paths)
+    except (OSError, fileseq.FileSeqException):
+        return []
+    return filter_image_sequences(seqs)
+
+
+def sequence_pattern_name(seq: fileseq.FileSequence) -> str:
+    """Display pattern for *seq*: ``basename`` + ``#`` pad + extension."""
+    return f"{seq.basename()}{'#' * seq.zfill()}{seq.extension()}"
 
 
 def _pick_default_sequence(
@@ -434,9 +460,8 @@ def scan_exr_sequences(directory: str) -> list[dict]:
             except Exception:
                 pass
 
-        pad = "#" * s.zfill()
         ext = s.extension()
-        pattern = f"{s.basename()}{pad}{ext}"
+        pattern = sequence_pattern_name(s)
 
         results.append(
             {

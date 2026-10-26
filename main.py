@@ -78,6 +78,19 @@ def main() -> int:
             print(f"SMOKE FAIL: Python ssl unavailable: {e}", file=sys.stderr)
             return 4
 
+        # Sequence browser fuzzy search (rapidfuzz C extension) must load frozen.
+        try:
+            from rapidfuzz import fuzz as _fuzz
+            from rapidfuzz import process as _process
+
+            _match = _process.extractOne("shto_010_comp", ["shot_010_comp"], scorer=_fuzz.WRatio)
+            if not _match or _match[1] < 60:
+                raise RuntimeError(f"unexpected score {_match!r}")
+            print(f"smoke: rapidfuzz OK (score {_match[1]:.0f})")
+        except Exception as e:
+            print(f"SMOKE FAIL: rapidfuzz unavailable: {e}", file=sys.stderr)
+            return 5
+
         ver = _OCIO.GetVersion()
         nums = tuple(int(x) for x in ver.split(".")[:3] if x.isdigit())
         if nums < (2, 5, 0):
