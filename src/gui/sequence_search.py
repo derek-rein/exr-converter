@@ -24,7 +24,7 @@ from rapidfuzz import fuzz, process, utils
 from ..core.constants import is_image_sequence_ext
 from ..core.local_fs import (
     entry_is_dir,
-    is_cloud_placeholder,
+    is_cloud_placeholder_dir,
     iter_dir_entries,
     should_skip_search_dir,
 )
@@ -118,8 +118,8 @@ def _walk_sequences(root: str, cancel: threading.Event) -> Iterator[list[tuple]]
 
     Metadata only (``scandir`` + ``lstat``): never opens a frame, so cloud
     placeholders are listed by name and never hydrated. Symlinked and junction
-    directories are not followed (no loops), online-only folders are skipped
-    like the folder search does, and *cancel* is checked per entry.
+    directories are not followed (no loops), online-only (dataless) folders
+    are skipped, and *cancel* is checked per entry.
     """
     stack: list[tuple[str, int]] = [(root, 0)]
     while stack:
@@ -139,7 +139,7 @@ def _walk_sequences(root: str, cancel: threading.Event) -> Iterator[list[tuple]]
                     and not should_skip_search_dir(name)
                     and entry.path not in _SEARCH_SKIP_ABSPATHS
                     and not _is_junction(entry)
-                    and not is_cloud_placeholder(entry.path, entry=entry)
+                    and not is_cloud_placeholder_dir(entry.path, entry=entry)
                 ):
                     stack.append((entry.path, depth + 1))
                 continue

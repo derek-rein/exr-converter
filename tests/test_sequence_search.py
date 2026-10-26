@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import sys
 import time
 from collections.abc import Callable
@@ -12,6 +13,8 @@ import pytest
 from PySide6.QtCore import QElapsedTimer, Qt, QTimer
 from PySide6.QtTest import QTest
 
+from src.core import local_fs
+from src.core.local_fs import is_cloud_placeholder_dir
 from src.gui.sequence_browser import SequenceBrowserDialog
 from src.gui.sequence_search import SequenceHit, SequenceIndex
 
@@ -77,6 +80,42 @@ def _search(qapp, idx: SequenceIndex, rec: _Recorder, query: str, gen: int, **kw
     idx.search(query, gen, **kw)
     _wait(qapp, lambda: gen in rec.results)
     return rec.results[gen]
+
+
+class _FakeEntry:
+    def __init__(self, st: object) -> None:
+        self._st = st
+
+    def stat(self, *, follow_symlinks: bool = True) -> object:
+        return self._st
+
+
+class TestCloudPlaceholderDir:
+    """APFS / tmpfs folders report 0 allocated blocks but are local: still walk them."""
+
+    def _st(self, *, flags: int = 0, blocks: int = 0) -> object:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            st_mode=stat.S_IFDIR | 0o755, st_size=96, st_blocks=blocks, st_flags=flags
+        )
+
+    def test_zero_block_local_dir_is_not_placeholder(self, monkeypatch) -> None:
+        monkeypatch.setattr(local_fs, "_windows_file_attributes", lambda _p: None)
+        entry = _FakeEntry(self._st(blocks=0))
+        assert not is_cloud_placeholder_dir("/x/shot", entry=entry)  # type: ignore[arg-type]
+
+    def test_dataless_dir_is_placeholder(self, monkeypatch) -> None:
+        monkeypatch.setattr(local_fs, "_windows_file_attributes", lambda _p: None)
+        entry = _FakeEntry(self._st(flags=local_fs._SF_DATALESS))
+        assert is_cloud_placeholder_dir("/x/shot", entry=entry)  # type: ignore[arg-type]
+
+    def test_windows_recall_dir_is_placeholder(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            local_fs, "_windows_file_attributes", lambda _p: local_fs._FILE_ATTRIBUTE_OFFLINE
+        )
+        entry = _FakeEntry(self._st(blocks=8))
+        assert is_cloud_placeholder_dir("/x/shot", entry=entry)  # type: ignore[arg-type]
 
 
 class TestSequenceIndex:
