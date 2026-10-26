@@ -215,6 +215,36 @@ def is_cloud_placeholder(
     return False
 
 
+def is_cloud_placeholder_dir(
+    path: str | os.PathLike[str] | Path,
+    *,
+    entry: os.DirEntry[str] | None = None,
+) -> bool:
+    """True when the *directory* at *path* is online-only (dataless / recall-on-open).
+
+    Uses only the vnode dataless flags (macOS File Provider / iCloud) and the
+    Windows cloud attributes. The 0-allocated-blocks heuristic in
+    :func:`is_cloud_placeholder` is for files: local directories on APFS and
+    tmpfs report ``st_blocks == 0`` too. Never lists or opens the directory.
+    """
+    raw = os.fspath(path)
+    st: os.stat_result | None = None
+    if entry is not None:
+        try:
+            st = entry.stat(follow_symlinks=False)
+        except OSError:
+            return True
+    if st is None:
+        st = lstat_nofollow(raw)
+    if st is None:
+        return True
+    flags = int(getattr(st, "st_flags", 0) or 0)
+    if flags & (_UF_DATALESS | _SF_DATALESS):
+        return True
+    win_attrs = _windows_file_attributes(raw)
+    return win_attrs is not None and bool(win_attrs & _WIN_CLOUD_ATTRS)
+
+
 def can_probe_media(
     path: str | os.PathLike[str] | Path,
     *,

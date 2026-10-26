@@ -1,12 +1,22 @@
 ---
 import Base from "../layouts/Base.astro";
 import { Content, frontmatter } from "../content/home.md";
+import { CHANGELOG_URL, LATEST_RELEASE_URL, LATEST_VERSION } from "../lib/site";
 import screenshot from "../../../resources/screenshots/exr_converter_screenshot.png?url";
 ---
 
 <Base>
   <section class="hero">
     <h1>{frontmatter.title}</h1>
+    {
+      LATEST_VERSION && (
+        <p class="release-line">
+          <span>Latest release <a href={LATEST_RELEASE_URL}>{LATEST_VERSION}</a></span>
+          <span class="sep">·</span>
+          <a href={CHANGELOG_URL}>Changelog</a>
+        </p>
+      )
+    }
     <div class="content">
       <Content />
     </div>

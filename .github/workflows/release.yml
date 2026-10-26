@@ -12,6 +12,20 @@
 # platforms before any Nuitka build or GitHub Release is published.
 # macos_only still runs that gate, then only the macOS build cells.
 #
+# Windows, when MSIX_IDENTITY_NAME and MSIX_PUBLISHER repository variables are
+# set, also packs two release assets from the Nuitka app:
+#   exr_converter-windows-x86_64.msixupload — Partner Center upload. Its inner
+#     .msix is never signed; the Store re-signs it.
+#   exr_converter-windows-x86_64.msix — self-distribution. signtool signs it
+#     when the Azure Artifact Signing secrets are all set, and leaves it
+#     unsigned otherwise. An unsigned MSIX does not install.
+# Missing identity variables skip that step with a warning. The setup .exe
+# is unchanged. SignPath still applies to the setup .exe only.
+# On a real release (tag push, or workflow_dispatch with publish and not
+# macos_only), the Windows job can also submit the .msixupload with msstore
+# when the Store secrets and MSSTORE_APP_ID are set. A missing setting or a
+# publish error does not fail the job. The first Store submission is manual.
+#
 # Cosign OIDC identity for workflow_dispatch (normal auto-tag path) is:
 #   …/release.yml@refs/heads/main
 # For a human tag-push trigger it is …@refs/tags/vX.Y.Z.
@@ -607,6 +621,21 @@ jobs:
           echo "Bundle size after slimming:"
           du -sh "$APP"
 
+      # Quick Look + thumbnail appexes. Compile for this job's arch only,
+      # embed under Contents/PlugIns, then the re-sign step seals each appex
+      # with its sandbox entitlements before the outer app. Linux and Windows
+      # jobs do not run this step.
+      - name: Embed Quick Look extensions
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCH="${{ runner.arch == 'ARM64' && 'arm64' || 'x86_64' }}"
+          uv run python scripts/build_quicklook_appex.py \
+            --arch "$ARCH" \
+            --app "dist/EXR Converter.app"
+          du -sh "dist/EXR Converter.app/Contents/PlugIns"/*
+
       - name: Re-sign macOS bundle
         id: macos_sign
         if: runner.os == 'macOS'
@@ -631,7 +660,8 @@ jobs:
           # "bundle format is ambiguous (could be app or framework)" even
           # when the tree lives under Contents/Frameworks/braw/ (PR #54).
           # scripts/macos_codesign.py signs Mach-Os deepest-first, then
-          # each .framework without that flag, then the outer .app.
+          # each Contents/PlugIns/*.appex with the Quick Look sandbox
+          # entitlements, then each .framework without --deep, then the app.
           # Developer ID verification (later) uses --verify --deep --strict.
           #
           # That script also moves non-Mach-O files (yaml, pyproject.toml,
@@ -1107,6 +1137,57 @@ jobs:
           & $isccPath "/DAppVersion=$version" installer.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit $LASTEXITCODE" }
 
+      # .msixupload for Partner Center ("MSIX or PWA app") and a loose .msix for
+      # self-distribution. The upload is written first, from the unsigned
+      # package. signtool below may sign only the loose file, and only when
+      # the Azure Artifact Signing secrets are set. Skipped with a warning when
+      # the identity variables are empty. The Inno setup above is unchanged.
+      - name: Package unsigned MSIX upload (Microsoft Store)
+        id: msix
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MSIX_IDENTITY_NAME:-}" ] || [ -z "${MSIX_PUBLISHER:-}" ]; then
+            echo "::warning::Skipping MSIX: set repository variables MSIX_IDENTITY_NAME and MSIX_PUBLISHER (MSIX_PUBLISHER_DISPLAY_NAME optional, default DerekVFX). The setup .exe is unchanged."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          uv run --with pillow python scripts/package_msix.py \
+            --app-dir dist/exr_converter \
+            --msix exr_converter-windows-x86_64.msix \
+            --output exr_converter-windows-x86_64.msixupload \
+            --icon resources/icons/icon.png
+          if [ -f exr_converter-windows-x86_64.msixupload ]; then
+            echo "created=true" >> "$GITHUB_OUTPUT"
+            ls -lh exr_converter-windows-x86_64.msix exr_converter-windows-x86_64.msixupload
+          else
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            echo "MSIX upload skipped."
+          fi
+
+      # After the upload zip is sealed. Signs the loose .msix only. No secrets
+      # → unsigned warning and exit 0. A partial secret set fails the job.
+      - name: Sign self-distribution MSIX
+        if: runner.os == 'Windows' && steps.msix.outputs.created == 'true'
+        shell: bash
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+        run: |
+          set -euo pipefail
+          uv run --with pillow python scripts/package_msix.py \
+            --sign-msix exr_converter-windows-x86_64.msix \
+            --upload exr_converter-windows-x86_64.msixupload
+
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -1115,6 +1196,132 @@ jobs:
           name: ${{ (github.event_name == 'workflow_dispatch' && inputs.macos_only) && format('{0}-signed', matrix.artifact) || matrix.artifact }}
           path: ${{ matrix.artifact }}.${{ matrix.ext }}
           retention-days: 5
+
+      - name: Upload MSIX artifact
+        if: runner.os == 'Windows' && steps.msix.outputs.created == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: exr_converter-windows-x86_64-msix
+          path: exr_converter-windows-x86_64.msix
+          retention-days: 5
+
+      - name: Upload MSIX upload artifact
+        if: runner.os == 'Windows' && steps.msix.outputs.created == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: exr_converter-windows-x86_64-msixupload
+          path: exr_converter-windows-x86_64.msixupload
+          retention-days: 5
+
+      # After the .msixupload exists and the release artifacts are uploaded.
+      # Tag push, or a workflow_dispatch that publishes (not macos_only).
+      # Missing credentials skip. A failed or slow publish does not fail the job.
+      - name: Check Microsoft Store publish settings
+        id: store-publish
+        if: >-
+          runner.os == 'Windows'
+          && steps.msix.outputs.created == 'true'
+          && (
+            github.event_name == 'push'
+            || (
+              github.event_name == 'workflow_dispatch'
+              && inputs.publish == true
+              && inputs.macos_only != true
+            )
+          )
+        shell: bash
+        env:
+          MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+          MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
+          MSSTORE_APP_ID: ${{ vars.MSSTORE_APP_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in MSSTORE_TENANT_ID MSSTORE_CLIENT_ID MSSTORE_CLIENT_SECRET MSSTORE_SELLER_ID MSSTORE_APP_ID; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::notice::Skipping Microsoft Store publish. Missing: ${missing[*]}. Set secrets MSSTORE_TENANT_ID, MSSTORE_CLIENT_ID, MSSTORE_CLIENT_SECRET, MSSTORE_SELLER_ID and variable MSSTORE_APP_ID. The first submission is manual. GitHub Release assets are unchanged."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ! -f exr_converter-windows-x86_64.msixupload ]; then
+            echo "::notice::Skipping Microsoft Store publish. exr_converter-windows-x86_64.msixupload is not in the workspace. GitHub Release assets are unchanged."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      # setup-msstore-cli. The repository name is microsoft-store-apppublisher.
+      - name: Setup Microsoft Store CLI
+        id: setup-msstore
+        if: steps.store-publish.outputs.enabled == 'true'
+        continue-on-error: true
+        uses: microsoft/microsoft-store-apppublisher@cc9910a8d59f2eb55cbb83df0a3800cf3b5300e0 # v1.4
+        with:
+          version: v0.4.3
+
+      - name: Publish .msixupload to Microsoft Store
+        if: steps.store-publish.outputs.enabled == 'true'
+        shell: bash
+        env:
+          MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+          MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
+          MSSTORE_APP_ID: ${{ vars.MSSTORE_APP_ID }}
+        run: |
+          set -uo pipefail
+          if [ "${{ steps.setup-msstore.outcome }}" != "success" ]; then
+            echo "::warning::Microsoft Store CLI setup failed. Skipping publish. GitHub Release assets are unchanged."
+            exit 0
+          fi
+          # Bound the CLI so a prompt or a stuck upload cannot consume the rest
+          # of the Windows job and block the GitHub Release.
+          run_bounded() {
+            local limit="$1"
+            shift
+            "$@" &
+            local pid=$!
+            local waited=0
+            while kill -0 "$pid" 2>/dev/null; do
+              if [ "$waited" -ge "$limit" ]; then
+                kill "$pid" 2>/dev/null || true
+                if command -v taskkill >/dev/null 2>&1; then
+                  taskkill //F //T //PID "$pid" >/dev/null 2>&1 || true
+                fi
+                wait "$pid" 2>/dev/null || true
+                return 124
+              fi
+              sleep 5
+              waited=$((waited + 5))
+            done
+            wait "$pid"
+          }
+          run_bounded 1800 msstore reconfigure \
+            --tenantId "$MSSTORE_TENANT_ID" \
+            --clientId "$MSSTORE_CLIENT_ID" \
+            --clientSecret "$MSSTORE_CLIENT_SECRET" \
+            --sellerId "$MSSTORE_SELLER_ID"
+          reconfigure_status=$?
+          if [ "$reconfigure_status" -ne 0 ]; then
+            echo "::warning::msstore reconfigure failed (exit ${reconfigure_status}). GitHub Release assets are unchanged."
+            exit 0
+          fi
+          run_bounded 1800 msstore publish \
+            "exr_converter-windows-x86_64.msixupload" \
+            --appId "$MSSTORE_APP_ID"
+          publish_status=$?
+          if [ "$publish_status" -ne 0 ]; then
+            echo "::warning::msstore publish failed (exit ${publish_status}). The first Store submission must be created in Partner Center. GitHub Release assets are unchanged."
+            exit 0
+          fi
+          echo "Submitted exr_converter-windows-x86_64.msixupload to Microsoft Store app ${MSSTORE_APP_ID}."
+
 
   # Linux is not a matrix cell. One Rocky Linux 8 container builds the
   # AppImage, relocatable tarball, and RPM from the same Nuitka dist so they
@@ -1261,6 +1468,7 @@ jobs:
           path: downloaded
 
       - name: Assemble final binaries for signing
+        id: assemble
         shell: bash
         run: |
           set -euo pipefail
@@ -1283,6 +1491,23 @@ jobs:
             test -d "$WIN_UNSIGNED"
             cp -a "${WIN_UNSIGNED}/." artifacts/
           fi
+          # Both MSIX release assets. Cosign below writes detached
+          # .sigstore.json files and does not add an Appx signature. The
+          # .msixupload was sealed before any signtool step.
+          MSIX_DIR="downloaded/exr_converter-windows-x86_64-msix"
+          UPLOAD_DIR="downloaded/exr_converter-windows-x86_64-msixupload"
+          if [ -d "$UPLOAD_DIR" ] && [ -d "$MSIX_DIR" ]; then
+            echo "Including .msixupload (Partner Center) and .msix (self-distribution)"
+            cp -a "${UPLOAD_DIR}/." artifacts/
+            cp -a "${MSIX_DIR}/." artifacts/
+            echo "msix=true" >> "$GITHUB_OUTPUT"
+          elif [ -d "$UPLOAD_DIR" ] || [ -d "$MSIX_DIR" ]; then
+            echo "::error::MSIX release requires both the .msix and the .msixupload artifacts"
+            exit 1
+          else
+            echo "No MSIX artifacts (identity variables unset, or this is not a Windows release)"
+            echo "msix=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "--- artifacts to sign ---"
           ls -la artifacts/
           test "$(find artifacts -type f | wc -l)" -ge 4
@@ -1295,6 +1520,17 @@ jobs:
             artifacts/*.AppImage
             artifacts/*.dmg
             artifacts/*.exe
+
+      # Separate attestation so a release without identity variables still
+      # attests the setup .exe, DMGs, and AppImage. *.msix does not match
+      # the .msixupload suffix, so both globs are listed.
+      - name: Attest MSIX provenance
+        if: steps.assemble.outputs.msix == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/*.msix
+            artifacts/*.msixupload
 
       - name: Sign all artifacts with Cosign
         shell: bash
@@ -1422,6 +1658,24 @@ jobs:
             echo
             echo "Unless SignPath Authenticode is enabled for this release, Windows SmartScreen"
             echo "may warn on first run. Prefer the Cosign/\`gh attestation\` checks above."
+            if [ -f release-assets/exr_converter-windows-x86_64.msixupload ]; then
+              echo
+              echo "### Microsoft Store and self-distribution (MSIX)"
+              echo
+              echo "\`exr_converter-windows-x86_64.msixupload\` is the Partner Center upload."
+              echo "It is a zip of an unsigned .msix and, when the build produced PDB files, an .appxsym."
+              echo "Upload that file to Partner Center. The Store signs the package inside it."
+              echo "Do not upload the loose \`.msix\` or the \`.sigstore.json\`."
+              echo
+              echo "\`exr_converter-windows-x86_64.msix\` is the self-distribution package."
+              if python3 -c "import sys, zipfile; names=[n.replace(chr(92), '/').lower() for n in zipfile.ZipFile(sys.argv[1]).namelist()]; sys.exit(0 if any(n.endswith('appxsignature.p7x') for n in names) else 1)" release-assets/exr_converter-windows-x86_64.msix; then
+                echo "It is signed for self-distribution. Install it on PCs that trust that certificate."
+              else
+                echo "It is unsigned. Windows will not install an unsigned MSIX. A self-hosted install needs a signature from a certificate the PC trusts."
+              fi
+              echo "Each matching \`.sigstore.json\` is detached provenance for the file bytes, not an MSIX signature."
+              echo "Direct installs can still use the setup \`.exe\`."
+            fi
           } > release-notes.md
           echo "--- release-notes.md ---"
           head -40 release-notes.md

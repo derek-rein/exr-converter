@@ -16,10 +16,45 @@ rolling the `[Unreleased]` section into a versioned heading.
 ### Added
 
 - Linux releases are built on Rocky Linux 8 and run on RHEL, Rocky, and Alma 8 and newer (glibc 2.28). The same build publishes the AppImage, a relocatable tarball (`exr_converter-linux-x86_64.tar.gz`) for `/opt`, `/software`, and Rez, and an RPM (`exr_converter-linux-x86_64.rpm`) that installs to `/opt/exr-converter`. Settings and caches stay in the XDG directories, so the install folder can be read-only.
+- macOS Quick Look previews scene-linear OpenEXR and DPX through the app's default OCIO display view (a baked 3D LUT, exposure 0 and gamma 1). Numbered frames play in the Spacebar preview when the folder can be read (home, `/Volumes`, and `/tmp`). Notarization accepts those read-only exceptions. **File → Preferences… → Quick Look** still chooses the formats. Movies, BRAW, R3D, and ARRIRAW are unchanged. See [Quick Look on macOS](docs/quicklook.md).
+- New **Transcode** tab for batch video to video transcodes: ProRes 422 Proxy / LT / 422 / HQ / 4444 / 4444 XQ (plus VideoToolbox ProRes on macOS), DNxHR LB / SQ / HQ / HQX / 444, H.264, HEVC 8 / 10 / 12-bit, and AV1 when the FFmpeg build has SVT-AV1. The container follows the codec (`.mov`, `.mxf` for DNxHR, `.mp4`, `.mkv` for AV1). Options for size (keep, 75 / 50 / 25%, fit 2160p / 1080p / 720p, or custom), frame rate (keep or conform), audio (copy, AAC, 24-bit PCM, or none), CRF or target bitrate and speed preset for long-GOP codecs, output folder, a `<name>_<codec>` style file name pattern, and skip / overwrite / add-a-number when the file exists. No color change by default; an optional OCIO transform uses the window's config. The invisible TrustMark watermark from Video → Proxy is available too. Each clip in the list shows its progress, then a check mark or the error. Settings are remembered between sessions.
+- `transcode` CLI subcommand with the same options as the tab, and `--mode transcode` to open the GUI on that tab.
+- The sequence browser has a **Find sequence** field for typo-tolerant search by sequence name. Folders you open are indexed with their subfolders in the background without freezing the dialog. Click a result or press Enter to jump to that folder with the sequence selected. The index lives only while the browser is open and never downloads cloud online-only files. Adds the `rapidfuzz` dependency.
 
 ### Changed
 
 - Qt is pinned to 6.9.2 (PySide6-Essentials and shiboken6) on macOS, Windows, and Linux, down from 6.11.0. All platforms now ship the same Qt. Qt 6.10 and newer Linux wheels need glibc 2.34, which does not run on RHEL 8, so 6.9.2 is the newest release that covers every supported system.
+- Video → Proxy now runs on the same encode engine as the Transcode tab. With the invisible watermark on, the mark is added at 16-bit precision instead of passing frames through 8-bit RGB. HEVC proxies are tagged `hvc1` so QuickTime plays them.
+- The docs site describes the Video → Proxy tab in more detail: source formats, each proxy codec with its container and bit depth, what the watch folder skips, and which settings are remembered. It has a new **Invisible watermark** section covering the payload, strength, model download and cache folders, `scripts/trustmark_detect.py`, and what can remove the mark. The home page lists the invisible watermark, shows the latest release version, and notes that the Windows `.msix` / `.msixupload` files are for the Microsoft Store while the setup `.exe` stays the direct download.
+- Software video encodes (ProRes, DNxHR, H.264, HEVC, CineForm, and the other YCbCr codecs) convert RGB to YCbCr with BT.709 limited-range math and tag the stream BT.709 matrix. Before, FFmpeg's scaler used its BT.601 default and left the file untagged, so other apps decoded colours slightly off. 10-bit and 12-bit 4:4:4 and 4:2:2 formats are converted with exact float math in the app.
+- MOV and MP4 files now always get a `colr` atom. Primaries and transfer follow the destination colour space (for example Rec.1886 Rec.709 is BT.709 / BT.709, sRGB is BT.709 / sRGB). Log and ACES encodings such as ACEScct have no H.273 code and are tagged unspecified.
+- The experimental oxideav ProRes writer is built from a vendored, patched copy of `oxideav-prores` 0.1.1 in `native/exr_prores/vendor/oxideav-prores`. See `EXR_CONVERTER_PATCH.md` there and `THIRD_PARTY_NOTICES.md`.
+
+### Fixed
+
+- On Windows, Transcode **Add a number** treats two planned output paths as the same file when they differ only by letter case, so a batch does not write two clips to one name.
+- oxideav ProRes 4444 and XQ (`prores_ox_4444`, `prores_ox_xq`) wrote the chroma 8x8 blocks of each macroblock in the wrong order. FFmpeg, Resolve, and QuickTime swapped the top-right and bottom-left chroma blocks, which showed as blocky colour errors (up to 0.18 in ACEScct). The writer and the built-in decoder now use the standard column order. A test decodes the output with FFmpeg and checks the chroma. Re-encode 4444 and XQ files made with 0.12.4 or earlier.
+- `exr2video --fps` accepts rational rates such as `24000/1001` and `30000/1001`, and decimals such as `23.976`. Rationals are written to the file exactly.
+- Packaged (Nuitka) builds no longer print `the program tried to call itself with '-c' argument` and a `resource_tracker` warning when converting with worker processes. Python 3.13.7 changed how the multiprocessing resource tracker starts, and the build's old rewrite of that command no longer matched. The app now sets up multiprocessing at startup: `freeze_support()`, the `spawn` start method, the app executable for workers, and the resource tracker started through the app's own flag.
+- oxideav ProRes files no longer claim BT.709 primaries and transfer for every destination. The frame headers and `colr` atom follow the destination colour space, so an ACEScct file is tagged BT.709 matrix with unspecified primaries and transfer. The frame rate code in the frame header is filled in too.
+- EXR sequences without an EXR Converter tag or `colorInteropID` are matched to a source colour space from their `chromaticities` header (Rec.709, ACES AP1, ACES AP0, P3-D65, Rec.2020). When there is no usable metadata, `exr2video` prints a warning that names the colour space it assumes (the OCIO `scene_linear` role, ACEScg on the bundled config) and suggests `--src`.
+- Software ProRes 4444 and XQ had a small colour offset after decode (about +2.5 12-bit codes on luma and different offsets on each chroma channel on near-grey content, much larger on saturated colours) because of the BT.601 default above. Decoded values now match the source within normal rounding.
+- Software ProRes 4444 and XQ wrote an alpha plane (`yuva444p10le`) even when the source had no alpha. The alpha plane is now written only when the source frames have an alpha channel, and the source alpha is carried through.
+- oxideav ProRes files named their compressor "Apple ProRes" in the MOV sample description. They now say `RDD 36 ProRes-compatible`, matching the docs.
+
+---
+
+## [0.12.4] - 2026-10-21
+
+### Added
+
+- Windows releases can include two Microsoft Store packages from the same build. `exr_converter-windows-x86_64.msixupload` is the unsigned Partner Center upload (a zip of the `.msix` and, when the build has PDB symbols, an `.appxsym`). `exr_converter-windows-x86_64.msix` is the self-distribution package. It is signed with `signtool` when the Azure Artifact Signing secrets are set, and left unsigned otherwise. An unsigned MSIX does not install. Both files are skipped until the `MSIX_IDENTITY_NAME` and `MSIX_PUBLISHER` repository variables are set. The setup `.exe` is unchanged.
+- A release can submit that `.msixupload` to an existing Microsoft Store product when the Store publish secrets and `MSSTORE_APP_ID` are set. The first Store submission is still created in Partner Center. A missing setting or a publish error does not block the GitHub Release.
+
+### Fixed
+
+- The MSIX manifest now passes MakeAppx schema validation. The write-virtualization exclusions sit inside `<Properties>` and the package declares the `unvirtualizedResources` capability.
+- A Microsoft Store install keeps settings, presets, and the TrustMark model cache in the user profile. The Store install folder is read-only. The bundled OCIO config is read from the package in place.
 
 ---
 
@@ -957,7 +992,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.3...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.4...HEAD
+[0.12.4]: https://github.com/derek-rein/exr-converter/compare/v0.12.3...v0.12.4
 [0.12.3]: https://github.com/derek-rein/exr-converter/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/derek-rein/exr-converter/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/derek-rein/exr-converter/compare/v0.12.0...v0.12.1

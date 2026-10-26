@@ -141,7 +141,7 @@ def test_window_has_proxy_tab(qapp: QApplication, tmp_path) -> None:
     set_app_settings(make_ini_settings(str(tmp_path / "ui.ini")))
     win = MainWindow()
     try:
-        assert win._tabs.count() == 3
+        assert win._tabs.count() == 4
         assert win._tabs.widget(PROXY_TAB_INDEX) is win._proxy_tab
         win._tabs.setCurrentIndex(PROXY_TAB_INDEX)
         assert not win._go.isEnabled()

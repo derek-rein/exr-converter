@@ -23,6 +23,7 @@ from macos_codesign import (  # noqa: E402
     plan_resign,
     plan_signature_verify,
     plan_verify,
+    quicklook_appex_entitlements_path,
     relocate_macos_data,
     validate_identity,
 )
@@ -142,8 +143,72 @@ def test_entitlements_match_ctypes_and_dlopen() -> None:
     assert data["com.apple.security.cs.disable-library-validation"] is True
     assert data["com.apple.security.cs.allow-unsigned-executable-memory"] is True
     assert data["com.apple.security.cs.allow-jit"] is True
+    assert data["com.apple.security.application-groups"] == ["83546T4BT8.com.vfxtools.exrconverter"]
     assert "com.apple.security.app-sandbox" not in data
     assert "com.apple.security.cs.allow-dyld-environment-variables" not in data
+
+
+def test_appex_entitlements_are_sandboxed_without_jit() -> None:
+    with quicklook_appex_entitlements_path().open("rb") as handle:
+        data = plistlib.load(handle)
+    assert data["com.apple.security.app-sandbox"] is True
+    assert data["com.apple.security.files.user-selected.read-only"] is True
+    assert data["com.apple.security.application-groups"] == ["83546T4BT8.com.vfxtools.exrconverter"]
+    home = data["com.apple.security.temporary-exception.files.home-relative-path.read-only"]
+    assert home == [
+        "/Library/Application Support/EXR Converter/quicklook.json",
+        "/Library/Application Support/EXR Converter/view.lut",
+        "/",
+    ]
+    absolute = data["com.apple.security.temporary-exception.files.absolute-path.read-only"]
+    assert absolute == ["/Volumes/", "/private/tmp/", "/tmp/"]
+    for path in (*home, *absolute):
+        assert isinstance(path, str) and path.startswith("/")
+    for path in absolute:
+        assert path.endswith("/")
+    assert "com.apple.security.temporary-exception.files.home-relative-path.read-write" not in data
+    assert "com.apple.security.temporary-exception.files.absolute-path.read-write" not in data
+    assert "com.apple.security.cs.allow-jit" not in data
+    assert "com.apple.security.cs.disable-library-validation" not in data
+
+
+def _app_with_appex(tmp_path: Path) -> tuple[Path, Path]:
+    app = _mini_app(tmp_path)
+    appex = app / "Contents" / "PlugIns" / "EXRConverterPreview.appex"
+    _macho(appex / "Contents" / "MacOS" / "EXRConverterPreview")
+    return app, appex
+
+
+def test_developer_id_signs_appex_with_sandbox_entitlements_before_the_app(tmp_path: Path) -> None:
+    app, appex = _app_with_appex(tmp_path)
+    host = tmp_path / "host.plist"
+    host.write_text("host", encoding="utf-8")
+    cmds = plan_resign(app, identity=_IDENTITY, entitlements=host, keychain=tmp_path / "k")
+    text = _flat(cmds)
+    assert "--deep" not in text
+    appex_cmd = next(cmd for cmd in cmds if cmd[-1] == str(appex))
+    inner = next(cmd for cmd in cmds if cmd[-1].endswith("EXRConverterPreview"))
+    app_index = next(i for i, cmd in enumerate(cmds) if cmd[-1] == str(app))
+    assert cmds.index(inner) < cmds.index(appex_cmd) < app_index
+    ent = str(quicklook_appex_entitlements_path())
+    assert ent in appex_cmd
+    assert str(host) not in appex_cmd
+    assert "--options" in appex_cmd and "runtime" in appex_cmd
+    assert "--timestamp" in appex_cmd
+    host_exe = next(cmd for cmd in cmds if Path(cmd[-1]).name == "exr_converter")
+    assert str(host) in host_exe
+    assert ent not in host_exe
+
+
+def test_adhoc_appex_keeps_sandbox_entitlements_and_host_does_not(tmp_path: Path) -> None:
+    app, appex = _app_with_appex(tmp_path)
+    cmds = plan_resign(app, identity="-", entitlements=tmp_path / "host.plist")
+    appex_cmd = next(cmd for cmd in cmds if cmd[-1] == str(appex))
+    assert "--timestamp=none" in appex_cmd
+    assert "--options" not in appex_cmd
+    assert str(quicklook_appex_entitlements_path()) in appex_cmd
+    assert "--entitlements" not in cmds[-1]
+    assert "--deep" not in _flat(cmds)
 
 
 def test_release_workflow_notarizes_with_adhoc_fallback() -> None:

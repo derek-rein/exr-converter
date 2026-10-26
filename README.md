@@ -74,6 +74,8 @@
 
 **Video to proxy:** a third tab (and the `proxy` CLI) makes Resolve-style editing proxies (ProRes 422 Proxy at half size by default) in a `Proxy` folder next to each clip, keeping source look, timecode, and audio. A **watch folder** converts new clips automatically once they finish copying. An optional invisible TrustMark watermark (off by default) can be written into every proxy frame. See [docs/gui.md](docs/gui.md#video--proxy).
 
+**Transcode:** a fourth tab (and the `transcode` CLI) batch-transcodes video files to ProRes, DNxHR (`.mov` or `.mxf`), H.264, HEVC, or AV1, with size, frame-rate conform, audio, quality, and file-naming options. No color change by default, with an optional OCIO transform. See [docs/gui.md](docs/gui.md#transcode).
+
 **Optional RED R3D / N-RAW:** when built with the official RED R3D SDK bridge, **Video to EXR** can decode `.r3d` and `.nev` (IPP2 primary to Log3G10 REDWideGamutRGB for OCIO), including browser thumbnails, sequence-player preview, and camera/timecode metadata on written EXRs. Release binaries may ship only RED's allowed Redistributable libraries in a private app folder. See [docs/r3d.md](docs/r3d.md) and **Help → About** for the redistributable notice.
 
 **Optional Blackmagic RAW:** when built with the official Blackmagic RAW SDK bridge, **Video to EXR** can decode `.braw` (Linear + ACES AP0 / `ACES2065-1` for OCIO). Without the SDK the extension is recognized but conversion fails with a clear missing-SDK message. Public Release binaries ship the runtime libraries in a private app folder when secret `BRAW_SDK_READ_TOKEN` is configured. See [docs/braw.md](docs/braw.md).
@@ -100,6 +102,8 @@ All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.de
 The macOS build is signed and notarized, so it opens normally. First launch may still show the standard "downloaded from the internet" prompt.
 
 Release DMGs are signed with a Developer ID Application certificate for **Medeu Global LLC**, then notarized and stapled.
+
+Release builds also include Quick Look and Finder thumbnail extensions for OpenEXR and DPX. Spacebar uses the app’s default OCIO display view, and numbered frames play when the folder can be read. Enable the extensions under **System Settings → General → Login Items & Extensions**, then choose formats in **File → Preferences… → Quick Look**. See [Quick Look on macOS](docs/quicklook.md).
 
 ### Install by platform
 
@@ -133,6 +137,8 @@ open -a "EXR Converter"
 Download [exr_converter-windows-x86_64-setup.exe](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe) and run it.
 
 The installer adds a Start menu shortcut and can add a desktop shortcut. The program is `exr_converter.exe`.
+
+A release may also attach `exr_converter-windows-x86_64.msixupload` for Microsoft Store submission and `exr_converter-windows-x86_64.msix` for self-distribution. The upload is unsigned (the Store signs the package inside it). The loose `.msix` installs only when a trusted certificate has signed it; until then use the setup `.exe`. Maintainer steps: [docs/msix.md](docs/msix.md).
 
 </details>
 
@@ -259,8 +265,10 @@ Guides live under [`docs/`](docs/) (Markdown source of truth). The public site i
 
 | Guide | |
 | --- | --- |
-| [CLI](docs/cli.md) | `video2exr` / `exr2video` / `proxy` / GUI launch flags |
-| [GUI](docs/gui.md) | Tabs, Video → Proxy and watch folder, overlays, preferences, post-convert, codec picker |
+| [CLI](docs/cli.md) | `video2exr` / `exr2video` / `proxy` / `transcode` / GUI launch flags |
+| [GUI](docs/gui.md) | Tabs, Video → Proxy and watch folder, Transcode, overlays, preferences, post-convert, codec picker |
+| [Linux](docs/linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
+| [Quick Look on macOS](docs/quicklook.md) | Spacebar previews and Finder icons for EXR, DPX, and optional stills |
 | [ProRes and VideoToolbox](docs/prores.md) | Software vs Apple VideoToolbox vs oxideav; honest bit depths |
 | [R3D / N-RAW](docs/r3d.md) | Optional RED SDK (license, build, CI, preview) |
 | [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship when `BRAW_SDK_READ_TOKEN` is set) |
@@ -276,7 +284,7 @@ make docs-build   # write site/public/
 
 **Full reference:** [docs/cli.md](docs/cli.md) · **GUI:** [docs/gui.md](docs/gui.md) · **Nuke:** [docs/nuke.md](docs/nuke.md)
 
-Use the `video2exr`, `exr2video`, or `proxy` subcommand to convert, or run with **no** subcommand to open the GUI (optionally with `--open` / `--gui-ocio`).
+Use the `video2exr`, `exr2video`, `proxy`, or `transcode` subcommand to convert, or run with **no** subcommand to open the GUI (optionally with `--open` / `--gui-ocio`).
 
 ### Codecs
 
@@ -326,6 +334,7 @@ uv run python main.py exr2video -i ./dpx_seq -o review.mov --fps 24
 ```bash
 uv run python main.py proxy -i ./A001_card          # → ./A001_card/Proxy/*.mov
 uv run python main.py proxy --watch /Volumes/Ingest # watch folder, Ctrl-C to stop
+uv run python main.py transcode -i clip.mxf --codec dnxhr_hqx --container mxf
 ```
 
 ##### GUI with a path pre-loaded
@@ -437,7 +446,7 @@ All static assets live under `resources/`: icons in `resources/icons/` (`icon.ic
 
 ## Releases
 
-Tags use plain semver: `v1.2.3`. Pushing a tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml) and publishes a GitHub Release with a Linux AppImage, macOS DMGs (ARM64 and Intel), and a Windows installer. After a merge to `main`, [`.github/workflows/auto-tag-release.yml`](.github/workflows/auto-tag-release.yml) can create the missing tag and dispatch that workflow.
+Tags use plain semver: `v1.2.3`. Pushing a tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml) and publishes a GitHub Release with a Linux AppImage, macOS DMGs (ARM64 and Intel), and a Windows installer. When the Microsoft Store identity variables are set, the same run also attaches a Windows `.msixupload` for Partner Center and a `.msix` for self-distribution ([docs/msix.md](docs/msix.md)). After a merge to `main`, [`.github/workflows/auto-tag-release.yml`](.github/workflows/auto-tag-release.yml) can create the missing tag and dispatch that workflow.
 
 | Doc | Contents |
 | --- | --- |

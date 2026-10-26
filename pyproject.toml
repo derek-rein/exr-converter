@@ -1,6 +1,6 @@
 [project]
 name = "exr-converter"
-version = "0.12.3"
+version = "0.12.4"
 description = "A cross-platform GUI tool for converting and transcoding EXR and video files."
 authors = [
     {name = "DerekVFX", email = "derek@derekvfx.ca"},
@@ -19,6 +19,7 @@ dependencies = [
     # 1.24+ macOS wheels are arm64-only. Intel stays on the last x86_64 wheel.
     "onnxruntime>=1.20; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "onnxruntime>=1.20,<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "rapidfuzz>=3.9",
 ]
 requires-python = "==3.13.*"
 readme = "README.md"
