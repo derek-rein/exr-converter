@@ -13,9 +13,27 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- The sequence browser has a **Find sequence** field for typo-tolerant search by sequence name. Folders you open are indexed with their subfolders in the background without freezing the dialog. Click a result or press Enter to jump to that folder with the sequence selected. The index lives only while the browser is open and never downloads cloud online-only files. Adds the `rapidfuzz` dependency.
+
 ### Changed
 
 - The docs site describes the Video → Proxy tab in more detail: source formats, each proxy codec with its container and bit depth, what the watch folder skips, and which settings are remembered. It has a new **Invisible watermark** section covering the payload, strength, model download and cache folders, `scripts/trustmark_detect.py`, and what can remove the mark. The home page lists the invisible watermark, shows the latest release version, and notes that the Windows `.msix` / `.msixupload` files are for the Microsoft Store while the setup `.exe` stays the direct download.
+- Software video encodes (ProRes, DNxHR, H.264, HEVC, CineForm, and the other YCbCr codecs) convert RGB to YCbCr with BT.709 limited-range math and tag the stream BT.709 matrix. Before, FFmpeg's scaler used its BT.601 default and left the file untagged, so other apps decoded colours slightly off. 10-bit and 12-bit 4:4:4 and 4:2:2 formats are converted with exact float math in the app.
+- MOV and MP4 files now always get a `colr` atom. Primaries and transfer follow the destination colour space (for example Rec.1886 Rec.709 is BT.709 / BT.709, sRGB is BT.709 / sRGB). Log and ACES encodings such as ACEScct have no H.273 code and are tagged unspecified.
+- The experimental oxideav ProRes writer is built from a vendored, patched copy of `oxideav-prores` 0.1.1 in `native/exr_prores/vendor/oxideav-prores`. See `EXR_CONVERTER_PATCH.md` there and `THIRD_PARTY_NOTICES.md`.
+
+### Fixed
+
+- oxideav ProRes 4444 and XQ (`prores_ox_4444`, `prores_ox_xq`) wrote the chroma 8x8 blocks of each macroblock in the wrong order. FFmpeg, Resolve, and QuickTime swapped the top-right and bottom-left chroma blocks, which showed as blocky colour errors (up to 0.18 in ACEScct). The writer and the built-in decoder now use the standard column order. A test decodes the output with FFmpeg and checks the chroma. Re-encode 4444 and XQ files made with 0.12.4 or earlier.
+- `exr2video --fps` accepts rational rates such as `24000/1001` and `30000/1001`, and decimals such as `23.976`. Rationals are written to the file exactly.
+- Packaged (Nuitka) builds no longer print `the program tried to call itself with '-c' argument` and a `resource_tracker` warning when converting with worker processes. Python 3.13.7 changed how the multiprocessing resource tracker starts, and the build's old rewrite of that command no longer matched. The app now sets up multiprocessing at startup: `freeze_support()`, the `spawn` start method, the app executable for workers, and the resource tracker started through the app's own flag.
+- oxideav ProRes files no longer claim BT.709 primaries and transfer for every destination. The frame headers and `colr` atom follow the destination colour space, so an ACEScct file is tagged BT.709 matrix with unspecified primaries and transfer. The frame rate code in the frame header is filled in too.
+- EXR sequences without an EXR Converter tag or `colorInteropID` are matched to a source colour space from their `chromaticities` header (Rec.709, ACES AP1, ACES AP0, P3-D65, Rec.2020). When there is no usable metadata, `exr2video` prints a warning that names the colour space it assumes (the OCIO `scene_linear` role, ACEScg on the bundled config) and suggests `--src`.
+- Software ProRes 4444 and XQ had a small colour offset after decode (about +2.5 12-bit codes on luma and different offsets on each chroma channel on near-grey content, much larger on saturated colours) because of the BT.601 default above. Decoded values now match the source within normal rounding.
+- Software ProRes 4444 and XQ wrote an alpha plane (`yuva444p10le`) even when the source had no alpha. The alpha plane is now written only when the source frames have an alpha channel, and the source alpha is carried through.
+- oxideav ProRes files named their compressor "Apple ProRes" in the MOV sample description. They now say `RDD 36 ProRes-compatible`, matching the docs.
 
 ---
 
