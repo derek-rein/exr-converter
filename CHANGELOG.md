@@ -25,6 +25,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
+- Microsoft Store installs keep settings, presets, and the TrustMark model cache in the package's own virtualized AppData and registry. The package no longer requests the `unvirtualizedResources` capability, and those files are not shared with a setup `.exe` install of the same app.
 - The bundled ACES Studio config adds Linear P3-D60, so a CinemaDNG sequence can convert to the existing Linear D-Gamut or D-Log D-Gamut spaces.
 - Qt is pinned to 6.9.2 (PySide6-Essentials and shiboken6) on macOS, Windows, and Linux, down from 6.11.0. All platforms now ship the same Qt. Qt 6.10 and newer Linux wheels need glibc 2.34, which does not run on RHEL 8, so 6.9.2 is the newest release that covers every supported system.
 - Video → Proxy now runs on the same encode engine as the Transcode tab. With the invisible watermark on, the mark is added at 16-bit precision instead of passing frames through 8-bit RGB. HEVC proxies are tagged `hvc1` so QuickTime plays them.

@@ -99,8 +99,18 @@ If any of those values is missing, the job prints a notice and continues. If `ms
 
 `msstore publish` commits the submission. It updates an app that already has a published submission. It does not replace the first manual submission, and a draft you created in the Partner Center UI can make the command fail until that draft is deleted there.
 
-The package is x64, full trust (`runFullTrust`), with entry point `exr_converter.exe` (`Windows.FullTrustApplication`) and device family `Windows.Desktop` (minimum 10.0.19041.0). It does not register file associations or protocol handlers. Open media from inside the app. An execution alias registers `exr_converter.exe` for a new terminal so the CLI works after a Store install.
+The package is x64, full trust (`runFullTrust` only), with entry point `exr_converter.exe` (`Windows.FullTrustApplication`) and device family `Windows.Desktop` (minimum 10.0.19041.0). It does not register file associations or protocol handlers, and it does not declare `unvirtualizedResources`. Open media from inside the app. An execution alias registers `exr_converter.exe` for a new terminal so the CLI works after a Store install. That alias runs inside the package, so it sees the same virtualized settings as a Start-menu launch.
 
 ## Where the app writes
 
-The install folder under `WindowsApps` is read-only. The app reads the bundled OCIO config and LUTs from `resources/ocio` in the package and does not copy them out. Settings (`HKCU\Software\VFXTools`), presets (`%APPDATA%\VFXTools\EXRConverter\presets`), and the TrustMark model cache (`%LOCALAPPDATA%\VFXTools\EXRConverter\Cache\trustmark`) stay in the user profile. The manifest excludes those locations from MSIX write virtualization so they match the setup `.exe`. Converted media is written only where you chose an output path. A Start-menu launch starts in the package folder; the app switches to your user profile before any relative write.
+The install folder under `WindowsApps` is read-only. The app reads the bundled OCIO config and LUTs from `resources/ocio` in the package and does not copy them out. Settings (`HKCU\Software\VFXTools`), presets (`%APPDATA%\VFXTools\EXRConverter\presets`), and the TrustMark model cache (`%LOCALAPPDATA%\VFXTools\EXRConverter\Cache\trustmark`) are written through normal MSIX file and registry virtualization. Windows keeps them in the per-package store for this install. They are not the same files as a setup `.exe` install, and File Explorer does not show them at those paths. The app reads them back itself. It does not pass a settings or cache path to an external player, to Explorer, or to any other process outside the package. Output media is written only to the folder you chose. Pick a project folder outside AppData so other apps can open those files. A Start-menu launch starts in the package folder; the app switches to your user profile before any relative write.
+
+## Store screenshots
+
+Listing screenshots are not inside the package. Regenerate them from a Windows runner (native Windows Qt platform and style, 1920x1080 PNG):
+
+```bash
+gh workflow run "Store screenshots" --ref main
+```
+
+The workflow is `.github/workflows/store-screenshots.yml`. It runs `scripts/store_screenshots.py` and uploads the PNGs as the `store-screenshots` artifact. Upload those files in Partner Center. Do not use macOS captures for the Windows listing.
