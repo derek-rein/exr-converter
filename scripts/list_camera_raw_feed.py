@@ -46,7 +46,8 @@ def _get(url: str, token: str) -> object:
 def main() -> None:
     token = os.environ.get("CAMERA_RAW_READ_TOKEN", "").strip()
     if not token:
-        raise SystemExit("CAMERA_RAW_READ_TOKEN is not set")
+        print("camera RAW feed token is not set; skipping")
+        return
     lines: list[str] = ["repo: private camera RAW feed", ""]
     releases = _get(f"https://api.github.com/repos/{REPO}/releases?per_page=20", token)
     lines.append("releases:")

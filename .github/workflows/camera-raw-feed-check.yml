@@ -24,4 +24,5 @@ jobs:
         with:
           name: camera-raw-feed-manifest
           path: build/camera-raw-feed-manifest.txt
+          if-no-files-found: ignore
           retention-days: 5
