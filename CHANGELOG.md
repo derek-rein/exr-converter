@@ -13,6 +13,12 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.12.6] - 2026-10-29
+
+Published release. v0.12.5 was tagged but not published. This build includes that section: camera RAW plugin support for `.crm`, CinemaDNG frame sequences, the Transcode tab, and fuzzy sequence search.
+
 ### Changed
 
 - Microsoft Store installs keep settings, presets, and the TrustMark model cache in the package's own virtualized AppData and registry. The package no longer requests the `unvirtualizedResources` capability, and those files are not shared with a setup `.exe` install of the same app.
@@ -1004,7 +1010,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.5...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.6...HEAD
+[0.12.6]: https://github.com/derek-rein/exr-converter/compare/v0.12.5...v0.12.6
 [0.12.5]: https://github.com/derek-rein/exr-converter/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/derek-rein/exr-converter/compare/v0.12.3...v0.12.4
 [0.12.3]: https://github.com/derek-rein/exr-converter/compare/v0.12.2...v0.12.3
