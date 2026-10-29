@@ -173,7 +173,9 @@ jobs:
 
   test:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # Windows matches pull-request CI: the suite builds the CinemaDNG reader,
+    # which needs cl.exe. macOS and Linux finish well inside this too.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -183,46 +185,10 @@ jobs:
         with:
           ref: ${{ env.RELEASE_REF }}
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: "0.12.3"
-          enable-cache: true
-          # Separate from CI workflow jobs so concurrent CI+Release runs
-          # don't fight over the same cache key (noisy annotations).
-          cache-suffix: ${{ github.workflow }}
-          prune-cache: true
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.13"
-
-      - name: Install Qt offscreen system libs (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libegl1 libgl1 libxkbcommon0 libdbus-1-3
-
-      - name: Install dependencies
-        run: uv sync --group dev
-
-      # Bundled ACES Studio is config v2.5 and needs library 2.5+.
-      - name: Ensure OpenColorIO 2.5+ linkage
-        run: uv run python scripts/ensure_ocio.py
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # stable
-        with:
-          toolchain: stable
-
-      - name: Build oxideav ProRes extension
-        run: uv run python scripts/build_oxideav_prores.py
-
-      - name: Run full test suite (unit + integration)
-        shell: bash
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: uv run pytest -v
+      # Same steps as pull-request CI, including the Windows MSVC environment
+      # before the CinemaDNG reader is built. The package job later in this
+      # workflow already enables MSVC before that same reader.
+      - uses: ./.github/actions/ci-test
 
   # Blocks build until every lint + test matrix cell is green.
   gate:
