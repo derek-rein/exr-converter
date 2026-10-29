@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.12.11] - 2026-10-29
+
 ### Added
 
 - **Invisible WM** checkbox on EXR → Video embeds an invisible TrustMark watermark in every frame, slate included. The CLI has `exr2video --watermark` and `--watermark-strength`.
@@ -24,6 +28,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 - Quick Look settings moved out of Preferences into **File → Quick Look…**, a menu item that only appears on macOS.
 - The docs moved to https://vfx.systems/docs/exr-converter. The About dialog links vfx.systems instead of ocio.cc, and the Windows installer and Linux packages use the new docs URL as the homepage.
 - The macOS Quick Look and Finder thumbnail extensions are off until you turn them on in that dialog. Each launch re-applies the choice, so existing installs that had them on will need to turn them on once.
+
+### Removed
+
+- Experimental oxideav ProRes 422 (`prores_ox_proxy`, `prores_ox_lt`, `prores_ox_422`, `prores_ox_hq`). Those presets wrote 12-bit coefficients into a 10-bit 422 fourcc, which Apple, Resolve, Premiere, and Nuke do not read as 12-bit. 422 Proxy, LT, 422, and HQ stay 10-bit 4:2:2 in `.mov` (software ProRes, and VideoToolbox on macOS). 12-bit ProRes is 4444 and 4444 XQ only.
 
 ---
 
@@ -1067,7 +1075,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.10...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.11...HEAD
+[0.12.11]: https://github.com/derek-rein/exr-converter/compare/v0.12.10...v0.12.11
 [0.12.10]: https://github.com/derek-rein/exr-converter/compare/v0.12.9...v0.12.10
 [0.12.9]: https://github.com/derek-rein/exr-converter/compare/v0.12.8...v0.12.9
 [0.12.8]: https://github.com/derek-rein/exr-converter/compare/v0.12.7...v0.12.8

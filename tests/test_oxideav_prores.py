@@ -1,6 +1,6 @@
 """oxideav-prores PyO3 extension — RDD-36 ProRes-compatible MOV.
 
-4444 / XQ round-trip at 12-bit. 422 profiles code 12-bit and present as 10-bit.
+4444 / XQ round-trip at 12-bit. 422 is not an oxideav profile.
 """
 
 from __future__ import annotations
@@ -84,28 +84,21 @@ class TestOxideavAvailability:
             assert s is not None
             assert s.bit_depth == 12
             assert s.libav_codec == "oxideav_prores"
-            if key in ("prores_ox_4444", "prores_ox_xq"):
-                assert s.pix_fmt == "yuv444p12le"
-                assert s.chroma == "4:4:4"
-                assert "10-bit on decode" not in s.display_name
-            else:
-                assert s.pix_fmt == "yuv422p12le"
-                assert s.chroma == "4:2:2"
-                assert "12-bit internal, 10-bit on decode" in s.display_name
+            assert s.pix_fmt == "yuv444p12le"
+            assert s.chroma == "4:4:4"
+            assert "10-bit on decode" not in s.display_name
             assert "12" in s.display_name
             assert s.is_available()
+        for key in ("prores_ox_proxy", "prores_ox_lt", "prores_ox_422", "prores_ox_hq"):
+            assert video_codec_by_key(key) is None
 
     def test_profile_mapping(self):
-        assert profile_for_codec_key("prores_ox_proxy") == "proxy"
-        assert profile_for_codec_key("prores_ox_lt") == "lt"
-        assert profile_for_codec_key("prores_ox_422") == "422"
-        assert profile_for_codec_key("prores_ox_hq") == "hq"
         assert profile_for_codec_key("prores_ox_4444") == "4444"
         assert profile_for_codec_key("prores_ox_xq") == "xq"
-        assert profile_for_codec_key("apco") == "proxy"
-        assert profile_for_codec_key("apch") == "hq"
         assert profile_for_codec_key("ap4h") == "4444"
         assert profile_for_codec_key("ap4x") == "xq"
+        with pytest.raises(ValueError, match="not an oxideav"):
+            profile_for_codec_key("prores_ox_hq")
         with pytest.raises(ValueError, match="not an oxideav"):
             profile_for_codec_key("prores_4444")
 
@@ -143,13 +136,13 @@ class TestOxideavEncode:
         assert probe.streams.video[0].codec_context.codec_tag == "ap4x"
         probe.close()
 
-    def test_preview_decoder_reads_hq_mov(self, tmp_path: Path):
-        """Built-in player must RGB-convert oxideav HQ (swscale ENOTSUP otherwise)."""
+    def test_preview_decoder_reads_4444_mov(self, tmp_path: Path):
+        """Built-in player must RGB-convert oxideav 4444 (swscale ENOTSUP otherwise)."""
         from src.core.frame_source import open_preview_decoder
 
-        out = tmp_path / "hq_preview.mov"
+        out = tmp_path / "p4444_preview.mov"
         w, h = 64, 48
-        with open_writer(out, w, h, 24, 1, "prores_ox_hq") as writer:
+        with open_writer(out, w, h, 24, 1, "prores_ox_4444") as writer:
             write_rgb48_frame(writer, np.full((h, w, 3), 22000, dtype=np.uint16))
             write_rgb48_frame(writer, np.full((h, w, 3), 40000, dtype=np.uint16))
         dec = open_preview_decoder(str(out), fps=24.0)
@@ -162,16 +155,9 @@ class TestOxideavEncode:
         assert rgb.dtype == np.float32
         assert float(rgb.mean()) > 0.05
 
-    def test_422_hq_fourcc(self, tmp_path: Path):
-        out = tmp_path / "hq.mov"
-        w, h = 64, 48
-        with open_writer(out, w, h, 24, 1, "prores_ox_hq") as writer:
-            write_rgb48_frame(writer, np.full((h, w, 3), 18000, dtype=np.uint16))
-        probe = av.open(str(out))
-        stream = probe.streams.video[0]
-        assert stream.codec_context.codec_tag == "apch"
-        assert "422" in (stream.codec_context.pix_fmt or "")
-        probe.close()
+    def test_rejects_422_profile(self, tmp_path: Path):
+        with pytest.raises(Exception, match="profile|422"):
+            exr_prores.ProResMovWriter(str(tmp_path / "hq.mov"), 64, 48, 24, 1, profile="hq")
 
     def test_rejects_odd_dimensions(self, tmp_path: Path):
         with pytest.raises(Exception, match="even"):
@@ -492,6 +478,8 @@ class TestOxideavConvertPath:
         assert result.returncode == 0
         assert "prores_ox_4444" in result.stdout
         assert "prores_ox_xq" in result.stdout
+        for gone in ("prores_ox_proxy", "prores_ox_lt", "prores_ox_422", "prores_ox_hq"):
+            assert gone not in result.stdout
 
 
 def _decode_yuv_planes(path: Path, *, width: int, height: int) -> list[np.ndarray]:
@@ -577,7 +565,7 @@ class TestOxideavContainerTags:
 
         out = tmp_path / "tags_709.mov"
         with open_writer(
-            out, 64, 48, 24, 1, "prores_ox_hq", color_tags=ColorTags(1, 13, 1)
+            out, 64, 48, 24, 1, "prores_ox_4444", color_tags=ColorTags(1, 13, 1)
         ) as writer:
             write_rgb48_frame(writer, np.full((48, 64, 3), 20000, dtype=np.uint16))
         probe = av.open(str(out))
