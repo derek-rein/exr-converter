@@ -67,7 +67,8 @@ EXR Converter (Python / Nuitka)
   exr_prores.ProResMovWriter
     RGB48 → BT.709 limited YUV422P12 (422) or YUV444P12 (4444/XQ)
     oxideav-prores encode (signature matrices)
-    minimal MOV mux (ftyp + mdat + moov, colr/nclc BT.709)
+    minimal MOV mux (ftyp + mdat + moov, colr/nclc: BT.709 matrix,
+    primaries / transfer from the destination space)
         │
         ▼
   out.mov  (4444/XQ: ap4h / ap4x, probed 12-bit)
@@ -81,7 +82,8 @@ EXR Converter (Python / Nuitka)
 | Presets | `prores_ox_proxy` / `lt` / `422` / `hq` / `4444` / `xq` in `VIDEO_CODECS` |
 | Convert branch | `run_exr_to_video` → `_e2v_oxideav` when key ∈ `OXIDEAV_PRORES_KEYS` |
 | Build | `make oxideav-prores` → `scripts/build_oxideav_prores.py` |
-| CI / Release | Rust toolchain + maturin develop before pytest / Nuitka |
+| Release | Rust toolchain + `scripts/build_oxideav_prores.py` before Nuitka (all OS, including the Rocky Linux 8 build) |
+| Tests | `tests/test_oxideav_prores.py` skips when the extension is not built |
 
 Presets are **omitted** from `available_video_codecs()` when the extension is
 not importable, so a Rust-less dev checkout still runs.

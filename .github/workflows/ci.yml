@@ -13,7 +13,7 @@ on:
     branches: [main]
     # No paths-ignore: a docs-only PR must still report the required checks or
     # it can never merge. The `changes` job below skips macOS/Windows tests
-    # when only docs/site files changed, so those PRs only cost a Linux run.
+    # when only docs files changed, so those PRs only cost a Linux run.
   workflow_dispatch:
 
 concurrency:

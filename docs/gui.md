@@ -197,7 +197,7 @@ long (text elides; width follows the layout).
   Z CAM Z-Log2 are not included: no scene-linear equation was available to
   check. Sources, measured error, and the full camera table (including logs
   left out) are in
-  [resources/ocio/CAMERAS.md](../resources/ocio/CAMERAS.md).
+  [resources/ocio/CAMERAS.md](https://github.com/derek-rein/exr-converter/blob/main/resources/ocio/CAMERAS.md).
 - Source / destination spaces follow the **active (user) config**; aliases are
   remapped where possible (`find_equivalent_space`).
 - **EXR → Video destination:** if the dest name is an OCIO **display**
@@ -562,15 +562,27 @@ Opened from **EXR → Video** when editing slate / burn-in / watermark.
 
 ---
 
-## Help menu
+## Menus
+
+**File**
 
 | Item | Behavior |
 |------|----------|
-| **Check for Updates…** | Opens the [latest GitHub Release](https://github.com/derek-rein/exr-converter/releases/latest) in the system browser (no in-app download) |
-| **About EXR Converter** | Title + version header; deps, links, OCIO notes, and license in a scroll area |
-| **Version X.Y.Z** | Non-clickable; running app version from `pyproject.toml` (same value as About, `--version`, and EXR `Software` metadata) |
+| **Preferences…** | Player, slate thumbnail, playback cache, and invisible watermark settings (see Preferences under [After convert](#after-convert)). |
+| **Quick Look…** | macOS only. Turns the Quick Look and Finder thumbnail extensions on or off. See [Quick Look on macOS](./quicklook.md). |
+| **Quit** | Close the app |
 
-Site links stay in **About** only (not on the Help menu).
+**Presets:** **Reset to Defaults**, **Save Preset As…**, your saved presets,
+and **Delete Preset**. See Presets above.
+
+**Help**
+
+| Item | Behavior |
+|------|----------|
+| **Documentation** | Opens these guides at [vfx.systems/docs/exr-converter](https://vfx.systems/docs/exr-converter) in the system browser. Shortcut: the system Help key (F1 on Windows and Linux, ⌘? on macOS). |
+| **Check for Updates…** | Opens the [latest GitHub Release](https://github.com/derek-rein/exr-converter/releases/latest) in the system browser (no in-app download) |
+| **About EXR Converter** | Title + version header; deps, links to [derekvfx.ca](https://derekvfx.ca) and [vfx.systems](https://vfx.systems), OCIO notes, and license in a scroll area. Buttons show the RED and Blackmagic RAW redistributable notices. |
+| **Version X.Y.Z** | Non-clickable; running app version from `pyproject.toml` (same value as About, `--version`, and EXR `Software` metadata) |
 
 ---
 
@@ -593,4 +605,4 @@ Site links stay in **About** only (not on the Help menu).
 - [CLI reference](./cli.md)
 - [Quick Look on macOS](./quicklook.md)
 - [Nuke integration](./nuke.md)
-- [README](../README.md)
+- [README](https://github.com/derek-rein/exr-converter/blob/main/README.md)

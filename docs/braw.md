@@ -10,7 +10,7 @@ is recognized in the UI but conversion fails with a clear “SDK missing”
 message.
 
 Related: [CLI](./cli.md) · [GUI](./gui.md) · [R3D / N-RAW](./r3d.md) ·
-[AGENTS.md](../AGENTS.md)
+[AGENTS.md](https://github.com/derek-rein/exr-converter/blob/main/AGENTS.md)
 
 ---
 

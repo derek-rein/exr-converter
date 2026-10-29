@@ -112,5 +112,5 @@ Python 3.13 and uv:
 uv run python main.py
 ```
 
-That environment follows `uv.lock`, which may be a newer Qt than the Linux
-release package.
+That environment follows `uv.lock`, which pins the same PySide6 6.9.2 as the
+release packages.

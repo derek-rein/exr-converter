@@ -39,17 +39,19 @@ Agents: if you implement a feature or fix and forget the changelog, treat that a
 
 ## Documentation (required)
 
-**User-facing docs live in [`docs/`](./docs/)** (Markdown source of truth). Astro
-builds them from [`site/`](./site/) and Vercel publishes them (config in
-[`site/vercel.json`](./site/vercel.json), Root Directory `site`): https://exr-converter.derekvfx.ca/
+**User-facing docs live in [`docs/`](./docs/)** (Markdown source of truth).
+https://vfx.systems/docs/exr-converter loads that folder from this repo; there is
+no site build here. Keep each file's front matter (`title`, `description`,
+`weight`). Link between pages with relative `./page.md` links; link repo files
+outside `docs/` with absolute GitHub URLs. **Help → Documentation** in the app
+opens that URL (`DOCS_URL` in `src/core/constants.py`).
 
 | Rule | Detail |
 |------|--------|
 | When | Any change that affects how users run or integrate the app: CLI flags, GUI behavior, codecs, OCIO/defaults, install/packaging users notice, Nuke/helpers, post-convert prefs, launch flags |
 | Where | Update the matching file under `docs/` in the **same PR / commit set** as the code (and [CHANGELOG.md](./CHANGELOG.md) when user-visible) |
 | Map | [docs/cli.md](./docs/cli.md) CLI + GUI launch · [docs/gui.md](./docs/gui.md) GUI / prefs / overlays · [docs/quicklook.md](./docs/quicklook.md) macOS Quick Look · [docs/prores.md](./docs/prores.md) VideoToolbox / software / oxideav · [docs/nuke.md](./docs/nuke.md) Nuke menu · [docs/releasing.md](./docs/releasing.md) short release pointer · design notes only when the design changes |
-| Local | `make docs-serve` (preview) · `make docs-build` (static `site/dist/`); needs Node 22.12+ |
-| Do not | Leave docs describing old flags/defaults/codecs. Do not hand-edit generated `site/dist/`. Do not put the only copy of user docs solely in chat or PR text. |
+| Do not | Leave docs describing old flags/defaults/codecs. Do not put the only copy of user docs solely in chat or PR text. |
 
 Agents: **before finishing work**, check whether `docs/` still matches the
 behavior you shipped. If you changed CLI/GUI/integration surface area and
@@ -80,8 +82,7 @@ resources/              # icons, style.qss, OCIO config, screenshots
 scripts/                # bump_app_version.py, ensure_ocio.py, package_msix.py, build_oxideav_prores.py, build_quicklook_appex.py, trustmark_detect.py
 packaging/macos/quicklook/  # Swift Quick Look + thumbnail appex (view LUT + flipbook; macOS release embeds under Contents/PlugIns)
 tests/                  # pytest; integration + fixtures under tests/fixtures/
-docs/                   # user-facing Markdown (Astro content source of truth)
-site/                   # Astro site (layouts, styles); loads docs/ → Vercel
+docs/                   # user-facing Markdown (vfx.systems/docs/exr-converter loads it)
 .github/workflows/      # ci.yml, docs.yml, release.yml, auto-tag-release.yml
 ```
 
@@ -125,8 +126,6 @@ make resources     # regenerate src/rc_resources.py after resources.qrc / icons 
 make oxideav-prores # build optional PyO3 12-bit ProRes extension (needs Rust)
 make braw-sdk-fetch # download private BRAW SDK (needs BRAW_SDK_READ_TOKEN / gh)
 make braw-bridge   # optional Blackmagic RAW bridge (needs BRAW_SDK_ROOT)
-make docs-serve    # Astro local preview of docs/ (http://localhost:4321/)
-make docs-build    # Astro static build → site/dist/
 make bundle        # local Nuitka standalone (does not publish a GitHub Release)
 make clean
 ```
@@ -577,7 +576,6 @@ may still show the standard "downloaded from the internet" prompt.
 | Workflow | Trigger | Gate |
 |----------|---------|------|
 | [CI](.github/workflows/ci.yml) | push / PR to `main` | Ruff + basedpyright (`src/`, `main.py`; errors fail, warnings tolerated) + full pytest on 3 OS; job **`ci-ok`** requires all green |
-| [Docs](.github/workflows/docs.yml) | push / PR paths under `docs/`, `site/` | Astro build check; on `main`, deploys a redirect from the old GitHub Pages URL to the Vercel site |
 | [Auto-tag release](.github/workflows/auto-tag-release.yml) | push to `main` | CHANGELOG gate; if no `vX.Y.Z` tag → push tag; if no GitHub Release and no active run → `workflow_dispatch` Release |
 | [Release](.github/workflows/release.yml) | tag `v*` **or** `workflow_dispatch` | Tag/CHANGELOG validate + lint + tests via **`gate`** before Nuitka / Cosign / publish. `macos_only` notarizes the DMGs and does not publish. `linux_only` builds the Rocky 8 AppImage, tarball, and RPM and does not publish |
 
@@ -591,7 +589,6 @@ Branch protection on `main` should require `ci-ok`.
 | [CHANGELOG.md](./CHANGELOG.md) | User-facing history (**must update**) |
 | [README.md](./README.md) | Product overview, install, short CLI |
 | [docs/](./docs/) | User-facing Markdown (**must update** when behavior changes) |
-| [site/](./site/) | Astro site; loads `docs/` → Vercel (`site/vercel.json`) |
 | [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`, `transcode`) + GUI launch flags |
 | [docs/gui.md](./docs/gui.md) | GUI tabs, overlays, preferences, post-convert |
 | [docs/linux.md](./docs/linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
@@ -606,9 +603,7 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/msix.md](./docs/msix.md) | Windows .msixupload (Store) and .msix (self-distribution) |
 | [integrations/nuke/](./integrations/nuke/) | Nuke `menu.py` + helpers |
 
-Public site: `make docs-serve` / `make docs-build`. Vercel (Root Directory `site`)
-builds per `site/vercel.json` (`npm run build` → `site/dist`) and serves `https://exr-converter.derekvfx.ca/`. The old
-`https://derek-rein.github.io/exr-converter/` URL redirects there (workflow **Docs**).
+Public docs: https://vfx.systems/docs/exr-converter (loads `docs/` from this repo).
 
 ## What not to do
 

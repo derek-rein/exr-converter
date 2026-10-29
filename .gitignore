@@ -23,10 +23,6 @@ build/
 *.pyzw
 *.pyzwz
 
-# Astro docs site
-site/node_modules/
-site/dist/
-site/.astro/
 
 # RED R3D SDK (proprietary — never commit headers, static libs, docs, or samples)
 R3DSDK*/

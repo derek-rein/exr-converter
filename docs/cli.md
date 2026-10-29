@@ -12,7 +12,7 @@ The same entry point launches the **GUI** when no convert subcommand is given.
 (image sequences). The app does not write PNG or other still-image output.
 
 Slate, burn-in, the visible text watermark, and post-convert toggles are
-**GUI-only**. See [GUI](./gui.md). The invisible proxy watermark is available
+**GUI-only**. See [GUI](./gui.md). The invisible TrustMark watermark is available
 from the CLI as `proxy --watermark`, `transcode --watermark`, and
 `exr2video --watermark`.
 
@@ -21,6 +21,8 @@ from the CLI as `proxy --watermark`, `transcode --watermark`, and
 uv run python main.py --help
 uv run python main.py video2exr --help
 uv run python main.py exr2video --help
+uv run python main.py proxy --help
+uv run python main.py transcode --help
 
 # Packaged binary (examples)
 exr_converter --help
@@ -30,7 +32,7 @@ exr-converter --help
 
 On Linux, `exr-converter` is the launcher in the tarball and the RPM. Install options are in [Linux](./linux.md).
 
-Related: [Linux](./linux.md) · [GUI](./gui.md) · [ProRes and VideoToolbox](./prores.md) · [Nuke integration](./nuke.md) · [README](../README.md)
+Related: [Linux](./linux.md) · [GUI](./gui.md) · [ProRes and VideoToolbox](./prores.md) · [Nuke integration](./nuke.md) · [README](https://github.com/derek-rein/exr-converter/blob/main/README.md)
 
 ---
 
@@ -50,7 +52,7 @@ Global flags (before the subcommand; convert flags may also appear after it):
 |------|---------|
 | `-V` / `--version` | Print the app version (`pyproject.toml`) and exit |
 | `--workers N` | CLI convert parallelism (`0` = auto, `1` = serial). May appear **before** the subcommand or **after** it (subcommand value wins). |
-| `--smoke-test` | CI: launch GUI briefly, verify OCIO/ssl, exit |
+| `--smoke-test` | CI: launch GUI briefly, verify OCIO, ssl, and fuzzy search, exit |
 | `--open PATH` | **GUI only:** open this media on launch |
 | `--gui-ocio PATH` | **GUI only:** load this OCIO config on launch |
 | `--mode auto\|video2exr\|exr2video\|proxy\|transcode` | **GUI only:** which tab (`auto` from `--open`; `proxy` = Video → Proxy and `transcode` = Transcode, where `--open` adds that path to the clip list) |
@@ -429,10 +431,12 @@ converted. Ctrl-C exits with `130`.
 |------|---------|
 | `0` | Success |
 | `1` | Convert / argument / codec error (`proxy` / `transcode`: at least one clip failed, or no clips found) |
-| `2` | `proxy`: no `-i` / `--watch`, a bad watch folder, or a bad `--watermark` payload / strength. `transcode`: invalid options (container, sizes, CRF, color spaces, watermark) |
+| `2` | `proxy`: no `-i` / `--watch`, a bad watch folder, or a bad `--watermark` payload / strength. `transcode`: invalid options (container, sizes, CRF, color spaces, watermark). `exr2video`: a bad `--watermark` payload / strength |
 | `2` | Smoke test: OCIO runtime &lt; 2.5 (GUI `--smoke-test`) |
 | `3` | Smoke test: bundled config failed to load |
-| `130` | `proxy` / `transcode`: Ctrl-C during the `-i` batch or while a clip is converting. Ctrl-C while `proxy --watch` is waiting exits `0` |
+| `4` | Smoke test: Python `ssl` unavailable |
+| `5` | Smoke test: fuzzy search (`rapidfuzz`) unavailable |
+| `130` | Ctrl-C during `video2exr` / `exr2video`, during a `proxy` / `transcode` `-i` batch, or while a clip is converting. Ctrl-C while `proxy --watch` is waiting exits `0` |
 
 ---
 

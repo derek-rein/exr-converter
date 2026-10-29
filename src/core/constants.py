@@ -56,6 +56,7 @@ def _load_project_version() -> str:
 APP_VERSION = _load_project_version()
 
 GITHUB_REPO = "derek-rein/exr-converter"
+DOCS_URL = "https://vfx.systems/docs/exr-converter"
 
 DEFAULT_SRC_V2E = "Output - Rec.709"
 DEFAULT_DST_V2E = "ACEScg"

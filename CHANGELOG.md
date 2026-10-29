@@ -16,11 +16,13 @@ rolling the `[Unreleased]` section into a versioned heading.
 ### Added
 
 - **Invisible WM** checkbox on EXR → Video embeds an invisible TrustMark watermark in every frame, slate included. The CLI has `exr2video --watermark` and `--watermark-strength`.
+- **Help → Documentation** opens the docs at https://vfx.systems/docs/exr-converter.
 - Preferences has an **Invisible watermark** section for the EXR → Video payload and strength. The payload can use `{user}`, `{host}`, `{date}`, `{time}`, and `{src}`, and shows what it will embed. TrustMark text mode holds 8 characters, so longer results are cut.
 
 ### Changed
 
 - Quick Look settings moved out of Preferences into **File → Quick Look…**, a menu item that only appears on macOS.
+- The docs moved to https://vfx.systems/docs/exr-converter. The About dialog links vfx.systems instead of ocio.cc, and the Windows installer and Linux packages use the new docs URL as the homepage.
 - The macOS Quick Look and Finder thumbnail extensions are off until you turn them on in that dialog. Each launch re-applies the choice, so existing installs that had them on will need to turn them on once.
 
 ---
