@@ -27,7 +27,7 @@ from a Read. See [nuke.md](./nuke.md).
 | **Video → EXR** | Decode video → OCIO → EXR sequence | **Ingest only.** Slate, burn-in, and watermark are never applied. Output is an EXR sequence, not a video or a still. The output field uses ``name.####.exr``; that basename is written (not forced to the video stem). Accepts common video containers plus optional **`.r3d` / `.nev`** when the [R3D SDK bridge](./r3d.md) is available (browser thumbs and player preview use low-res R3D decode; convert is full quality: **Metal GPU** on macOS, **CUDA / OpenCL** on Windows. The RHEL 8 package does not include the RED runtime (those libraries need glibc 2.29), so `.r3d` and `.nev` are unavailable there. Camera and timecode metadata lands on the EXRs) and optional **`.braw`** when the [Blackmagic RAW bridge](./braw.md) is available (Linear ACES AP0 / `ACES2065-1`; **Metal** on macOS, **CUDA / OpenCL** on Windows and Linux, CPU fallback). |
 | **EXR → Video** | Image sequence → OCIO → video | OpenEXR primary; also CinemaDNG (`.dng`), DPX, PNG, JPEG, and WebP as **inputs**. Output is a video file. Slate, burn-in, and watermark use that tab’s controls. Sequences may use ``name.####.ext`` or ``name_####.ext`` pads. DJI CinemaDNG is tagged Linear P3-D60 with +1.4 stops already applied. See [CinemaDNG](./cinemadng.md). |
 | **Video → Proxy** | Video → smaller video (no OCIO) | Batch editing proxies plus a **watch folder**, modelled on DaVinci Resolve proxy generation. See [Video → Proxy](#video--proxy). |
-| **Transcode** | Video → video (optional OCIO) | Batch transcodes to ProRes, DNxHR, H.264, HEVC, or AV1 with size, frame rate, audio, quality, naming, and an optional color transform. See [Transcode](#transcode). |
+| **Transcode** | Video → video (OCIO) | Batch transcodes to ProRes, DNxHR, H.264, HEVC, or AV1 with size, frame rate, audio, quality, naming, and an OCIO conversion with an input space per folder or clip. See [Transcode](#transcode). |
 
 Dragging the **Log** splitter up does not squash Input / Output / Options
 fields. Those controls keep a fixed readable height, and the convert form
@@ -450,21 +450,22 @@ payload.
 
 Batch video → video transcodes for VFX and post: camera originals or
 editorial files into ProRes, DNxHR, H.264, HEVC, or AV1. It runs on the same
-encode engine as **Video → Proxy**. By default there is **no color change**:
-the picture, the source **timecode**, and the source color tags pass straight
-through. The matching CLI is
+encode engine as **Video → Proxy**. Every clip goes through an **OCIO
+conversion** from its input space to the one output space, and the source
+**timecode** passes through. The matching CLI is
 [`main.py transcode`](./cli.md#transcode-video-to-video).
 
 **Source formats:** the same video files as Video → Proxy (`.mov`, `.mp4`,
 `.m4v`, `.mxf`, `.mkv`, `.avi`, `.webm`, `.ts`, `.mts`, `.m2ts`), plus
 `.r3d` / `.nev` and `.braw` when the [R3D](./r3d.md) or [BRAW](./braw.md)
 bridge is available. Camera RAW decodes to the camera space the SDK reports
-and has no audio, so it usually wants the OCIO transform. ARRIRAW and `.crm`
+and has no audio. ARRIRAW and `.crm`
 are not supported.
 
 | Section | Control | Default | Notes |
 |---------|---------|---------|-------|
-| **Source clips** | Add Clips… / Add Folder… / Remove / Clear | empty | Drop videos or folders on the window while this tab is open to add them. **Include subfolders** makes Add Folder… search nested folders (`Proxy` folders are skipped). |
+| **Source clips** | Add Clips… / Add Folder… / Remove / Clear | empty | Drop videos or folders on the window while this tab is open to add them. A folder becomes one row holding its clips; clips added on their own are rows of their own. **Include subfolders** makes Add Folder… search nested folders (`Proxy` folders are skipped). |
+| | Input color space | detected | Shown next to each clip and folder. See [Input color space](#input-color-space). |
 | **Output** | Codec | **Apple ProRes 422 HQ** | ProRes 422 Proxy / LT / 422 / HQ / 4444 / 4444 XQ, VideoToolbox ProRes (macOS), DNxHR LB / SQ / HQ / HQX / 444, H.264, HEVC 8 / 10 / 12-bit, and AV1 when the FFmpeg build has SVT-AV1. The tooltip on each entry gives bit depth, chroma, and pixel format. |
 | | Container | codec default | ProRes: `.mov`. DNxHR: `.mov` or `.mxf`. H.264 / HEVC: `.mp4` or `.mov`. AV1: `.mp4` or `.mkv`. Each codec remembers its last container. |
 | | Resolution | **Keep source size** | 75%, 50%, 25%, Fit 2160p / 1080p / 720p (never upscale), or **Custom size** (shows Width × Height; set one side to 0 to keep the aspect ratio). Sizes round to even numbers. |
@@ -474,15 +475,33 @@ are not supported.
 | | If file exists | **Skip** | **Overwrite**, or **Add a number** (`_1`, `_2`, …). An output can never replace its own source. |
 | | Location | **Next to each clip** | **Custom folder** reveals a folder field for all outputs. |
 | | Name | `<name>_<codec>` | File name without the extension. Tokens: `<name>`, `<codec>` (for example `ProRes422HQ`, `DNxHR_HQX`, `H264`, `HEVC10`), `<width>`, `<height>`, `<fps>`, `<date>`. Characters that are not allowed in file names become `_`. |
-| **Color and watermark** (collapsed) | OCIO transform | off | Source and destination from the OCIO config at the top of the window. A display as the destination uses that display's default view, as on EXR → Video. The section header shows the current color and watermark state. |
+| **Color and watermark** | Output space | `Output - Rec.709` | One output space or display for every clip, from the OCIO config at the top of the window. A display uses that display's default view, as on EXR → Video. |
 | | Invisible watermark | off | Payload and strength, the same [invisible watermark](#invisible-watermark) as Video → Proxy, added after the color step on the picture the codec encodes. |
 
-**Color.** With the OCIO transform off, YUV sources are reformatted straight
-to the codec's pixel format with no RGB round trip, and the source matrix,
-primaries, and transfer tags are copied when the source has them. With it
-on, frames go through 16-bit RGB and back using the source's YUV matrix, and
-only the matrix tag is written. Slates and burn-ins from EXR → Video are not
-applied to transcodes.
+### Input color space
+
+Each clip converts from its own input space. When a clip is added, its color
+tags and codec are read with the same detection Video → EXR uses (falling
+back to `Output - Rec.709`), and the result is shown in *italics* until you
+pick a space yourself.
+
+- Click a folder's input space (or right-click the row) to set it for every
+  clip inside. This also clears picks made on single clips in that folder.
+- Expand the folder and click a clip's space to set that clip on its own.
+- With several rows selected, a pick applies to all of them.
+- The first menu entry goes back to the folder's space or the detected one.
+- A folder whose clips differ shows **Mixed**.
+
+A space missing from the current OCIO config shows `⚠` in red, and Convert
+stays off until you pick another. Convert also waits until every clip's
+space has been detected.
+
+**Color.** Frames go through 16-bit RGB and back using the source's YUV
+matrix, and only the matrix tag is written. When a clip's input space is the
+same as the output space, the picture is not changed: YUV sources are
+reformatted straight to the codec's pixel format and the source matrix,
+primaries, and transfer tags are copied when the source has them. Slates and
+burn-ins from EXR → Video are not applied to transcodes.
 
 Press **Convert** to queue every listed clip. Clips run one at a time in the
 background, and you can keep adding clips while a batch runs. Each row shows
@@ -495,7 +514,8 @@ current frame and how many clips are queued, then how many were made and how
 many failed.
 
 The tab remembers its settings (codec and container, size, frame rate,
-quality, audio, naming, location, color, and watermark) between sessions.
+quality, audio, naming, location, output space, and watermark) between
+sessions. Input spaces belong to the listed clips and are not saved.
 
 ---
 

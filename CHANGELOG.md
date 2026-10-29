@@ -13,6 +13,11 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Changed
+
+- **Transcode** always converts color with OCIO. The clip list has an **Input color space** column filled in from each clip's metadata. Set a space on a folder row to apply it to every clip inside, or expand the folder and set clips one by one. One **Output space** applies to every clip.
+- **Transcode** shows the output space and invisible watermark in a plain **Color and watermark** section instead of a collapsed one.
+
 ---
 
 ## [0.12.11] - 2026-10-29
