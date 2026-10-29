@@ -1,7 +1,7 @@
 ---
 title: ProRes and VideoToolbox
 weight: 18
-description: Software vs Apple VideoToolbox vs experimental oxideav, bit depths and codec keys
+description: Software vs VideoToolbox vs experimental oxideav, bit depths and codec keys
 ---
 
 **EXR → Video** can write ProRes three different ways. They are **not**
@@ -22,11 +22,11 @@ Related: [GUI codecs](./gui.md#codecs) · [oxideav design notes](./plan-12bit-pr
 
 ---
 
-## Apple VideoToolbox (macOS)
+## VideoToolbox (macOS)
 
-**VideoToolbox** is Apple’s hardware video encode/decode framework on macOS.
+**VideoToolbox** is the hardware video encode and decode framework on macOS.
 EXR Converter reaches it through PyAV / FFmpeg’s `prores_videotoolbox`
-encoder. That is **Apple’s ProRes encoder**, not the portable FFmpeg software
+encoder. That is the hardware encoder, not the portable FFmpeg software
 encoder (`prores_ks`).
 
 What that means in practice:
@@ -38,7 +38,7 @@ What that means in practice:
 - **422 profiles stay 10-bit** (`p210le`): Proxy, LT, 422, HQ. Same nominal
   depth as software ProRes.
 - **4444 and XQ are ~12-bit class.** The app feeds a wide `ayuv64le`
-  intermediate; Apple’s encoder keeps mid-tone steps that software
+  intermediate; the hardware encoder keeps mid-tone steps that software
   `prores_ks` 4444/XQ **quantizes away**. Labels say 12-bit because that is
   the precision we measured, not because FFmpeg software ProRes grew a 12-bit
   mode.
@@ -102,8 +102,8 @@ stays 10-bit.
 
 Pure-Rust **SMPTE RDD 36** encode via the optional `exr_prores` PyO3
 extension (`make oxideav-prores`). Release binaries include it. Hidden from
-the codec list when the extension is not built. **Not Apple-certified.** Do not
-call it “Apple ProRes.”
+the codec list when the extension is not built. Do not describe this path as
+a certified or licensed encode.
 
 **4444 and XQ are true 12-bit** to FFmpeg, Resolve, and QuickTime (`ap4h` /
 `ap4x`, `yuv444p12le`). There is no alpha plane on this path. Software and

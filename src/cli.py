@@ -150,7 +150,7 @@ examples:
   %(prog)s -i plate.mov --codec h264 --crf 18 --preset slow --resolution 1080
   %(prog)s -i plate.mov --codec hevc --bitrate 25 --audio aac
   %(prog)s -i clip.mov --codec prores_4444 --width 2048 --height 0 --fps 24
-  %(prog)s -i log.mov --src "ARRI LogC4" --dst "Rec.1886 Rec.709 - Display"
+  %(prog)s -i log.mov --src "S-Log3 S-Gamut3.Cine" --dst "Rec.1886 Rec.709 - Display"
   %(prog)s -i clip.mov --name "<name>_<codec>_<width>x<height>" --if-exists rename
 
 Default output: next to each clip as <name>_<codec>.<ext> (see --name).
