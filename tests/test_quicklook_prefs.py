@@ -167,6 +167,17 @@ def test_preferences_dialog_quicklook_section(qapp, settings):
         assert "Quick Look" not in titles
 
 
+def test_app_group_container_lookup_does_not_abort():
+    """The signed app calls this at launch. A null string must not abort it."""
+    from src.core.quicklook_prefs import _container_url, app_group_container_dir
+
+    assert _container_url("") is None
+    found = _container_url(APP_GROUP_ID)
+    assert found is None or found.startswith("/")
+    group = app_group_container_dir()
+    assert group is None or group.is_absolute()
+
+
 def test_release_workflow_embeds_quicklook_on_macos_only():
     text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     marker = "name: Embed Quick Look extensions"

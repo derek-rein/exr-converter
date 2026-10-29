@@ -223,12 +223,25 @@ def clear_quicklook_cache() -> None:
     )
 
 
+def _objc_msg(objc: ctypes.CDLL, restype: type, *argtypes: type):
+    """``objc_msgSend`` looked up with this exact signature.
+
+    Setting ``argtypes`` on the shared library symbol and then casting that
+    function keeps the two-argument call frame. A string argument then arrives
+    as NULL, ``NSString stringWithUTF8String:`` raises, and the process aborts
+    before the window opens.
+    """
+    return ctypes.CFUNCTYPE(restype, *argtypes)(("objc_msgSend", objc))
+
+
 def _container_url(group_id: str) -> str | None:
     """``NSFileManager.containerURLForSecurityApplicationGroupIdentifier:``.
 
     Returns ``None`` when the process is not signed with the App Group
     entitlement. That is expected for ``uv run`` and ad-hoc bundles.
     """
+    if not group_id:
+        return None
     try:
         objc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.A.dylib")
     except OSError:
@@ -238,30 +251,34 @@ def _container_url(group_id: str) -> str | None:
     objc.objc_getClass.argtypes = [ctypes.c_char_p]
     objc.sel_registerName.restype = ctypes.c_void_p
     objc.sel_registerName.argtypes = [ctypes.c_char_p]
-    objc.objc_msgSend.restype = ctypes.c_void_p
-    objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 
-    def sel(name: bytes) -> ctypes.c_void_p:
-        return objc.sel_registerName(name)
+    def sel(name: bytes) -> int:
+        value = objc.sel_registerName(name)
+        if not value:
+            raise OSError(f"unknown selector {name!r}")
+        return value
 
-    send2 = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(objc.objc_msgSend)
-    send3 = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(
-        objc.objc_msgSend
-    )
-    send_str = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p)(
-        objc.objc_msgSend
-    )
-    send_utf8 = ctypes.CFUNCTYPE(ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p)(
-        objc.objc_msgSend
-    )
+    send2 = _objc_msg(objc, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+    send3 = _objc_msg(objc, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+    send_str = _objc_msg(objc, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p)
+    send_utf8 = _objc_msg(objc, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p)
 
     pool_cls = objc.objc_getClass(b"NSAutoreleasePool")
+    if not pool_cls:
+        return None
     pool = send2(send2(pool_cls, sel(b"alloc")), sel(b"init"))
     try:
         manager_cls = objc.objc_getClass(b"NSFileManager")
-        manager = send2(manager_cls, sel(b"defaultManager"))
         nsstring = objc.objc_getClass(b"NSString")
-        group = send_str(nsstring, sel(b"stringWithUTF8String:"), group_id.encode("utf-8"))
+        if not manager_cls or not nsstring:
+            return None
+        manager = send2(manager_cls, sel(b"defaultManager"))
+        # Keep the buffer alive for the call. A temporary ``bytes`` can be
+        # collected before libffi reads it inside a frozen binary.
+        encoded = ctypes.create_string_buffer(group_id.encode("utf-8"))
+        group = send_str(nsstring, sel(b"stringWithUTF8String:"), encoded)
+        if not group:
+            return None
         url = send3(manager, sel(b"containerURLForSecurityApplicationGroupIdentifier:"), group)
         if not url:
             return None
@@ -272,5 +289,8 @@ def _container_url(group_id: str) -> str | None:
         if not raw:
             return None
         return raw.decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
     finally:
-        send2(pool, sel(b"drain"))
+        if pool:
+            send2(pool, sel(b"drain"))

@@ -214,10 +214,26 @@ def prepare() -> None:
     print("camera RAW plugin prepared")
 
 
-def nuitka_flags() -> None:
+def nuitka_flag_lines() -> list[str]:
     if ENABLED.is_file() and (PLUGIN_DEST / "__init__.py").is_file():
-        print("--include-module=src.plugins._enabled")
-        print("--include-package=src.plugins.camera_raw")
+        return [
+            "--include-module=src.plugins._enabled",
+            "--include-package=src.plugins.camera_raw",
+        ]
+    return []
+
+
+def nuitka_flags() -> None:
+    """Write one flag per line, using LF only.
+
+    Windows Python text mode would otherwise emit CR LF, and Nuitka then
+    looks for a package name that ends with a carriage return.
+    """
+    lines = nuitka_flag_lines()
+    if not lines:
+        return
+    sys.stdout.buffer.write(("\n".join(lines) + "\n").encode("ascii"))
+    sys.stdout.buffer.flush()
 
 
 def _built_library() -> Path | None:
