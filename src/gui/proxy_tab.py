@@ -19,9 +19,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -72,83 +70,6 @@ def _limit_combo_width(combo: QComboBox, characters: int) -> None:
     combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
     combo.setMinimumContentsLength(characters)
     combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-
-class _CollapsibleSection(QWidget):
-    """One header row that shows or hides a body. Starts collapsed."""
-
-    def __init__(self, title: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(4)
-
-        self.toggle = QToolButton()
-        self.toggle.setObjectName("sectionToggle")
-        self.toggle.setText(title)
-        self.toggle.setCheckable(True)
-        self.toggle.setChecked(False)
-        self.toggle.setAutoRaise(True)
-        self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.toggle.setArrowType(Qt.ArrowType.RightArrow)
-        self.toggle.setStyleSheet(
-            "QToolButton#sectionToggle {"
-            " background: transparent; border: none; padding: 0 2px;"
-            " font-weight: bold; text-align: left; }"
-            "QToolButton#sectionToggle:hover { background: transparent; border: none; }"
-        )
-        self.toggle.toggled.connect(self._on_toggled)
-
-        self.header = QHBoxLayout()
-        self.header.setSpacing(8)
-        self.header.addWidget(self.toggle)
-
-        self.body = QWidget()
-        self.body.setVisible(False)
-        self.body_layout = QVBoxLayout(self.body)
-        self.body_layout.setContentsMargins(16, 0, 0, 0)
-        self.body_layout.setSpacing(4)
-
-        root.addLayout(self.header)
-        root.addWidget(self.body)
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-
-    def _on_toggled(self, expanded: bool) -> None:
-        self.toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
-        if not expanded:
-            self.body.setVisible(False)
-            return
-        # Showing the body lays out every parent right away. Inside a scroll
-        # form that is still at its old height, that pass squeezes the groups
-        # above, then the scroll area grows the form and lays it all out a
-        # second time, so the whole tab moves and repaints. Growing the form
-        # first means the show only moves this section.
-        form = self._scroll_form()
-        if form is None:
-            self.body.setVisible(True)
-            return
-        extra = self.body.sizeHint().height() + max(self.layout().spacing(), 0)
-        before = form.minimumSize()
-        form.setMinimumHeight(form.minimumSizeHint().height() + extra)
-        self.body.setVisible(True)
-        form.setMinimumSize(before)
-
-    def _scroll_form(self) -> QWidget | None:
-        """The resizable scroll-area form this section sits in, if any."""
-        inner: QWidget | None = self
-        while inner is not None:
-            parent = inner.parentWidget()
-            area = parent.parentWidget() if parent is not None else None
-            if isinstance(area, QScrollArea) and area.widget() is inner:
-                return inner if area.widgetResizable() else None
-            inner = parent
-        return None
-
-    def set_expanded(self, expanded: bool) -> None:
-        self.toggle.setChecked(expanded)
-
-    def is_expanded(self) -> bool:
-        return self.toggle.isChecked()
 
 
 class ProxyTab(QWidget):
