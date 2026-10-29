@@ -136,6 +136,8 @@ inputs error with a clear missing-SDK message. Decode is Linear ACES AP0
 **`.crm` camera RAW:** the video browser lists these files. Without a source
 plugin, Inspect and `video2exr` report `Camera RAW plugin not installed`. The
 file is never opened with PyAV. `proxy` and `transcode` do not accept it.
+Release builds include the optional plugin when its private feed is
+configured, and then ship that plugin's runtime notices inside the app.
 
 ---
 

@@ -128,10 +128,31 @@ else
   echo "BRAW_SDK_READ_TOKEN not set — skipping BRAW bridge"
 fi
 
+if [ -n "${CAMERA_RAW_READ_TOKEN:-}" ]; then
+  dnf -y install cmake ocl-icd
+  if ! command -v git-lfs >/dev/null 2>&1; then
+    curl -fsSL -o /tmp/git-lfs.tar.gz \
+      https://github.com/git-lfs/git-lfs/releases/download/v3.6.1/git-lfs-linux-amd64-v3.6.1.tar.gz
+    rm -rf /tmp/git-lfs-extract
+    mkdir -p /tmp/git-lfs-extract
+    tar -C /tmp/git-lfs-extract -xzf /tmp/git-lfs.tar.gz
+    install -m 755 /tmp/git-lfs-extract/*/git-lfs /usr/local/bin/git-lfs
+  fi
+  uv run python scripts/camera_raw_plugin.py prepare
+else
+  echo "camera RAW plugin token not set; skipping"
+fi
+
 uv run python scripts/build_cinemadng.py
 
 uv run pyside6-rcc resources.qrc -o src/rc_resources.py
 uv run python scripts/prepare_macos_onnxruntime.py
+
+RAW_FLAGS=()
+while IFS= read -r flag || [ -n "$flag" ]; do
+  [ -n "$flag" ] || continue
+  RAW_FLAGS+=("$flag")
+done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags)
 
 # Flags kept in sync with `make bundle` and the Release workflow Nuitka step.
 # NUITKA_JOBS caps C compile/LTO parallelism on small machines (default: all cores).
@@ -169,6 +190,7 @@ uv run python -m nuitka \
   --include-data-files=pyproject.toml=pyproject.toml \
   --include-module=ssl \
   --include-module=exr_prores \
+  ${RAW_FLAGS[@]+"${RAW_FLAGS[@]}"} \
   --linux-icon=resources/icons/icon.png \
   --quiet \
   main.py
@@ -177,9 +199,19 @@ uv run python scripts/fix_bundle_ocio.py --strict dist/main.dist
 uv run python scripts/install_cinemadng_into_bundle.py dist/main.dist
 uv run python scripts/install_r3d_into_bundle.py dist/main.dist
 uv run python scripts/install_braw_into_bundle.py dist/main.dist
+uv run python scripts/camera_raw_plugin.py install dist/main.dist
 
+STRIP_EX=()
+if [ -f build/camera-raw-strip-paths.txt ]; then
+  while IFS= read -r pat || [ -n "$pat" ]; do
+    [ -n "$pat" ] || continue
+    STRIP_EX+=(! -path "$pat")
+  done < build/camera-raw-strip-paths.txt
+fi
 find dist/main.dist -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) \
-  ! -path '*/r3d/*' ! -path '*/braw/*' -exec strip --strip-unneeded {} +
+  ! -path '*/r3d/*' ! -path '*/braw/*' \
+  ${STRIP_EX[@]+"${STRIP_EX[@]}"} \
+  -exec strip --strip-unneeded {} +
 # patchelf (and strip of those patchelf'd files) mis-aligns NumPy OpenBLAS
 # and PyAV's hashed libxcb. Put the wheel copies back afterwards. They
 # already use RPATH $ORIGIN and sit next to the binary. Do not strip them
