@@ -15,6 +15,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
+- Preferences → Invisible watermark: the payload defaults to `exrcnvrt` and the field only accepts up to 8 printable ASCII characters. Strength is held to 0.10–2.00.
+- Preferences: sections no longer stretch to fill the window, so the Slate box has no empty space below **Thumbnail frame**.
 - The Video → Proxy watch folder is no longer a collapsed section. Its folder, options, and **Start Watching** are always shown in one row, and the status is in the group title.
 
 ### Fixed
