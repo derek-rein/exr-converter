@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .cinemadng import is_cinemadng_input, probe_sequence
 from .local_fs import (
     ONLINE_ONLY_LABEL,
     can_probe_media,
@@ -93,8 +94,10 @@ def _stream_basics(stream) -> tuple[int, int, float, int, str, str]:
 def probe_video(path: str) -> tuple[int, int, float, int]:
     """Return (width, height, fps, frame_count) using PyAV or optional RAW SDKs.
 
-    RED R3D / N-RAW (``.r3d`` / ``.nev``) and Blackmagic RAW (``.braw``) use
-    the optional native bridges when available. Other formats use PyAV, falling
+    Optional source plugins are checked first. CinemaDNG sequences use the
+    built-in reader. RED R3D / N-RAW (``.r3d`` / ``.nev``) and Blackmagic RAW
+    (``.braw``) use the optional native bridges when available. Other formats
+    use PyAV, falling
     back through codec_context, a deep libavformat probe, and a single-frame
     decode when the default probe doesn't surface stream attributes
     (e.g. Sony Venice MXFs).
@@ -116,6 +119,9 @@ def probe_video(path: str) -> tuple[int, int, float, int]:
     if plugin is not None:
         require_available(plugin)
         return plugin.probe(path)
+    if is_cinemadng_input(path):
+        width, height, fps, frame_count, _colorspace = probe_sequence(path)
+        return width, height, fps, frame_count
 
     if is_r3d_path(path):
         if not r3d_available():
@@ -324,6 +330,8 @@ def detect_interlaced(path: str) -> bool | None:
     """
     if is_ignored_media_filename(path):
         return None
+    if is_cinemadng_input(path):
+        return False
     if is_libav_unsafe_media(path):
         return False
 
@@ -358,6 +366,9 @@ def guess_video_colorspace_candidates(path: str) -> list[str]:
             return list(plugin.colorspace_candidates(path))
         except Exception:
             return []
+    if is_cinemadng_input(path):
+        _width, _height, _fps, _count, colorspace = probe_sequence(path)
+        return [colorspace] if colorspace else []
     if is_r3d_path(path):
         return r3d_src_colorspace_candidates(path)
     if is_braw_path(path):

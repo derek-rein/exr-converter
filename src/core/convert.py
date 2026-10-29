@@ -611,7 +611,7 @@ def run_video_to_exr(
     deinterlace: str = "auto",
     output_name: str = "",
 ) -> None:
-    """Decode video / R3D / BRAW → OCIO → EXR sequence (ingest).
+    """Decode video / R3D / BRAW / CinemaDNG → OCIO → EXR sequence (ingest).
 
     Files are always written as ``{output_name}.{frame:0N}.ext`` (dot pad only).
     *output_name* defaults to the video stem when empty. Slate / burn-in /

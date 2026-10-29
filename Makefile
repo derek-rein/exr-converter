@@ -9,7 +9,7 @@
 
 .PHONY: help run lint typecheck fmt test test-unit resources bundle clean bump release \
 	sync ensure-ocio docs-serve docs-build r3d-bridge r3d-sdk-fetch \
-	braw-bridge braw-sdk-fetch oxideav-prores
+	braw-bridge braw-sdk-fetch oxideav-prores cinemadng
 
 APP_NAME := exr_converter
 MACOS_BUNDLE_NAME := EXR Converter
@@ -51,6 +51,7 @@ help:
 	@echo "  make braw-sdk-fetch                    # download private BRAW SDK (CI feed / gh auth)"
 	@echo "  make braw-bridge                       # build optional Blackmagic RAW bridge (needs SDK)"
 	@echo "  make oxideav-prores                    # build PyO3 oxideav 12-bit ProRes extension"
+	@echo "  make cinemadng                        # build the CinemaDNG frame reader"
 	@echo ""
 	@echo "  make bump PART=patch|minor|major       # bump version (no git)"
 	@echo "  make release PART=… PUSH=0             # preferred: bump+commit+tag on release/* branch"
@@ -94,9 +95,13 @@ braw-bridge:
 oxideav-prores:
 	$(PYTHON) scripts/build_oxideav_prores.py
 
+# CinemaDNG frame reader. One C file, libc only. Not the Adobe DNG SDK.
+cinemadng:
+	$(PYTHON) scripts/build_cinemadng.py
+
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-run: ensure-ocio
+run: ensure-ocio cinemadng
 	$(PYTHON) $(ENTRY)
 
 # ── Lint & Format ────────────────────────────────────────────────────────────
@@ -113,10 +118,10 @@ fmt:
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 
-test:
+test: cinemadng
 	QT_QPA_PLATFORM=offscreen $(UV) run pytest
 
-test-unit:
+test-unit: cinemadng
 	QT_QPA_PLATFORM=offscreen $(UV) run pytest -m "not integration"
 
 # ── Qt Resources ─────────────────────────────────────────────────────────────
@@ -142,6 +147,8 @@ bundle: resources
 	-@$(PYTHON) scripts/build_braw_bridge.py
 	# Optional oxideav 12-bit ProRes PyO3 extension (skip quietly if no Rust).
 	-@$(PYTHON) scripts/build_oxideav_prores.py
+	# CinemaDNG reader (uncompressed / lossless JPEG). libc only.
+	$(PYTHON) scripts/build_cinemadng.py
 	# macOS: align libonnxruntime's install id with its filename before Nuitka.
 	$(PYTHON) scripts/prepare_macos_onnxruntime.py
 	$(PYTHON) -m nuitka \
@@ -190,6 +197,8 @@ bundle: resources
 	-$(PYTHON) scripts/install_r3d_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
 	# Optional BRAW runtime (bridge + Blackmagic Libraries only) into private app dir.
 	-$(PYTHON) scripts/install_braw_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
+	# CinemaDNG reader sits next to the executable so macOS codesign sees it.
+	$(PYTHON) scripts/install_cinemadng_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
 	# Quick Look + Finder thumbnail appexes (macOS). Release re-signs them.
 	$(PYTHON) scripts/build_quicklook_appex.py --app "dist/$(MACOS_BUNDLE_NAME).app"
 

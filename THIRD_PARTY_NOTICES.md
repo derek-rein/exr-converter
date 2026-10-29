@@ -18,6 +18,20 @@ official TrustMark decoder can read it. The BCH math in this repository is an
 independent implementation of that schema (GF(2^7), primitive polynomial 137,
 t = 5). It is not a copy of the Linux kernel BCH library.
 
+## DNG technology
+
+This product includes DNG technology under license by Adobe.
+
+CinemaDNG frames are decoded by a small reader in this repository
+(`native/cinemadng/cinemadng.c`). It reads uncompressed and lossless JPEG
+Bayer frames. The Adobe DNG SDK is not compiled, linked, or shipped.
+
+The DNG SDK license would allow public redistribution of that SDK with
+notice retention. Commercial distribution of the SDK also includes an
+indemnity in Adobe's favor. Those terms are why this app does not ship the
+SDK. The sentence above is the notice for the DNG technology the reader
+implements.
+
 ## ONNX Runtime
 
 Inference uses the `onnxruntime` package (CPU execution provider only).
