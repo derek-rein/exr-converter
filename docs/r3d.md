@@ -21,7 +21,7 @@ Related: [CLI](./cli.md) · [GUI](./gui.md) · [AGENTS.md](../AGENTS.md)
 | Decode | R3D SDK IPP2 **Primary Development** → **REDWideGamutRGB + Log3G10** |
 | OCIO | Auto-detect source space prefers Log3G10 / RWG names on the active config |
 | Output | Same video→EXR pipeline (EXR compression, scale ladder, frame range, workers) |
-| GPU | **macOS Metal**. **Windows / Linux:** CUDA if an NVIDIA device is present, otherwise OpenCL. CPU fallback when no GPU init, or for clips Metal cannot GPU-decompress (N-RAW / R3D NE / RED ONE on macOS). Force CPU with `EXR_CONVERTER_R3D_CPU=1`. |
+| GPU | **macOS Metal**. **Windows:** CUDA if an NVIDIA device is present, otherwise OpenCL. **Linux:** CUDA when an NVIDIA device is present, otherwise CPU. The Rocky 8 package omits `REDOpenCL-x64.so` because that library needs glibc 2.29. CPU fallback when no GPU init, or for clips Metal cannot GPU-decompress (N-RAW / R3D NE / RED ONE on macOS). Force CPU with `EXR_CONVERTER_R3D_CPU=1`. |
 | Preview | Sequence player + video browser (half-res decode for scrub) |
 | Thumbnails | Grid thumbs via sixteenth-res decode (fast ID, not full premium) |
 | Inspect | Video-browser Inspect reads clip metadata through the SDK, not PyAV |
@@ -31,10 +31,12 @@ Scale maps to the SDK resolution ladder (full / half / quarter / …) for faster
 proxies; odd scale factors may apply a small software resize after decode.
 
 The SDK is cross-platform, but GPU APIs are not one path: **Metal** on macOS
-(full GPU decompress), **CUDA then OpenCL** on Windows/Linux via managed
-`R3DDecoder` (CPU decompress + GPU IPP2). CUDA needs an NVIDIA driver and the
-CUDA runtime (`cudart`) on the library path; OpenCL needs a GPU ICD. No extra
-compile-time CUDA/OpenCL SDK is required to build the bridge.
+(full GPU decompress), **CUDA then OpenCL** on Windows via managed
+`R3DDecoder` (CPU decompress + GPU IPP2). Linux releases use CUDA when a
+NVIDIA driver is present, and the CPU otherwise, because the packaged
+OpenCL library needs a newer glibc than RHEL 8. CUDA needs an NVIDIA driver
+and the CUDA runtime (`cudart`) on the library path; OpenCL needs a GPU ICD.
+No extra compile-time CUDA/OpenCL SDK is required to build the bridge.
 
 ---
 
