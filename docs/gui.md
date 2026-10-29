@@ -331,10 +331,10 @@ watermark, and watch folder) between sessions. Named presets in the
 
 ### Watch folder
 
-The watch folder is a collapsed section under Output, so the tab stays the
-same height as Video → EXR and EXR → Video. The header always shows the
-status (**Not watching**, or copying / queued / done / failed) and
-**Start Watching**. Open the section for the folder path and the option below.
+The **Watch folder** group sits under Output and is always shown: the folder
+path, **Browse…**, **Existing clips too**, and **Start Watching** share one
+row. The group title shows the status (**Not watching**, or copying / queued /
+done / failed).
 
 Pick a folder and press **Start Watching**. Every new clip that appears there
 is proxied with the settings above, joining the same queue as a batch.
@@ -345,7 +345,7 @@ is proxied with the settings above, joining the same queue as a batch.
 - **Include subfolders** (on the source-clip row) also watches nested folders.
   `Proxy` folders and the custom output folder are never watched, so proxies
   are not re-proxied.
-- **Also convert clips already there** proxies what is already in the folder
+- **Existing clips too** proxies what is already in the folder
   when you start. Off, only clips that arrive afterwards are converted.
 - A clip that is replaced later (new size or modified time) is proxied again,
   unless **Skip clips that already have a proxy** finds its proxy.
@@ -368,11 +368,13 @@ feature from the visible text watermark on **EXR → Video**.
 
 **EXR → Video.** Tick **Invisible WM** next to Slate / Burn-in / Watermark.
 The payload and strength come from **File → Preferences… → Invisible
-watermark**, not from the tab. The payload there is a template:
+watermark**, not from the tab. The payload there defaults to `exrcnvrt`.
+The field accepts only printable ASCII, up to 8 characters, and can use
+these tokens:
 
 | Token | Becomes |
 |-------|---------|
-| `{user}` | Login name (the default payload) |
+| `{user}` | Login name |
 | `{host}` | Computer name, up to the first dot |
 | `{date}` | Render date as `YYMMDD` |
 | `{time}` | Render time as `HHMM` |
