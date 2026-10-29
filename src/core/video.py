@@ -546,24 +546,23 @@ def is_ignored_media_filename(name: str) -> bool:
     return base in _IGNORED_MEDIA_BASENAMES
 
 
-def scan_video_files(directory: str) -> list[dict[str, str]]:
-    """Return summary dicts for every video file in *directory*.
+def list_video_files(directory: str) -> list[dict[str, str]]:
+    """List video files in *directory* without opening any of them.
 
-    Each dict: name, resolution, codec, fps, duration, path (full).
-
-    Skips OS metadata sidecars (macOS AppleDouble ``._*``, ``.DS_Store``, etc.).
-    Cloud placeholders (Dropbox / iCloud / OneDrive online-only) are listed
-    with empty probe fields and codec ``Online-only`` — they are never opened.
+    Metadata only (``scandir`` / ``lstat``), so it is quick even on a slow or
+    cloud-backed folder. Each row has ``name`` and ``path``; probe fields are
+    empty strings. Cloud placeholders get codec ``Online-only`` and
+    ``probe`` ``""`` (never open them); other rows get ``probe`` ``"1"``.
+    Fill the rest with :func:`probe_video_row`, off the GUI thread.
     """
     from pathlib import Path
-
-    import av
 
     from .source_plugins import plugin_for_path, plugin_suffixes
 
     results: list[dict[str, str]] = []
     seen_sequences: set[str] = set()
     entries = sorted(iter_dir_entries(directory), key=lambda e: e.name.lower())
+    suffixes = set(_VIDEO_SUFFIXES) | set(plugin_suffixes())
 
     for entry in entries:
         if not entry_is_file(entry, follow_symlinks=True):
@@ -571,18 +570,24 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
         if is_ignored_media_filename(entry.name):
             continue
         suffix = Path(entry.name).suffix.lower()
-        if suffix not in _VIDEO_SUFFIXES and suffix not in plugin_suffixes():
+        if suffix not in suffixes:
             continue
-        row: dict[str, str] = {"name": entry.name, "path": entry.path}
+        row: dict[str, str] = {
+            "name": entry.name,
+            "path": entry.path,
+            "resolution": "",
+            "codec": "",
+            "fps": "",
+            "duration": "",
+            "frames": "",
+            "probe": "1",
+        }
         if not can_probe_media(entry.path, entry=entry):
             # List the name; do not av.open / R3D / BRAW-open (that hydrates Dropbox).
-            row["resolution"] = ""
             row["codec"] = (
                 ONLINE_ONLY_LABEL if is_cloud_placeholder(entry.path, entry=entry) else ""
             )
-            row["fps"] = ""
-            row["duration"] = ""
-            row["frames"] = ""
+            row["probe"] = ""
             results.append(row)
             continue
         plugin = plugin_for_path(entry.path)
@@ -599,128 +604,163 @@ def scan_video_files(directory: str) -> list[dict[str, str]]:
                     continue
                 seen_sequences.add(seq_key)
                 row["name"] = seq_key
-            _fill_plugin_row(plugin, entry.path, row)
-            results.append(row)
-            continue
-
-        # R3D / N-RAW / BRAW — PyAV cannot probe these; use optional SDK bridges.
-        from .braw import is_available as braw_available
-        from .braw import is_braw_path, probe_braw
-        from .r3d import is_available as r3d_available
-        from .r3d import is_r3d_path, probe_r3d
-
-        if is_r3d_path(entry.path):
-            try:
-                if r3d_available():
-                    vw, vh, fps, nframes = probe_r3d(entry.path)
-                    row["resolution"] = f"{vw}x{vh}" if vw and vh else ""
-                    row["codec"] = "R3D" if suffix == ".r3d" else "N-RAW"
-                    row["fps"] = f"{fps:.3f}".rstrip("0").rstrip(".") if fps else ""
-                    if nframes and fps:
-                        dur = nframes / fps
-                        row["duration"] = f"{dur:.2f}s"
-                    else:
-                        row["duration"] = ""
-                else:
-                    row["resolution"] = ""
-                    row["codec"] = "R3D (SDK missing)"
-                    row["fps"] = ""
-                    row["duration"] = ""
-            except Exception:
-                row.setdefault("resolution", "")
-                row.setdefault("codec", "R3D")
-                row.setdefault("fps", "")
-                row.setdefault("duration", "")
-            results.append(row)
-            continue
-
-        if is_braw_path(entry.path):
-            try:
-                if braw_available():
-                    vw, vh, fps, nframes = probe_braw(entry.path)
-                    row["resolution"] = f"{vw}x{vh}" if vw and vh else ""
-                    row["codec"] = "BRAW"
-                    row["fps"] = f"{fps:.3f}".rstrip("0").rstrip(".") if fps else ""
-                    if nframes and fps:
-                        dur = nframes / fps
-                        row["duration"] = f"{dur:.2f}s"
-                    else:
-                        row["duration"] = ""
-                else:
-                    row["resolution"] = ""
-                    row["codec"] = "BRAW (SDK missing)"
-                    row["fps"] = ""
-                    row["duration"] = ""
-            except Exception:
-                row.setdefault("resolution", "")
-                row.setdefault("codec", "BRAW")
-                row.setdefault("fps", "")
-                row.setdefault("duration", "")
-            results.append(row)
-            continue
-
-        if suffix in _LIBAV_UNSAFE_SUFFIXES:
-            row["resolution"] = ""
-            row["codec"] = _UNSUPPORTED_ROW_CODEC.get(suffix, "RAW (unsupported)")
-            row["fps"] = ""
-            row["duration"] = ""
-            row["frames"] = ""
-            results.append(row)
-            continue
-
-        try:
-            container = av.open(entry.path)
-            vs = container.streams.video[0] if container.streams.video else None
-            fps = 0.0
-            vw = vh = 0
-            nframes = 0
-            codec_name = ""
-            if vs:
-                vw, vh, fps, nframes, codec_name, _pix = _stream_basics(vs)
-
-            if vs and (not (vw and vh) or not fps or not codec_name):
-                # Default probe was too shallow — retry with a deeper one.
-                container.close()
-                container = av.open(entry.path, options=_DEEP_PROBE_OPTS)
-                vs = container.streams.video[0] if container.streams.video else None
-                if vs:
-                    w2, h2, fps2, n2, c2, _ = _stream_basics(vs)
-                    vw = vw or w2
-                    vh = vh or h2
-                    fps = fps or fps2
-                    nframes = nframes or n2
-                    codec_name = codec_name or c2
-
-            if vs:
-                row["resolution"] = f"{vw}\u00d7{vh}" if vw and vh else ""
-                row["codec"] = codec_name
-                if fps:
-                    row["fps"] = str(int(fps)) if fps == int(fps) else f"{fps:.3f}"
-                else:
-                    row["fps"] = ""
-                if nframes > 0:
-                    row["frames"] = str(nframes)
-            if container.duration:
-                secs = container.duration / av.time_base
-                mins, s = divmod(int(secs), 60)
-                hrs, mins = divmod(mins, 60)
-                if hrs:
-                    row["duration"] = f"{hrs}:{mins:02d}:{s:02d}"
-                else:
-                    row["duration"] = f"{mins}:{s:02d}"
-                if "frames" not in row and fps > 0:
-                    row["frames"] = str(int(round(secs * fps)))
-            else:
-                row["duration"] = ""
-            container.close()
-        except Exception:
-            row.setdefault("resolution", "")
-            row.setdefault("codec", "")
-            row.setdefault("fps", "")
-            row.setdefault("duration", "")
-            row.setdefault("frames", "")
         results.append(row)
     return results
+
+
+def scan_video_files(directory: str) -> list[dict[str, str]]:
+    """Return summary dicts for every video file in *directory*.
+
+    Each dict: name, resolution, codec, fps, duration, path (full).
+
+    Skips OS metadata sidecars (macOS AppleDouble ``._*``, ``.DS_Store``, etc.).
+    Cloud placeholders (Dropbox / iCloud / OneDrive online-only) are listed
+    with empty probe fields and codec ``Online-only`` — they are never opened.
+    Opens every other file: use :func:`list_video_files` +
+    :func:`probe_video_row` on a worker thread in the GUI.
+    """
+    rows = list_video_files(directory)
+    out: list[dict[str, str]] = []
+    for row in rows:
+        if row.pop("probe", ""):
+            row = probe_video_row(row["path"], row)
+        out.append(row)
+    return out
+
+
+def probe_video_row(path: str, row: dict[str, str] | None = None) -> dict[str, str]:
+    """Fill resolution / codec / fps / duration / frames for one listed file.
+
+    Opens the file (PyAV, R3D / BRAW SDK, or a source plugin). Never raises.
+    """
+    from pathlib import Path
+
+    import av
+
+    from .source_plugins import plugin_for_path
+
+    row = dict(row) if row else {"name": Path(path).name, "path": path}
+    row.pop("probe", None)
+    suffix = Path(path).suffix.lower()
+    plugin = plugin_for_path(path)
+    if plugin is not None:
+        _fill_plugin_row(plugin, path, row)
+        return row
+
+    # R3D / N-RAW / BRAW — PyAV cannot probe these; use optional SDK bridges.
+    from .braw import is_available as braw_available
+    from .braw import is_braw_path, probe_braw
+    from .r3d import is_available as r3d_available
+    from .r3d import is_r3d_path, probe_r3d
+
+    if is_r3d_path(path):
+        try:
+            if r3d_available():
+                vw, vh, fps, nframes = probe_r3d(path)
+                row["resolution"] = f"{vw}x{vh}" if vw and vh else ""
+                row["codec"] = "R3D" if suffix == ".r3d" else "N-RAW"
+                row["fps"] = f"{fps:.3f}".rstrip("0").rstrip(".") if fps else ""
+                if nframes and fps:
+                    dur = nframes / fps
+                    row["duration"] = f"{dur:.2f}s"
+                else:
+                    row["duration"] = ""
+            else:
+                row["resolution"] = ""
+                row["codec"] = "R3D (SDK missing)"
+                row["fps"] = ""
+                row["duration"] = ""
+        except Exception:
+            row.setdefault("resolution", "")
+            row.setdefault("codec", "R3D")
+            row.setdefault("fps", "")
+            row.setdefault("duration", "")
+        return row
+
+    if is_braw_path(path):
+        try:
+            if braw_available():
+                vw, vh, fps, nframes = probe_braw(path)
+                row["resolution"] = f"{vw}x{vh}" if vw and vh else ""
+                row["codec"] = "BRAW"
+                row["fps"] = f"{fps:.3f}".rstrip("0").rstrip(".") if fps else ""
+                if nframes and fps:
+                    dur = nframes / fps
+                    row["duration"] = f"{dur:.2f}s"
+                else:
+                    row["duration"] = ""
+            else:
+                row["resolution"] = ""
+                row["codec"] = "BRAW (SDK missing)"
+                row["fps"] = ""
+                row["duration"] = ""
+        except Exception:
+            row.setdefault("resolution", "")
+            row.setdefault("codec", "BRAW")
+            row.setdefault("fps", "")
+            row.setdefault("duration", "")
+        return row
+
+    if suffix in _LIBAV_UNSAFE_SUFFIXES:
+        row["resolution"] = ""
+        row["codec"] = _UNSUPPORTED_ROW_CODEC.get(suffix, "RAW (unsupported)")
+        row["fps"] = ""
+        row["duration"] = ""
+        row["frames"] = ""
+        return row
+
+    try:
+        container = av.open(path)
+        vs = container.streams.video[0] if container.streams.video else None
+        fps = 0.0
+        vw = vh = 0
+        nframes = 0
+        codec_name = ""
+        if vs:
+            vw, vh, fps, nframes, codec_name, _pix = _stream_basics(vs)
+
+        if vs and (not (vw and vh) or not fps or not codec_name):
+            # Default probe was too shallow — retry with a deeper one.
+            container.close()
+            container = av.open(path, options=_DEEP_PROBE_OPTS)
+            vs = container.streams.video[0] if container.streams.video else None
+            if vs:
+                w2, h2, fps2, n2, c2, _ = _stream_basics(vs)
+                vw = vw or w2
+                vh = vh or h2
+                fps = fps or fps2
+                nframes = nframes or n2
+                codec_name = codec_name or c2
+
+        if vs:
+            row["resolution"] = f"{vw}\u00d7{vh}" if vw and vh else ""
+            row["codec"] = codec_name
+            if fps:
+                row["fps"] = str(int(fps)) if fps == int(fps) else f"{fps:.3f}"
+            else:
+                row["fps"] = ""
+            if nframes > 0:
+                row["frames"] = str(nframes)
+        if container.duration:
+            secs = container.duration / av.time_base
+            mins, s = divmod(int(secs), 60)
+            hrs, mins = divmod(mins, 60)
+            if hrs:
+                row["duration"] = f"{hrs}:{mins:02d}:{s:02d}"
+            else:
+                row["duration"] = f"{mins}:{s:02d}"
+            if not row.get("frames") and fps > 0:
+                row["frames"] = str(int(round(secs * fps)))
+        else:
+            row["duration"] = ""
+        container.close()
+    except Exception:
+        row.setdefault("resolution", "")
+        row.setdefault("codec", "")
+        row.setdefault("fps", "")
+        row.setdefault("duration", "")
+        row.setdefault("frames", "")
+    return row
 
 
 def _duration_from_frames(nframes: int, fps: float) -> dict[str, str]:

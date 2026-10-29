@@ -1589,7 +1589,8 @@ class ConvertTab(QWidget):
             dlg = VideoBrowserDialog(start, parent=self, preview=preview)
             if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_path():
                 # Async probe — large MXFs must not freeze after Browse returns.
-                self.set_input_async(dlg.selected_path())
+                # In/out set in Preview fills the Frames field.
+                self.set_input_async(dlg.selected_path(), frame_range=dlg.accepted_frame_range())
         else:
             start = self.get_input_path() or str(Path.home())
             sel_name = ""
@@ -1600,11 +1601,14 @@ class ConvertTab(QWidget):
             # Prefer first-frame path so multi-sequence folders open the
             # row the user selected (directory alone always picks sorted[0]).
             path = (dlg.selected_path() or dlg.selected_directory()) if accepted else ""
+            frame_range = dlg.accepted_frame_range() if accepted else ""
             # Destroy the dialog before probing so its GL/prefetch teardown
             # is not interleaved with set_input work on the GUI thread.
             dlg.deleteLater()
             if path:
-                QTimer.singleShot(0, lambda p=path: self.set_input_async(p))
+                QTimer.singleShot(
+                    0, lambda p=path, r=frame_range: self.set_input_async(p, frame_range=r)
+                )
 
     def _pick_output(self) -> None:
         if self._mode == "video2exr":
@@ -1808,10 +1812,12 @@ class ConvertTab(QWidget):
 
     # -- Input model --
 
-    def set_input_async(self, path: str) -> None:
+    def set_input_async(self, path: str, *, frame_range: str = "") -> None:
         """Probe *path* off the GUI thread, then apply results on the main thread.
 
         Heavy PyAV / OIIO probes on large MXFs must not freeze the UI.
+        *frame_range* (for example in/out from the browser Preview) replaces
+        the full source range in the Frames field; Reset still restores it.
         """
         path = path.strip()
         if not path:
@@ -1840,10 +1846,15 @@ class ConvertTab(QWidget):
         worker.moveToThread(thr)
         thr.started.connect(worker.run)
 
+        def _apply_range() -> None:
+            if frame_range and self._full_input_range:
+                self._frame_range_edit.setText(frame_range)
+
         def _ok(result: object) -> None:
             if gen != getattr(self, "_probe_gen", 0):
                 return
             self._apply_probe_result(result)
+            _apply_range()
 
         def _fail(err: str) -> None:
             if gen != getattr(self, "_probe_gen", 0):
@@ -1854,6 +1865,7 @@ class ConvertTab(QWidget):
             # unaccepted" after a transient async failure.
             try:
                 if self.set_input(path):
+                    _apply_range()
                     self.log_message.emit(f"Opened (retry): {path}")
             except Exception:
                 pass

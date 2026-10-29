@@ -70,7 +70,7 @@ src/
   gui/                  # PySide6 window, tabs, slate UI, preferences, style
   gui/convert_tab.py    # ConvertTab + codec/compression dialogs
   gui/color_widgets.py  # ColorSpaceButton, FpsCombo, OcioConfigPanel
-  gui/sequence_browser.py / video_browser.py / browser_chrome.py
+  gui/sequence_browser.py / video_browser.py / browser_chrome.py / browser_tree.py
   gui/widgets.py        # thin re-export façade (prefer specific modules)
   gui/player/           # SequencePlayer, ShuttleBar, ImagePreviewView (shared playback)
   render/               # slate, burn-in, watermark, tokens (QPainter)
@@ -104,7 +104,7 @@ docs/                   # user-facing Markdown (vfx.systems/docs/exr-converter l
 | Player prefs / reveal-in-folder | `src/gui/preferences.py` |
 | Convert tabs / codecs UI | `src/gui/convert_tab.py` (façade: `src/gui/widgets.py`) |
 | Color / OCIO panel widgets | `src/gui/color_widgets.py` |
-| Sequence / video browsers | `src/gui/sequence_browser.py`, `src/gui/video_browser.py`, `src/gui/browser_chrome.py` |
+| Sequence / video browsers | `src/gui/sequence_browser.py`, `src/gui/video_browser.py`, `src/gui/browser_chrome.py`; folder tree `src/gui/browser_tree.py` (lists folders + sequences / videos on background threads; never stat on the GUI thread). Find sequence and Search folders run in a child process via `src/core/bg_worker.py` (`sequence_index.py`, `dir_search.py`) so pure-Python walks do not hold the GUI's GIL |
 | Sequence player | `src/gui/player/` (`SequencePlayer`, transport, preview view) |
 | Slate dialog / viewer | `src/gui/slate_widgets.py` (composes player + overlay hooks), `src/gui/ocio_gpu_plane.py`, `src/services/slate_model.py` |
 | Background convert | `src/services/worker.py` |

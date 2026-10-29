@@ -43,6 +43,8 @@ _MARKER = QColor(200, 120, 40, 110)
 _MARKER_LABEL = QColor(220, 160, 90)
 _PLAYHEAD = QColor(200, 120, 40)
 _PLAYHEAD_LINE = QColor(220, 140, 50)
+_OUTSIDE_RANGE = QColor(0, 0, 0, 120)
+_IN_OUT_MARK = QColor(230, 200, 90)
 
 # -- Layout (absolute pixels from bottom) ----------------------------------
 _MARGIN_LEFT = 6
@@ -104,6 +106,8 @@ class TimelineSlider(QWidget):
 
         self._cached_frames: set[int] = set()
         self._marker_frames: dict[int, str] = {}
+        self._in_point: int | None = None
+        self._out_point: int | None = None
 
         self._dragging_playhead: bool = False
         self._panning: bool = False
@@ -184,6 +188,12 @@ class TimelineSlider(QWidget):
     def set_marker_frames(self, markers: dict[int, str]) -> None:
         """Set frames that should be drawn as a tinted band with a label."""
         self._marker_frames = dict(markers)
+        self.update()
+
+    def set_in_out(self, in_point: int | None, out_point: int | None) -> None:
+        """Shade frames outside ``[in, out]`` and draw bracket marks (``None`` = unset)."""
+        self._in_point = in_point
+        self._out_point = out_point
         self.update()
 
     # ---- Geometry helpers ----
@@ -308,6 +318,7 @@ class TimelineSlider(QWidget):
         self._paint_markers(p, gt)
         self._paint_cache(p, gt)
         self._paint_ticks(p)
+        self._paint_in_out(p, gt)
 
         p.setClipping(False)
         self._paint_playhead(p, gt)
@@ -388,6 +399,29 @@ class TimelineSlider(QWidget):
                 p.setPen(QPen(_LABEL_COLOR))
                 p.drawText(x - lw // 2, tb - _MAJOR_TICK_H - _LABEL_PAD, label)
             f += major_step
+
+    def _paint_in_out(self, p: QPainter, groove_top: int) -> None:
+        if self._in_point is None and self._out_point is None:
+            return
+        h = self.height()
+        ppf = self._track_width / max(1.0, self._vis_span)
+        half = max(1.0, ppf) / 2.0
+        groove_bottom = groove_top + _GROOVE_HEIGHT
+        pen = QPen(_IN_OUT_MARK, 2)
+        if self._in_point is not None:
+            x = self._frame_to_x(self._in_point) - half
+            p.fillRect(
+                QRectF(self._track_left, 0, max(0.0, x - self._track_left), h), _OUTSIDE_RANGE
+            )
+            p.setPen(pen)
+            p.drawLine(int(x), groove_top - 6, int(x), groove_bottom)
+            p.drawLine(int(x), groove_bottom, int(x) + 4, groove_bottom)
+        if self._out_point is not None:
+            x = self._frame_to_x(self._out_point) + half
+            p.fillRect(QRectF(x, 0, max(0.0, self._track_right - x), h), _OUTSIDE_RANGE)
+            p.setPen(pen)
+            p.drawLine(int(x), groove_top - 6, int(x), groove_bottom)
+            p.drawLine(int(x) - 4, groove_bottom, int(x), groove_bottom)
 
     def _paint_playhead(self, p: QPainter, groove_top: int) -> None:
         x = int(self._frame_to_x(self._value))
