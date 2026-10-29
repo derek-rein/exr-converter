@@ -1,18 +1,19 @@
 """Transcode tab: batch video → video transcodes for VFX and post.
 
-Reuses the Video → Proxy building blocks: the same clip list and collapsible
-section widgets, the serial :class:`~src.services.proxy_queue.JobQueue`, and
-the shared encode engine in :mod:`src.core.transcode` (which the proxy tab
-also runs on). The default is a straight transcode with no color change.
+Every transcode runs an OCIO conversion: each clip's input space comes from
+the clip tree (its own pick, its folder's pick, or the space detected from
+its metadata) and all clips share one output space. Jobs run on the serial
+:class:`~src.services.proxy_queue.JobQueue` and the shared encode engine in
+:mod:`src.core.transcode` (which the proxy tab also runs on).
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -22,8 +23,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -75,17 +74,17 @@ from ..core.trustmark.payload import (
 from ..services.proxy_queue import TranscodeJob, TranscodeQueue
 from .color_widgets import ColorSpaceButton, lock_form_row_height
 from .convert_tab import _ConvertFormBody, _form_scroll_area
-from .proxy_tab import _CollapsibleSection, _field_label, _limit_combo_width
+from .proxy_tab import _field_label, _limit_combo_width
 from .style import HINT_STYLE
+from .transcode_clips import ClipColorTree
 
 LOCATION_BESIDE = "beside"
 LOCATION_CUSTOM = "custom"
 
 _K = "transcode"
 
-# Color defaults for the optional OCIO step (camera log → Rec.709 display is
-# the usual dailies / editorial transcode). Off unless the box is ticked.
-DEFAULT_COLOR_SRC = "ARRI LogC3 (EI800)"
+# One output space for every clip (Rec.709 display is the usual dailies /
+# editorial target). Input spaces are per clip / folder in the clip tree.
 DEFAULT_COLOR_DST = DEFAULT_DST_E2V
 
 _FPS_KEEP = 0.0
@@ -131,16 +130,22 @@ class TranscodeTab(QWidget):
         in_group = QGroupBox("Source clips")
         in_main = QVBoxLayout(in_group)
         in_main.setSpacing(4)
-        self.clip_list = QListWidget()
-        self.clip_list.setObjectName("transcodeClipList")
-        self.clip_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.clip_list.setMinimumHeight(80)
-        self.clip_list.setMaximumHeight(110)
-        self.clip_list.setToolTip(
+        self.clip_tree = ClipColorTree()
+        self.clip_tree.setObjectName("transcodeClipList")
+        self.clip_tree.setMinimumHeight(120)
+        self.clip_tree.setMaximumHeight(240)
+        self.clip_tree.setToolTip(
             "Clips to transcode when you press Convert. Drop videos or folders here too.\n"
             "Each clip shows its progress, then ✓ when done or ✗ on error (hover for details)."
         )
-        in_main.addWidget(self.clip_list)
+        in_main.addWidget(self.clip_tree)
+        self._clips_hint = QLabel(
+            "Click an input color space to change it. A folder's space applies to every "
+            "clip inside; expand the folder to set clips one by one."
+        )
+        self._clips_hint.setWordWrap(True)
+        self._clips_hint.setStyleSheet(HINT_STYLE)
+        in_main.addWidget(self._clips_hint)
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
         self._add_files_btn = QPushButton("Add Clips…")
@@ -312,32 +317,20 @@ class TranscodeTab(QWidget):
         grid.addWidget(self._browse_out, 6, 4)
         layout.addWidget(out_group)
 
-        # -- Color and watermark (collapsed) --
-        self._extras = _CollapsibleSection("Color and watermark")
-        self._extras.toggle.setToolTip("Optional OCIO transform and invisible watermark.")
-        self.extras_status = QLabel()
-        self.extras_status.setStyleSheet(HINT_STYLE)
-        self.extras_status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self._extras.header.addWidget(self.extras_status, 1)
-
-        self.color_cb = QCheckBox("OCIO transform")
-        self.color_cb.setToolTip(
-            "Off (default): no color change. The picture, and the source color tags,\n"
-            "pass straight through.\n"
-            "On: convert from the source space to the destination space or display\n"
-            "with the OCIO config chosen at the top of the window."
-        )
-        self.color_cb.setChecked(settings.value(f"{_K}/color", False, type=bool))
-        self.src_btn = ColorSpaceButton()
+        # -- Color and watermark --
+        color_group = QGroupBox("Color and watermark")
+        color_grid = QGridLayout(color_group)
+        color_grid.setHorizontalSpacing(8)
+        color_grid.setVerticalSpacing(6)
+        color_grid.setColumnStretch(1, 1)
         self.dst_btn = ColorSpaceButton()
-        self._arrow = QLabel("→")
-        color_row = QHBoxLayout()
-        color_row.setSpacing(6)
-        color_row.addWidget(self.color_cb)
-        color_row.addWidget(self.src_btn, 1)
-        color_row.addWidget(self._arrow)
-        color_row.addWidget(self.dst_btn, 1)
-        self._extras.body_layout.addLayout(color_row)
+        self.dst_btn.setToolTip(
+            "Output color space or display for every clip, from the OCIO config\n"
+            "chosen at the top of the window. Each clip converts from its input\n"
+            "space in the list above."
+        )
+        color_grid.addWidget(_field_label("Output space"), 0, 0)
+        color_grid.addWidget(self.dst_btn, 0, 1)
 
         self.watermark_cb = QCheckBox("Invisible watermark")
         self.watermark_cb.setToolTip(
@@ -361,12 +354,12 @@ class TranscodeTab(QWidget):
         self._strength_label = QLabel("Strength")
         wm_row = QHBoxLayout()
         wm_row.setSpacing(6)
-        wm_row.addWidget(self.watermark_cb)
         wm_row.addWidget(self.watermark_payload, 1)
         wm_row.addWidget(self._strength_label)
         wm_row.addWidget(self.watermark_strength)
-        self._extras.body_layout.addLayout(wm_row)
-        layout.addWidget(self._extras)
+        color_grid.addWidget(self.watermark_cb, 1, 0)
+        color_grid.addLayout(wm_row, 1, 1)
+        layout.addWidget(color_group)
 
         for combo, chars in (
             (self.codec_combo, 18),
@@ -380,7 +373,7 @@ class TranscodeTab(QWidget):
             (self.location_combo, 14),
         ):
             _limit_combo_width(combo, chars)
-        for g in (in_group, out_group, self._extras):
+        for g in (in_group, out_group, color_group):
             g.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addStretch()
 
@@ -403,9 +396,6 @@ class TranscodeTab(QWidget):
             self.name_edit,
             self.output_dir,
             self._browse_out,
-            self._extras.toggle,
-            self.extras_status,
-            self.color_cb,
             self.watermark_cb,
             self.watermark_payload,
             self._strength_label,
@@ -454,16 +444,13 @@ class TranscodeTab(QWidget):
         )
         self.name_edit.textChanged.connect(lambda t: self._changed("pattern", t))
         self.output_dir.textChanged.connect(lambda t: self._changed("output_dir", t))
-        self.color_cb.toggled.connect(lambda v: self._changed("color", v))
-        self.src_btn.space_changed.connect(lambda n: self._changed("color_src", n))
         self.dst_btn.space_changed.connect(lambda n: self._changed("color_dst", n))
         self.watermark_cb.toggled.connect(lambda v: self._changed("watermark", v))
         self.watermark_payload.textChanged.connect(lambda t: self._changed("watermark_text", t))
         self.watermark_strength.valueChanged.connect(
             lambda v: self._save("watermark_strength", float(v))
         )
-        self.clip_list.model().rowsInserted.connect(lambda *_: self._emit_readiness())
-        self.clip_list.model().rowsRemoved.connect(lambda *_: self._emit_readiness())
+        self.clip_tree.spaces_changed.connect(self._emit_readiness)
 
         self._queue.log_message.connect(self.log_message)
         self._queue.progress.connect(self._on_progress)
@@ -520,10 +507,11 @@ class TranscodeTab(QWidget):
         return self.output_dir.text().strip() or None
 
     def clips(self) -> list[str]:
-        return [
-            str(self.clip_list.item(i).data(Qt.ItemDataRole.UserRole))
-            for i in range(self.clip_list.count())
-        ]
+        return self.clip_tree.clips()
+
+    def input_space(self, source: str) -> str:
+        """The input color space *source* converts from (``""`` if unset)."""
+        return self.clip_tree.effective_space(source)
 
     @property
     def queue(self) -> TranscodeQueue:
@@ -532,11 +520,8 @@ class TranscodeTab(QWidget):
     def is_busy(self) -> bool:
         return self._queue.is_busy()
 
-    def color_enabled(self) -> bool:
-        return self.color_cb.isChecked()
-
     def is_ready(self) -> bool:
-        if self.clip_list.count() == 0:
+        if self.clip_tree.clip_count() == 0:
             return False
         if self.location() == LOCATION_CUSTOM and not self.custom_output_dir():
             return False
@@ -544,9 +529,9 @@ class TranscodeTab(QWidget):
             self.width_spin.value() or self.height_spin.value()
         ):
             return False
-        if self.color_enabled() and not (self.src_btn.is_valid() and self.dst_btn.is_valid()):
+        if not self.dst_btn.is_valid() or self.clip_tree.detection_pending():
             return False
-        return True
+        return self.clip_tree.all_valid()
 
     def _emit_readiness(self) -> None:
         self.readiness_changed.emit(self.is_ready())
@@ -621,27 +606,10 @@ class TranscodeTab(QWidget):
         for w in (self._folder_label, self.output_dir, self._browse_out):
             w.setVisible(custom)
 
-        color = self.color_enabled()
-        for w in (self.src_btn, self._arrow, self.dst_btn):
-            w.setEnabled(color)
         wm = self.watermark_cb.isChecked()
         for w in (self.watermark_payload, self._strength_label, self.watermark_strength):
             w.setEnabled(wm)
-        self._update_extras_status()
         self._emit_readiness()
-
-    def _update_extras_status(self) -> None:
-        if self.color_enabled():
-            src = self.src_btn.current_space() or "?"
-            dst = self.dst_btn.current_space() or "?"
-            color = f"Color: {src} → {dst}"
-        else:
-            color = "Color: no change"
-        payload = self.watermark_payload.text().strip()
-        wm = f"Watermark: {payload}" if self.watermark_cb.isChecked() and payload else ""
-        text = color + (f" · {wm}" if wm else "")
-        self.extras_status.setText(text)
-        self.extras_status.setToolTip(text)
 
     # -- OCIO --
 
@@ -657,41 +625,42 @@ class TranscodeTab(QWidget):
         self._ocio_cfg = ocio_cfg
         self._config_source = config_source
         self._config_path = config_path
-        for btn, key, default in (
-            (self.src_btn, "color_src", DEFAULT_COLOR_SRC),
-            (self.dst_btn, "color_dst", DEFAULT_COLOR_DST),
-        ):
-            wanted = btn.displayed_space() or str(
-                self._settings.value(f"{_K}/{key}", default) or default
-            )
-            wanted = wanted.removeprefix("⚠ ").strip()
-            resolved = ""
-            if ocio_cfg is not None:
-                try:
-                    resolved = find_equivalent_space(ocio_cfg, wanted)  # pyright: ignore[reportArgumentType]
-                except Exception:
-                    resolved = ""
-            btn.populate(families, resolved)
-            if not resolved:
-                btn.set_invalid(wanted)
+        wanted = self.dst_btn.displayed_space() or str(
+            self._settings.value(f"{_K}/color_dst", DEFAULT_COLOR_DST) or DEFAULT_COLOR_DST
+        )
+        wanted = wanted.removeprefix("⚠ ").strip()
+        resolved = ""
+        if ocio_cfg is not None:
+            try:
+                resolved = find_equivalent_space(ocio_cfg, wanted)  # pyright: ignore[reportArgumentType]
+            except Exception:
+                resolved = ""
+        self.dst_btn.populate(families, resolved)
+        if not resolved:
+            self.dst_btn.set_invalid(wanted)
+        self.clip_tree.set_config(families, ocio_cfg)
         self._sync_all()
 
     # -- clip list --
 
     def add_paths(self, paths: list[str]) -> int:
-        """Add clips (files or folders). Returns how many new clips were listed."""
-        existing = set(self.clips())
+        """Add clips (files or folders). Returns how many new clips were listed.
+
+        Each folder gets its own row holding its clips, so one input color
+        space can be set for the whole folder.
+        """
+        recursive = self.recursive_cb.isChecked()
         added = 0
-        for src in collect_transcode_sources(paths, recursive=self.recursive_cb.isChecked()):
-            key = str(src)
-            if key in existing:
-                continue
-            item = QListWidgetItem(src.name)
-            item.setData(Qt.ItemDataRole.UserRole, key)
-            item.setToolTip(key)
-            self.clip_list.addItem(item)
-            existing.add(key)
-            added += 1
+        loose: list[str] = []
+        for raw in paths:
+            if Path(raw).expanduser().is_dir():
+                folder = str(Path(raw).expanduser())
+                found = collect_transcode_sources([folder], recursive=recursive)
+                added += self.clip_tree.add_sources(found, folder=folder)
+            else:
+                loose.append(raw)
+        if loose:
+            added += self.clip_tree.add_sources(collect_transcode_sources(loose))
         if added:
             self.log_message.emit(f"Transcode list: added {added} clip(s)")
         return added
@@ -699,20 +668,8 @@ class TranscodeTab(QWidget):
     def handle_dropped_path(self, path: str) -> bool:
         return self.add_paths([path]) > 0
 
-    def _item_for(self, source: str) -> QListWidgetItem | None:
-        for i in range(self.clip_list.count()):
-            item = self.clip_list.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == source:
-                return item
-        return None
-
     def _set_item_state(self, source: str, prefix: str, tip: str = "") -> None:
-        item = self._item_for(source)
-        if item is None:
-            return
-        name = Path(source).name
-        item.setText(f"{prefix} {name}" if prefix else name)
-        item.setToolTip(f"{source}\n{tip}" if tip else source)
+        self.clip_tree.set_status(source, prefix, tip)
 
     def _pick_files(self) -> None:
         exts = " ".join(f"*{e}" for e in sorted(transcode_source_suffixes()))
@@ -733,11 +690,10 @@ class TranscodeTab(QWidget):
                 self.log_message.emit(f"No video clips found in {folder}")
 
     def _remove_selected(self) -> None:
-        for item in self.clip_list.selectedItems():
-            self.clip_list.takeItem(self.clip_list.row(item))
+        self.clip_tree.remove_selected()
 
     def _clear_clips(self) -> None:
-        self.clip_list.clear()
+        self.clip_tree.clear_clips()
 
     def _pick_output_dir(self) -> None:
         folder = QFileDialog.getExistingDirectory(
@@ -749,11 +705,17 @@ class TranscodeTab(QWidget):
     # -- jobs --
 
     def current_settings(self) -> TranscodeSettings:
-        """Encode settings from the form (raises ValueError when invalid)."""
+        """Encode settings from the form (raises ValueError when invalid).
+
+        The input space is per clip (see :meth:`settings_for`); here it is the
+        output space, a placeholder that passes validation.
+        """
         watermark_text = ""
         if self.watermark_cb.isChecked():
             watermark_text = self.watermark_payload.text().strip()
-        color = self.color_enabled()
+        dst = self.dst_btn.current_space()
+        if not dst:
+            raise ValueError("Pick an output color space.")
         settings = TranscodeSettings(
             codec_key=self.codec_key(),
             container=self.container(),
@@ -766,20 +728,28 @@ class TranscodeTab(QWidget):
             crf=int(self.crf_spin.value()),
             bitrate_mbps=float(self.bitrate_spin.value()),
             preset=str(self.preset_combo.currentData() or DEFAULT_PRESET),
-            color_src=self.src_btn.current_space() if color else "",
-            color_dst=self.dst_btn.current_space() if color else "",
-            config_source=self._config_source if color else "",
-            config_path=self._config_path if color else "",
+            color_src=dst,
+            color_dst=dst,
+            config_source=self._config_source,
+            config_path=self._config_path,
             watermark_text=watermark_text,
             watermark_strength=float(self.watermark_strength.value()),
         )
         return validate_settings(settings)
+
+    def settings_for(self, source: str, base: TranscodeSettings) -> TranscodeSettings:
+        """*base* with *source*'s input space (raises ValueError when unset)."""
+        src_space = self.input_space(source)
+        if not src_space:
+            raise ValueError("No valid input color space. Pick one in the clip list.")
+        return replace(base, color_src=src_space)
 
     def _job_for(
         self, source: str, settings: TranscodeSettings, taken: set[str]
     ) -> TranscodeJob | None:
         """Build a job for *source*, or ``None`` if it is skipped."""
         try:
+            settings = self.settings_for(source, settings)
             out = plan_output(
                 source,
                 settings,
@@ -830,8 +800,7 @@ class TranscodeTab(QWidget):
     def cancel(self) -> None:
         self._queue.cancel_all()
         for src in self.clips():
-            item = self._item_for(src)
-            if item is not None and item.text().startswith("… "):
+            if self.clip_tree.status_text(src).startswith("… "):
                 self._set_item_state(src, "")
 
     def _on_job_started(self, source: str, _output: str) -> None:
@@ -853,8 +822,7 @@ class TranscodeTab(QWidget):
         if ok:
             self._set_item_state(source, _ICON_DONE, f"→ {output}")
         else:
-            item = self._item_for(source)
-            if item is not None and not item.text().startswith(_ICON_FAILED):
+            if not self.clip_tree.status_text(source).startswith(_ICON_FAILED):
                 self._set_item_state(source, "", "Cancelled")
 
     def _on_job_failed(self, source: str, error: str) -> None:
@@ -863,3 +831,4 @@ class TranscodeTab(QWidget):
     def shutdown(self) -> None:
         """Stop any running job (window close)."""
         self._queue.shutdown()
+        self.clip_tree.shutdown()
