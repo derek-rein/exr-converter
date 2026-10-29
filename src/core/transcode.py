@@ -86,7 +86,7 @@ TRANSCODE_CODEC_KEYS: tuple[str, ...] = (
     "hevc_12",
     "av1",
 )
-DEFAULT_TRANSCODE_CODEC = "prores"  # Apple ProRes 422 HQ (software)
+DEFAULT_TRANSCODE_CODEC = "prores"  # ProRes 422 HQ (software)
 
 # Long-GOP codecs take a quality (CRF) or bitrate setting. Intra codecs
 # (ProRes, DNxHR) are fixed by their profile.

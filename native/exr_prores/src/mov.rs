@@ -12,8 +12,8 @@ use std::path::Path;
 
 /// QuickTime `compressorname` written into the sample description.
 ///
-/// Neutral on purpose: this encoder is RDD 36 ProRes-compatible, not Apple
-/// ProRes, and the docs ask us not to call it "Apple ProRes". Max 31 bytes.
+/// Neutral on purpose: this encoder is RDD 36 ProRes-compatible.
+/// Max 31 bytes.
 pub const COMPRESSOR_NAME: &[u8] = b"RDD 36 ProRes-compatible";
 
 /// `colr` / `nclc` codes (H.273 numbering, as QuickTime uses them).
