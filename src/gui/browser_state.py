@@ -13,12 +13,13 @@ reopens as the user left it.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from PySide6.QtCore import QByteArray, QModelIndex, QSettings
-from PySide6.QtWidgets import QTreeView
+from PySide6.QtCore import QByteArray, QModelIndex, QPersistentModelIndex, QSettings, QTimer
+from PySide6.QtWidgets import QAbstractItemView, QTreeView
 
 from ..core.local_fs import path_is_dir
 
@@ -242,10 +243,59 @@ def collect_expanded_dirs(tree: QTreeView, model: DirTreeModel) -> list[str]:
     return out
 
 
-def expand_path_chain(tree: QTreeView, model: DirTreeModel, path: str) -> bool:
-    """Expand every ancestor of *path* (and the path itself if it is a dir)."""
+def _expand_to(tree: QTreeView, idx: QModelIndex, *, include_self: bool = True) -> None:
+    chain: list[QModelIndex] = []
+    cur = idx if include_self else idx.parent()
+    while cur.isValid():
+        chain.append(cur)
+        cur = cur.parent()
+    for node in reversed(chain):
+        tree.expand(node)
+
+
+def _scroll_to(tree: QTreeView, pidx: QPersistentModelIndex) -> None:
+    try:
+        if pidx.isValid():
+            tree.scrollTo(QModelIndex(pidx), QAbstractItemView.ScrollHint.PositionAtCenter)
+    except RuntimeError:
+        pass  # tree deleted
+
+
+def expand_path_chain(
+    tree: QTreeView,
+    model: DirTreeModel,
+    path: str,
+    *,
+    select: bool = False,
+    on_done: Callable[[QModelIndex], None] | None = None,
+) -> bool:
+    """Expand every ancestor of *path* (and *path* itself when it is a folder).
+
+    With a model that has ``reveal`` (the browsers' background tree), missing
+    levels are listed off the GUI thread and the expansion happens when they
+    arrive; *select* then makes *path* the current row and scrolls to it.
+    Returns ``False`` only when the path cannot be resolved right away by a
+    model without ``reveal``.
+    """
     if not path:
         return False
+    reveal = getattr(model, "reveal", None)
+    if callable(reveal):
+
+        def _done(idx: QModelIndex) -> None:
+            if idx.isValid():
+                _expand_to(tree, idx, include_self=model.isDir(idx))
+                if select:
+                    tree.setCurrentIndex(idx)
+                    # After the view has laid out the rows just inserted.
+                    pidx = QPersistentModelIndex(idx)
+                    QTimer.singleShot(0, lambda: _scroll_to(tree, pidx))
+            if on_done is not None:
+                on_done(idx)
+
+        reveal(path, _done)
+        return True
+
     try:
         p = Path(path)
         if p.is_file():
@@ -263,15 +313,11 @@ def expand_path_chain(tree: QTreeView, model: DirTreeModel, path: str) -> bool:
             return False
     if not idx.isValid():
         return False
-
-    chain: list[QModelIndex] = []
-    cur = idx
-    while cur.isValid():
-        chain.append(cur)
-        cur = cur.parent()
-    for node in reversed(chain):
-        if model.isDir(node):
-            tree.expand(node)
+    _expand_to(tree, idx, include_self=model.isDir(idx))
+    if select:
+        tree.setCurrentIndex(idx)
+    if on_done is not None:
+        on_done(idx)
     return True
 
 
@@ -281,21 +327,18 @@ def restore_tree_expanded(
     paths: list[str],
     focus_path: str = "",
 ) -> None:
-    """Expand *paths* (parents first) and optionally focus *focus_path*."""
+    """Expand *paths* (parents first) and optionally focus *focus_path*.
+
+    Never stats the saved paths on the GUI thread: a stale network path from
+    last session would block. The background tree skips paths that are gone.
+    """
     ordered = sorted({p for p in paths if p}, key=lambda p: (p.count(os.sep), p))
+    if not callable(getattr(model, "reveal", None)):
+        ordered = [p for p in ordered if path_is_dir(p) or model.index(p).isValid()]
     for p in ordered:
-        if path_is_dir(p) or model.index(p).isValid():
-            expand_path_chain(tree, model, p)
+        expand_path_chain(tree, model, p)
     if focus_path:
-        expand_path_chain(tree, model, focus_path)
-        idx = model.index(focus_path)
-        if not idx.isValid():
-            try:
-                idx = model.index(str(Path(focus_path).resolve()))
-            except (OSError, RuntimeError, ValueError):
-                idx = QModelIndex()
-        if idx.isValid():
-            tree.setCurrentIndex(idx)
+        expand_path_chain(tree, model, focus_path, select=True)
 
 
 def tree_vscroll_value(tree: QTreeView) -> int:

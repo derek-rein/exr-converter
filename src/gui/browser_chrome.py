@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
-import threading
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import (
     QDir,
     QObject,
+    QPointF,
     QRunnable,
     QSize,
     QStandardPaths,
@@ -16,10 +18,12 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QAction,
+    QColor,
     QGuiApplication,
     QIcon,
     QImage,
     QPainter,
+    QPen,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -37,7 +41,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.local_fs import can_probe_media, is_cloud_placeholder, path_is_dir
+from ..core.bg_worker import BackgroundWorker
+from ..core.dir_search import (
+    MAX_SEARCH_DEPTH,
+    MAX_SEARCH_RESULTS,
+    SEARCH_BATCH_SIZE,
+    run_dir_search_process,
+)
+from ..core.fs_skip import (
+    SEARCH_SKIP_ABSPATHS,
+    SEARCH_SKIP_DIRS,
+    SEARCH_SKIP_FILES,
+    SEARCH_SKIP_SUFFIXES,
+    VIDEO_EXTS,
+)
+from ..core.local_fs import can_probe_media, path_is_dir
 from .browser_path import folder_path_for_copy
 from .browser_state import (
     VIEW_GRID,
@@ -46,8 +64,11 @@ from .browser_state import (
     load_favorite_paths,
     save_favorite_paths,
 )
-from .browser_volumes import MultiRootDirModel, list_browser_volumes
+from .browser_tree import BrowserTreeModel, VolumePoller, background_pool
+from .browser_volumes import VolumeInfo
 from .style import _PALETTE, STATUS_DIM
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Shared places sidebar for browser dialogs
@@ -186,7 +207,8 @@ class _PlacesSidebar(QWidget):
         self._vol_header_row = 0
         self._vol_start = 1
         self._vol_end = 1
-        self._rebuild_volume_items()
+        # Filled by set_volumes() when the background volume poll returns.
+        self._volumes: list[VolumeInfo] | None = None
 
         _places_divider_item(self._list)
 
@@ -209,8 +231,10 @@ class _PlacesSidebar(QWidget):
         self._list.addItem(header)
         self._fav_start = self._list.count()
 
+        # No stat here: a favorite on an offline network share would block
+        # opening the dialog. Clicking a missing one just shows the error.
         for fav_path in load_favorite_paths():
-            if path_is_dir(fav_path):
+            if fav_path:
                 self._add_fav_item(fav_path)
 
         layout.addWidget(self._list, 1)
@@ -235,30 +259,43 @@ class _PlacesSidebar(QWidget):
 
         self._list.itemClicked.connect(self._on_clicked)
 
-    def refresh_volumes(self) -> None:
-        """Rescan mounted volumes in the places list."""
+    def set_volumes(self, volumes: list[VolumeInfo]) -> None:
+        """Show *volumes* under the Volumes header.
+
+        Rows are rebuilt only when the list changed. Rebuilding on every poll
+        re-laid out the sidebar every few seconds, which showed as a flicker
+        across the dialog (most visibly over the Preview player).
+        """
+        if self._volumes is not None and list(volumes) == self._volumes:
+            return
+        self._volumes = list(volumes)
         self._rebuild_volume_items()
+
+    def refresh_volumes(self) -> None:
+        """Kept for callers of the old API; volumes now arrive via :meth:`set_volumes`."""
 
     def _rebuild_volume_items(self) -> None:
         """Replace volume rows under the Volumes header without touching favorites."""
-        # Remove previous volume rows (from _vol_start to _vol_end exclusive).
-        while self._vol_end > self._vol_start:
-            self._list.takeItem(self._vol_start)
-            self._vol_end -= 1
-            self._fav_start = max(self._vol_start, self._fav_start - 1)
+        self._list.setUpdatesEnabled(False)
+        try:
+            while self._vol_end > self._vol_start:
+                self._list.takeItem(self._vol_start)
+                self._vol_end -= 1
+                self._fav_start = max(self._vol_start, self._fav_start - 1)
 
-        volumes = list_browser_volumes()
-        insert_at = self._vol_start
-        for vol in volumes:
-            # Prefer a disk glyph; system root gets a computer glyph.
-            icon = "\U0001f5a5" if vol.is_system_root else "\U0001f4be"
-            item = QListWidgetItem(f"{icon}  {vol.name}")
-            item.setData(Qt.ItemDataRole.UserRole, vol.path)
-            item.setToolTip(vol.path)
-            self._list.insertItem(insert_at, item)
-            insert_at += 1
-            self._fav_start += 1
-        self._vol_end = insert_at
+            insert_at = self._vol_start
+            for vol in self._volumes or []:
+                # Prefer a disk glyph; system root gets a computer glyph.
+                icon = "\U0001f5a5" if vol.is_system_root else "\U0001f4be"
+                item = QListWidgetItem(f"{icon}  {vol.name}")
+                item.setData(Qt.ItemDataRole.UserRole, vol.path)
+                item.setToolTip(vol.path)
+                self._list.insertItem(insert_at, item)
+                insert_at += 1
+                self._fav_start += 1
+            self._vol_end = insert_at
+        finally:
+            self._list.setUpdatesEnabled(True)
 
     def set_current_dir(self, path: str) -> None:
         self._current_dir = path
@@ -272,7 +309,8 @@ class _PlacesSidebar(QWidget):
 
     def _on_clicked(self, item: QListWidgetItem) -> None:
         path = item.data(Qt.ItemDataRole.UserRole)
-        if path and path_is_dir(path):
+        if path:
+            # The dialog lists the folder in the background; no stat here.
             self.navigate_requested.emit(path)
 
     def _add_current(self) -> None:
@@ -327,7 +365,7 @@ class _PlacesSidebar(QWidget):
         save_favorite_paths(favs)
 
 
-def _setup_dir_tree(tree: QTreeView, fs_model: MultiRootDirModel, places: _PlacesSidebar) -> None:
+def _setup_dir_tree(tree: QTreeView, fs_model: BrowserTreeModel, places: _PlacesSidebar) -> None:
     """Enable dragging folders to favorites + a right-click menu on a dir tree."""
     tree.setDragEnabled(True)
     tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
@@ -344,7 +382,7 @@ def _setup_dir_tree(tree: QTreeView, fs_model: MultiRootDirModel, places: _Place
         if not path:
             return
         menu = QMenu(tree)
-        if path_is_dir(path):
+        if fs_model.isDir(idx):
             menu.addAction("Add to Favorites", lambda: places.add_favorite(path))
         menu.addAction("Copy Full Path", lambda: _copy_to_clipboard(path))
         menu.exec(tree.viewport().mapToGlobal(pos))
@@ -352,7 +390,7 @@ def _setup_dir_tree(tree: QTreeView, fs_model: MultiRootDirModel, places: _Place
     tree.customContextMenuRequested.connect(_menu)
 
 
-def _tree_click_toggle_expand(tree: QTreeView, fs_model: MultiRootDirModel, index) -> None:
+def _tree_click_toggle_expand(tree: QTreeView, fs_model: BrowserTreeModel, index) -> None:
     """Single-click folder: expand if collapsed, collapse if already expanded.
 
     Branch-indicator clicks are handled by QTreeView itself (and do not emit
@@ -369,303 +407,260 @@ def _tree_click_toggle_expand(tree: QTreeView, fs_model: MultiRootDirModel, inde
 
 def _wire_volume_refresh(
     places: _PlacesSidebar,
-    model: MultiRootDirModel,
-    parent: QObject,
-) -> QTimer:
-    """Poll mounts so USB plug-in/eject updates places + tree roots."""
-
-    def _tick() -> None:
-        places.refresh_volumes()
-        model.refresh_volumes()
-
-    timer = QTimer(parent)
-    timer.setInterval(3000)
-    timer.timeout.connect(_tick)
-    timer.start()
-    return timer
+    model: BrowserTreeModel,
+    parent: QObject,  # noqa: ARG001 — kept for the old call signature
+) -> VolumePoller:
+    """Feed the places list from the tree model's background volume poller."""
+    poller = model.poller()
+    poller.volumes_changed.connect(places.set_volumes)
+    known = poller.volumes()
+    if known is not None:
+        places.set_volumes(known)
+    return poller
 
 
 # ---------------------------------------------------------------------------
 # Directory search: background worker + searchable tree panel
 # ---------------------------------------------------------------------------
 
-_SEARCH_SKIP_DIRS = frozenset(
-    {
-        # VCS
-        ".git",
-        ".svn",
-        ".hg",
-        ".bzr",
-        # Python
-        "__pycache__",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        "node_modules",
-        ".venv",
-        "venv",
-        ".env",
-        ".tox",
-        ".nox",
-        "build",
-        "dist",
-        ".eggs",
-        "site-packages",
-        # IDE
-        ".idea",
-        ".vscode",
-        ".vs",
-        # Temp / cache
-        ".cache",
-        ".tmp",
-        ".temp",
-        "tmp",
-        "temp",
-        # macOS
-        ".Trash",
-        ".Spotlight-V100",
-        ".fseventsd",
-        ".DocumentRevisions-V100",
-        ".TemporaryItems",
-        ".VolumeIcon.icns",
-        # System / library dirs (by name — catches nested occurrences too)
-        "System",
-        "Library",
-        "private",
-        "usr",
-        "bin",
-        "sbin",
-        "etc",
-        "var",
-        "opt",
-        # Windows
-        "Windows",
-        "ProgramData",
-        "Program Files",
-        "Program Files (x86)",
-        "$Recycle.Bin",
-        "System Volume Information",
-        "AppData",
-        "Recovery",
-        "PerfLogs",
-        # Linux
-        "proc",
-        "sys",
-        "dev",
-        "run",
-        "snap",
-        "lost+found",
-        # Package / app internals
-        ".app",
-        ".framework",
-        ".bundle",
-        ".plugin",
-        ".kext",
-        "__MACOSX",
-        "Frameworks",
-        "PlugIns",
-        # Cloud-client bookkeeping (Dropbox Smart Sync / File Provider)
-        ".dropbox",
-        ".dropbox.cache",
-        ".dropbox.device",
-        ".dropbox.attr",
-    }
-)
+_SEARCH_SKIP_DIRS = SEARCH_SKIP_DIRS
+_SEARCH_SKIP_ABSPATHS = SEARCH_SKIP_ABSPATHS
+_SEARCH_SKIP_FILES = SEARCH_SKIP_FILES
+_SEARCH_SKIP_SUFFIXES = SEARCH_SKIP_SUFFIXES
+_VIDEO_EXTS = VIDEO_EXTS
 
-_SEARCH_SKIP_ABSPATHS: frozenset[str] = frozenset(
-    {
-        "/System",
-        "/Library",
-        "/private",
-        "/usr",
-        "/bin",
-        "/sbin",
-        "/etc",
-        "/var",
-        "/opt",
-        "/cores",
-        "/dev",
-        "/proc",
-        "/sys",
-        "/run",
-        "/snap",
-        "C:\\Windows",
-        "C:\\Program Files",
-        "C:\\Program Files (x86)",
-        "C:\\ProgramData",
-        "C:\\$Recycle.Bin",
-        "C:\\Recovery",
-    }
-)
-
-_SEARCH_SKIP_FILES = frozenset(
-    {
-        ".DS_Store",
-        "Thumbs.db",
-        "desktop.ini",
-        "Icon\r",
-        ".localized",
-        ".CFUserTextEncoding",
-        ".com.apple.timemachine.donotpresent",
-    }
-)
-_SEARCH_SKIP_SUFFIXES = frozenset(
-    {
-        ".pyc",
-        ".pyo",
-        ".o",
-        ".obj",
-        ".class",
-        ".swp",
-        ".swo",
-        ".swn",
-        ".tmp",
-        ".bak",
-        ".orig",
-        ".partial",
-        ".crdownload",
-        ".download",
-    }
-)
-
-_VIDEO_EXTS = frozenset(
-    {
-        ".mp4",
-        ".mov",
-        ".mkv",
-        ".avi",
-        ".mxf",
-        ".webm",
-        ".m4v",
-        ".ts",
-        ".wmv",
-        ".flv",
-        ".f4v",
-        ".vob",
-        ".ogv",
-        ".ogg",
-        ".3gp",
-        ".3g2",
-        ".m2ts",
-        ".mts",
-        ".mpg",
-        ".mpeg",
-        ".m2v",
-        ".divx",
-        ".rm",
-        ".rmvb",
-        ".asf",
-        ".dv",
-        ".r3d",
-        ".nev",
-        ".braw",
-        ".ari",
-        ".arx",
-        ".crm",
-        ".mj2",
-    }
-)
-
-_MAX_SEARCH_DEPTH = 15
-_SEARCH_BATCH_SIZE = 60
-_MAX_SEARCH_RESULTS = 500
+_MAX_SEARCH_DEPTH = MAX_SEARCH_DEPTH
+_SEARCH_BATCH_SIZE = SEARCH_BATCH_SIZE
+_MAX_SEARCH_RESULTS = MAX_SEARCH_RESULTS
 _SEARCH_DEBOUNCE_MS = 200
 
 
 class _DirSearchWorker(QObject):
-    """Runs recursive directory searches on a background thread.
+    """Recursive folder / file name search, in a child process.
 
-    Each call to ``start_search`` cancels any in-flight search, creates a
-    fresh ``threading.Event``, and spawns a daemon thread.  Results stream
-    back via ``batch_ready`` in chunks for minimal signal overhead.
+    The walk itself is :func:`src.core.dir_search.run_dir_search_process`;
+    see :class:`~src.core.bg_worker.BackgroundWorker` for why it is not a
+    thread. ``start_search`` replaces any running query. Results stream back
+    via ``batch_ready`` in chunks, on the GUI thread.
     """
 
     batch_ready = Signal(list)
     search_finished = Signal(int)
+    _event = Signal(object)
 
     def __init__(
         self,
         parent: QObject | None = None,
         ext_filter: frozenset[str] | None = None,
         dirs_only: bool = False,
+        *,
+        use_process: bool = True,
     ):
         super().__init__(parent)
-        self._cancel: threading.Event = threading.Event()
         self._ext_filter = ext_filter
         self._dirs_only = dirs_only
+        self._use_process = use_process
+        self._token = 0
+        self._worker: BackgroundWorker | None = None
+        self._event.connect(self._on_event, Qt.ConnectionType.QueuedConnection)
+        self.destroyed.connect(lambda *_: self.shutdown())
 
     def start_search(self, root: str, query: str) -> None:
-        self._cancel.set()
-        cancel = threading.Event()
-        self._cancel = cancel
-        threading.Thread(target=self._run, args=(root, query, cancel), daemon=True).start()
+        self._token += 1
+        exts = sorted(self._ext_filter) if self._ext_filter is not None else None
+        self._ensure_worker().post(("search", self._token, root, query, exts, self._dirs_only))
 
     def cancel(self) -> None:
-        self._cancel.set()
+        self._token += 1
+        if self._worker is not None:
+            self._worker.post(("cancel",))
 
-    def _run(self, root: str, query: str, cancel: threading.Event) -> None:
-        query_lower = query.lower()
-        root_stripped = root.rstrip(os.sep)
-        root_len = len(root_stripped) + 1
-        batch: list[tuple[str, str, str, bool]] = []
-        total = 0
+    def shutdown(self) -> None:
+        w, self._worker = self._worker, None
+        if w is not None:
+            w.stop(timeout=0.5)
 
-        stack: list[tuple[str, int]] = [(root_stripped, 0)]
-        while stack:
-            if cancel.is_set():
-                return
-            dirpath, depth = stack.pop()
+    def _ensure_worker(self) -> BackgroundWorker:
+        if self._worker is not None and self._worker.crashed:
+            log.warning("Folder search process exited; continuing on a thread")
+            self._use_process = False
+            self._worker = None
+        if self._worker is None or not self._worker.is_alive():
+            signal = self._event
+
+            def deliver(event: tuple) -> None:
+                try:
+                    signal.emit(event)
+                except RuntimeError:
+                    pass  # QObject gone (dialog closed)
+
+            self._worker = BackgroundWorker(
+                run_dir_search_process, deliver, name="FolderSearch", use_process=self._use_process
+            )
+        return self._worker
+
+    def _on_event(self, event: object) -> None:
+        if not isinstance(event, tuple) or len(event) < 3 or event[1] != self._token:
+            return  # stale: an older query
+        if event[0] == "batch":
+            self.batch_ready.emit(list(event[2]))
+        elif event[0] == "done":
+            self.search_finished.emit(int(event[2]))
+
+
+class _BrowserJobs(QObject):
+    """Run a dialog's disk work on the shared browser pool.
+
+    ``run(fn, on_done)`` calls ``fn()`` on a worker thread and ``on_done(result)``
+    on the GUI thread (an exception is passed as the result). ``poster(cb)``
+    returns a thread-safe callable that queues ``cb(value)`` on the GUI thread,
+    for jobs that report row by row. Nothing is delivered after ``shutdown``.
+    """
+
+    _result = Signal(object, object)
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._alive = True
+        self._result.connect(self._dispatch, Qt.ConnectionType.QueuedConnection)
+
+    def run(self, fn: Callable[[], object], on_done: Callable[[object], None]) -> None:
+        post = self.poster(on_done)
+
+        def job() -> None:
             try:
-                scanner = os.scandir(dirpath)
-            except OSError:
+                res: object = fn()
+            except Exception as e:  # handed to on_done; logged for debugging
+                log.debug("Browser job failed", exc_info=True)
+                res = e
+            post(res)
+
+        background_pool().submit(job)
+
+    def poster(self, callback: Callable[[object], None]) -> Callable[[object], None]:
+        signal = self._result
+
+        def post(value: object) -> None:
+            try:
+                signal.emit(callback, value)
+            except RuntimeError:
+                pass  # dialog deleted
+
+        return post
+
+    def shutdown(self) -> None:
+        self._alive = False
+
+    def _dispatch(self, callback: object, value: object) -> None:
+        if self._alive and callable(callback):
+            callback(value)
+
+
+def _clear_icon() -> QIcon:
+    """Round grey "x" for search fields (drawn, so it centres the same everywhere)."""
+    icon = QIcon()
+    for edge in (14, 28):
+        pm = QPixmap(edge, edge)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(_PALETTE.get("FG_DIM", "#8a8a8a")))
+        p.drawEllipse(0, 0, edge, edge)
+        pen = QPen(QColor(_PALETTE.get("BG_INPUT", "#1e1e1e")))
+        pen.setWidthF(edge / 9.0)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        m = edge * 0.32
+        p.drawLine(QPointF(m, m), QPointF(edge - m, edge - m))
+        p.drawLine(QPointF(edge - m, m), QPointF(m, edge - m))
+        p.end()
+        icon.addPixmap(pm)
+    return icon
+
+
+class _SearchField(QLineEdit):
+    """Search box with its own clear button and busy spinner.
+
+    ``QLineEdit``'s built-in clear button is placed by the platform style and
+    sat low in the field on macOS once the app style sheet set padding and a
+    minimum height. These children are positioned in ``resizeEvent`` at the
+    exact vertical centre instead.
+    """
+
+    _SPINNER = "\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f"
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._clear_btn = QToolButton(self)
+        self._clear_btn.setIcon(_clear_icon())
+        self._clear_btn.setIconSize(QSize(14, 14))
+        self._clear_btn.setFixedSize(18, 18)
+        self._clear_btn.setCursor(Qt.CursorShape.ArrowCursor)
+        self._clear_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._clear_btn.setToolTip("Clear")
+        self._clear_btn.setStyleSheet(
+            "QToolButton { border: none; background: transparent; padding: 0; margin: 0; }"
+        )
+        self._clear_btn.clicked.connect(self._on_clear)
+        self._clear_btn.hide()
+
+        self._spinner = QLabel(self)
+        self._spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._spinner.setFixedSize(18, 18)
+        self._spinner.setStyleSheet("background: transparent; border: none; padding: 0;")
+        self._spinner.hide()
+        self._spin_idx = 0
+        self._spin_timer = QTimer(self)
+        self._spin_timer.setInterval(80)
+        self._spin_timer.timeout.connect(self._advance_spinner)
+
+        self.textChanged.connect(self._sync_buttons)
+        self._sync_buttons()
+
+    def clear_button(self) -> QToolButton:
+        return self._clear_btn
+
+    def set_busy(self, busy: bool) -> None:
+        if busy:
+            self._spin_idx = 0
+            self._advance_spinner()
+            self._spin_timer.start()
+        else:
+            self._spin_timer.stop()
+        self._spinner.setVisible(busy)
+        self._layout_children()
+
+    def is_busy(self) -> bool:
+        return self._spin_timer.isActive()
+
+    def _advance_spinner(self) -> None:
+        self._spinner.setText(self._SPINNER[self._spin_idx % len(self._SPINNER)])
+        self._spin_idx += 1
+
+    def _on_clear(self) -> None:
+        self.clear()
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+
+    def _sync_buttons(self, *_args) -> None:
+        self._clear_btn.setVisible(bool(self.text()))
+        self._layout_children()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
+        super().resizeEvent(event)
+        self._layout_children()
+
+    def _layout_children(self) -> None:
+        right = 4
+        reserved = 4
+        for w in (self._clear_btn, self._spinner):
+            if w.isHidden():
                 continue
-            with scanner:
-                for entry in scanner:
-                    if cancel.is_set():
-                        return
-                    name = entry.name
-                    try:
-                        is_dir = entry.is_dir(follow_symlinks=False)
-                    except OSError:
-                        continue
-
-                    name_lower = name.lower()
-                    ext_lower = os.path.splitext(name_lower)[1]
-
-                    if not is_dir and (
-                        self._dirs_only
-                        or name in _SEARCH_SKIP_FILES
-                        or name.startswith("._")
-                        or ext_lower in _SEARCH_SKIP_SUFFIXES
-                        or (self._ext_filter is not None and ext_lower not in self._ext_filter)
-                    ):
-                        pass
-                    elif query_lower in name_lower or query_lower == ext_lower:
-                        rel = entry.path[root_len:]
-                        batch.append((name, entry.path, rel, is_dir))
-                        total += 1
-                        if len(batch) >= _SEARCH_BATCH_SIZE:
-                            self.batch_ready.emit(batch)
-                            batch = []
-                        if total >= _MAX_SEARCH_RESULTS:
-                            if batch:
-                                self.batch_ready.emit(batch)
-                            self.search_finished.emit(total)
-                            return
-
-                    if (
-                        is_dir
-                        and depth < _MAX_SEARCH_DEPTH
-                        and name not in _SEARCH_SKIP_DIRS
-                        and not name.startswith(".")
-                        and entry.path not in _SEARCH_SKIP_ABSPATHS
-                        and not is_cloud_placeholder(entry.path, entry=entry)
-                    ):
-                        stack.append((entry.path, depth + 1))
-
-        if batch:
-            self.batch_ready.emit(batch)
-        self.search_finished.emit(total)
+            x = self.width() - right - w.width()
+            w.move(x, (self.height() - w.height()) // 2)
+            right += w.width() + 2
+            reserved += w.width() + 2
+        self.setTextMargins(0, 0, reserved, 0)
 
 
 class _SearchableTree(QWidget):
@@ -694,23 +689,14 @@ class _SearchableTree(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        self._search_edit = QLineEdit()
+        self._search_edit = _SearchField()
         self._search_edit.setPlaceholderText("\U0001f50d  Search folders\u2026")
-        self._search_edit.setClearButtonEnabled(True)
         layout.addWidget(self._search_edit)
-
-        self._spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        self._spinner_idx = 0
-        self._spinner_action = QAction(self._search_edit)
-        self._search_edit.addAction(self._spinner_action, QLineEdit.ActionPosition.TrailingPosition)
-        self._spinner_action.setVisible(False)
-        self._spinner_timer = QTimer(self)
-        self._spinner_timer.setInterval(80)
-        self._spinner_timer.timeout.connect(self._advance_spinner)
 
         layout.addWidget(tree, 1)
 
         self._results = QListWidget()
+        self._results.setUniformItemSizes(True)
         self._results.setVisible(False)
         layout.addWidget(self._results, 1)
 
@@ -720,11 +706,8 @@ class _SearchableTree(QWidget):
         layout.addWidget(self._search_status)
 
         self._worker = _DirSearchWorker(self, ext_filter=ext_filter, dirs_only=dirs_only)
-        # Emits come from plain threading.Thread — must queue onto the GUI thread.
-        self._worker.batch_ready.connect(self._on_batch, Qt.ConnectionType.QueuedConnection)
-        self._worker.search_finished.connect(
-            self._on_search_done, Qt.ConnectionType.QueuedConnection
-        )
+        self._worker.batch_ready.connect(self._on_batch)
+        self._worker.search_finished.connect(self._on_search_done)
 
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
@@ -738,34 +721,17 @@ class _SearchableTree(QWidget):
     def set_search_root(self, path: str) -> None:
         self._search_root = path
 
-    def _advance_spinner(self) -> None:
-        ch = self._spinner_frames[self._spinner_idx % len(self._spinner_frames)]
-        self._spinner_idx += 1
-        size = self._search_edit.fontMetrics().height()
-        pix = QPixmap(size, size)
-        pix.fill(Qt.GlobalColor.transparent)
-        p = QPainter(pix)
-        p.setPen(self._search_edit.palette().text().color())
-        p.setFont(self._search_edit.font())
-        p.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, ch)
-        p.end()
-        self._spinner_action.setIcon(QIcon(pix))
-
-    def _start_spinner(self) -> None:
-        self._spinner_idx = 0
-        self._spinner_action.setVisible(True)
-        self._advance_spinner()
-        self._spinner_timer.start()
-
-    def _stop_spinner(self) -> None:
-        self._spinner_timer.stop()
-        self._spinner_action.setVisible(False)
+    def shutdown(self) -> None:
+        """Stop the search process (dialog closing)."""
+        self._debounce.stop()
+        self._search_edit.set_busy(False)
+        self._worker.shutdown()
 
     def _on_text_changed(self, text: str) -> None:
         if not text.strip():
             self._worker.cancel()
             self._debounce.stop()
-            self._stop_spinner()
+            self._search_edit.set_busy(False)
             self._results.setVisible(False)
             self._tree.setVisible(True)
             self._search_status.setVisible(False)
@@ -781,22 +747,27 @@ class _SearchableTree(QWidget):
         self._tree.setVisible(False)
         self._search_status.setVisible(True)
         self._search_status.setText("Searching\u2026")
-        self._start_spinner()
+        self._search_edit.set_busy(True)
         root = self._search_root or QDir.homePath()
         self._worker.start_search(root, query)
 
     def _on_batch(self, items: list) -> None:
-        for name, _full_path, rel_path, is_dir in items:
-            icon = "\U0001f4c1" if is_dir else "\U0001f4c4"
-            parent = os.path.dirname(rel_path)
-            display = f"{icon}  {name}    {parent}" if parent else f"{icon}  {name}"
-            item = QListWidgetItem(display)
-            item.setData(Qt.ItemDataRole.UserRole, _full_path)
-            item.setToolTip(_full_path)
-            self._results.addItem(item)
+        self._results.setUpdatesEnabled(False)
+        try:
+            for name, full_path, rel_path, is_dir in items:
+                icon = "\U0001f4c1" if is_dir else "\U0001f4c4"
+                parent = os.path.dirname(rel_path)
+                display = f"{icon}  {name}    {parent}" if parent else f"{icon}  {name}"
+                item = QListWidgetItem(display)
+                item.setData(Qt.ItemDataRole.UserRole, full_path)
+                item.setData(Qt.ItemDataRole.UserRole + 1, bool(is_dir))
+                item.setToolTip(full_path)
+                self._results.addItem(item)
+        finally:
+            self._results.setUpdatesEnabled(True)
 
     def _on_search_done(self, total: int) -> None:
-        self._stop_spinner()
+        self._search_edit.set_busy(False)
         suffix = "s" if total != 1 else ""
         cap = " (limit reached)" if total >= _MAX_SEARCH_RESULTS else ""
         self._search_status.setText(f"{total} result{suffix}{cap}")
@@ -805,7 +776,9 @@ class _SearchableTree(QWidget):
         path = item.data(Qt.ItemDataRole.UserRole)
         if not path:
             return
-        target = path if os.path.isdir(path) else os.path.dirname(path)
+        # The walk already knows whether this is a folder: no stat here.
+        is_dir = bool(item.data(Qt.ItemDataRole.UserRole + 1))
+        target = path if is_dir else os.path.dirname(path)
         self.result_navigated.emit(target)
         self._search_edit.clear()
 

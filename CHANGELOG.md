@@ -13,8 +13,17 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- The browsers' folder tree shows media under each folder: image sequences as one row each (`plate.####.exr  1001-1100`) in the sequence browser, video files in the video browser. Click one to select it (and play it in Preview); double-click to open it.
+- Browser Preview has **In** and **Out** buttons (keys **I** / **O**) to mark a frame range. Playback loops inside it, and **Open** puts that range in the convert tab's **Frames** field.
+
 ### Changed
 
+- **Inspect** in the browsers is now called **Metadata**.
+- The browsers no longer read the disk on the UI thread. Folders in the tree are listed in the background the first time they open, folder contents show before their resolution, codec, and other columns fill in, and the Metadata pane, Preview loading, and mounted-drive checks run in the background. Slow, network, and Dropbox folders no longer beachball the dialog.
+- **Find sequence** indexing and **Search folders** run in a separate background process, so a large search no longer slows down the dialog.
+- Re-entering Preview on the same clip keeps its cache and in/out points instead of loading it again.
 - **Transcode** always converts color with OCIO. The clip list has an **Input color space** column filled in from each clip's metadata. Set a space on a folder row to apply it to every clip inside, or expand the folder and set clips one by one. One **Output space** applies to every clip.
 - **Transcode** shows the output space and invisible watermark in a plain **Color and watermark** section instead of a collapsed one.
 - Preferences → Invisible watermark: the payload defaults to `exrcnvrt` and the field only accepts up to 8 printable ASCII characters. Strength is held to 0.10–2.00.
@@ -23,6 +32,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Fixed
 
+- Preview flickered while scrubbing because the drive list in the sidebar was rebuilt every 3 seconds; it now changes only when a drive is added or removed.
+- The Mac boot drive was listed twice in the folder tree (again under `/Volumes`).
+- The clear button in the browser search fields was not vertically centred on macOS.
+- **Search folders** in the browsers skipped every subfolder on macOS (APFS folders looked like online-only cloud stubs), so it only found matches at the top level.
 - Opening a collapsed section (Transcode's **Color and watermark**) no longer lays out and repaints the whole tab twice. Only the section and the rows below it move.
 
 ---

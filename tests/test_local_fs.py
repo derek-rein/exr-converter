@@ -279,18 +279,19 @@ def test_search_skip_dirs_include_dropbox() -> None:
     assert ".partial" in _SEARCH_SKIP_SUFFIXES
 
 
-def test_fs_model_disables_cloud_hostile_options(qapp) -> None:
+def test_browser_tree_never_uses_qfilesystemmodel(qapp) -> None:
+    """The browsers' tree lists folders itself, off the GUI thread.
+
+    ``QFileSystemModel`` watched Dropbox folders (event storms that reset the
+    tree) and could ``stat`` on the GUI thread; the replacement model does
+    neither and has no file watcher at all.
+    """
     from PySide6.QtWidgets import QFileSystemModel
 
-    from src.gui.browser_volumes import MultiRootDirModel
+    from src.gui.browser_tree import BrowserTreeModel
 
-    model = MultiRootDirModel()
-    opts = getattr(QFileSystemModel, "Option", None)
-    if opts is None:
-        pytest.skip("QFileSystemModel.Option missing")
-    watch = getattr(opts, "DontWatchForChanges", None)
-    icons = getattr(opts, "DontUseCustomDirectoryIcons", None)
-    if watch is not None:
-        assert model._fs.testOption(watch) is True
-    if icons is not None:
-        assert model._fs.testOption(icons) is True
+    model = BrowserTreeModel()
+    try:
+        assert not model.findChildren(QFileSystemModel)
+    finally:
+        model.shutdown()

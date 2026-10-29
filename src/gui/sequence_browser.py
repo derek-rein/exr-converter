@@ -43,9 +43,10 @@ from PySide6.QtWidgets import (
 from ..core.constants import IMAGE_SEQUENCE_EXTS, is_image_sequence_ext
 from ..core.local_fs import can_probe_media, path_is_dir, path_is_file
 from ..core.sequence import (
+    list_image_sequences,
     looks_like_sequence_pattern,
     probe_exr_metadata,
-    scan_exr_sequences,
+    probe_sequence_header,
     sequence_pattern_stem,
 )
 from .browser_chrome import (
@@ -54,10 +55,12 @@ from .browser_chrome import (
     _SEQ_BROWSER_VIEW_PREVIEW,
     _SEQ_THUMB_ICON,
     _add_copy_path_actions,
+    _BrowserJobs,
     _configure_path_line_edit,
     _ElidingLabel,
     _PlacesSidebar,
     _SearchableTree,
+    _SearchField,
     _setup_dir_tree,
     _ThumbJob,
     _ThumbSignals,
@@ -86,13 +89,21 @@ from .browser_state import (
     settings_bool,
     tree_vscroll_value,
 )
-from .browser_volumes import MultiRootDirModel
+from .browser_tree import FILE_MODE_SEQUENCES, KIND_SEQUENCE, BrowserTreeModel
 from .player.sequence_player import SequencePlayer
 from .segmented_control import SegmentedControl
 from .sequence_search import SEARCH_DEBOUNCE_MS, SequenceHit, SequenceIndex
 from .style import STATUS_DIM
 
 log = logging.getLogger(__name__)
+
+
+def _same_dir(a: str, b: str) -> bool:
+    """Path equality without touching the disk (no resolve / stat on the GUI thread)."""
+    if not a or not b:
+        return False
+    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+
 
 # ---------------------------------------------------------------------------
 # Image sequence browser dialog (list / grid + metadata inspector)
@@ -153,12 +164,21 @@ class SequenceBrowserDialog(QDialog):
         self._thumb_pool = QThreadPool.globalInstance()
         self._player = None  # lazy SequencePlayer for in-dialog preview
         self._previewing = False
+        # Disk work (folder scan, header probes, metadata, preview prep) runs
+        # on the shared browser pool; generations drop stale replies.
+        self._jobs = _BrowserJobs(self)
+        self._scan_gen = 0
+        self._scanning = False
+        self._meta_gen = 0
+        self._preview_gen = 0
+        # In/out chosen in Preview, and the first frame of the sequence they belong to.
+        self._in_out_media = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        # ---- Top bar: folder path + List|Grid|Preview + Inspect ----
+        # ---- Top bar: folder path + List|Grid|Preview + Metadata ----
         path_row = QHBoxLayout()
         path_row.addWidget(QLabel("Folder:"))
         self._path_edit = QLineEdit()
@@ -182,7 +202,7 @@ class SequenceBrowserDialog(QDialog):
         self._view_seg.setToolTip("Sequence browser layout")
         path_row.addWidget(self._view_seg)
 
-        self._inspect_cb = QCheckBox("Inspect")
+        self._inspect_cb = QCheckBox("Metadata")
         self._inspect_cb.setToolTip("Show image metadata for the selected / previewed sequence")
         path_row.addWidget(self._inspect_cb)
         layout.addLayout(path_row)
@@ -193,10 +213,13 @@ class SequenceBrowserDialog(QDialog):
 
         # Multi-root: each mounted volume is a top-level row (macOS /Volumes is
         # hidden from QFileSystemModel under ``/``; Windows other drives too).
-        self._fs_model = MultiRootDirModel(self)
+        # Folders + image sequences (one row per sequence), listed in the background.
+        self._fs_model = BrowserTreeModel(self, file_mode=FILE_MODE_SEQUENCES)
         self._tree = QTreeView()
         self._tree.setModel(self._fs_model)
         self._tree.setHeaderHidden(True)
+        # Every row is one line: lets the view skip per-row size queries.
+        self._tree.setUniformRowHeights(True)
         self._tree.setMinimumWidth(200)
         tree_header = self._tree.header()
         tree_header.setStretchLastSection(True)
@@ -289,11 +312,10 @@ class SequenceBrowserDialog(QDialog):
 
         # Fuzzy sequence search over an in-memory index of folders visited in
         # this dialog. Results replace the list/grid while the field has text.
-        self._seq_search_edit = QLineEdit()
+        self._seq_search_edit = _SearchField()
         self._seq_search_edit.setPlaceholderText(
             "\U0001f50d  Find sequence (fuzzy, e.g. shot_010_comp)\u2026"
         )
-        self._seq_search_edit.setClearButtonEnabled(True)
         self._seq_search_edit.setToolTip(
             "Typo-tolerant search over image sequences in folders opened in this "
             "browser and their subfolders. Enter or click a result to jump to it."
@@ -319,7 +341,7 @@ class SequenceBrowserDialog(QDialog):
         self._view_stack.addWidget(self._search_page)  # 3 = search results
         center_layout.addWidget(self._view_stack, 1)
 
-        # -- Inspect panel (available in list, grid, and preview) --
+        # -- Metadata panel (available in list, grid, and preview) --
         self._meta_panel = QWidget()
         self._meta_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         meta_layout = QVBoxLayout(self._meta_panel)
@@ -334,7 +356,7 @@ class SequenceBrowserDialog(QDialog):
         self._meta_panel.setVisible(False)
         self._meta_panel.setMinimumWidth(160)
 
-        # content: list/grid/player + optional inspect
+        # content: list/grid/player + optional metadata
         self._content_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._content_splitter.addWidget(center)
         self._content_splitter.addWidget(self._meta_panel)
@@ -377,6 +399,7 @@ class SequenceBrowserDialog(QDialog):
         self._outer_splitter.splitterMoved.connect(lambda *_: self._schedule_layout_save())
         self._content_splitter.splitterMoved.connect(lambda *_: self._schedule_layout_save())
         self._tree.clicked.connect(self._on_tree_clicked)
+        self._tree.doubleClicked.connect(self._on_tree_double_clicked)
         self._table.itemSelectionChanged.connect(self._on_table_selection)
         self._table.cellDoubleClicked.connect(self._on_table_double_clicked)
         self._table.customContextMenuRequested.connect(self._on_table_context_menu)
@@ -416,7 +439,7 @@ class SequenceBrowserDialog(QDialog):
         self._search_results.itemClicked.connect(self._on_search_item_activated)
         self._fs_model.volumes_changed.connect(self._on_volumes_changed_index)
 
-        # Session restore: layout + inspect always; tree/selection when same dir.
+        # Session restore: layout + metadata pane always; tree/selection when same dir.
         settings = browser_qsettings()
         keys = self._keys
         saved_dir = str(settings.value(keys.last_dir, "") or "")
@@ -441,7 +464,7 @@ class SequenceBrowserDialog(QDialog):
             self._view_stack.setCurrentIndex(0)
         self._view_seg.currentIndexChanged.connect(self._on_view_changed)
 
-        # Inspect from last session (default on for sequences).
+        # Metadata pane from last session (default on for sequences).
         inspect_on = settings_bool(settings, keys.inspect, True)
         self._inspect_cb.blockSignals(True)
         self._inspect_cb.setChecked(inspect_on)
@@ -494,9 +517,15 @@ class SequenceBrowserDialog(QDialog):
         elif self._same_path_session and saved_dir and path_is_dir(saved_dir):
             self._navigate_to(saved_dir, restore_tree=True)
 
-        if self._pending_preview and self._seq_data:
-            self._view_seg.setCurrentData(VIEW_PREVIEW)
-        self._pending_preview = False
+        if self._pending_preview and self._scanning:
+            # Saved Preview mode: show the segment now; the player loads when
+            # the background scan has found something to play.
+            self._view_seg.blockSignals(True)
+            self._view_seg.setCurrentData(_SEQ_BROWSER_VIEW_PREVIEW)
+            self._view_seg.blockSignals(False)
+        else:
+            # Nothing to scan: a saved Preview mode has nothing to play.
+            self._drop_pending_preview()
 
     def _schedule_layout_save(self) -> None:
         """Debounce layout persistence while the user drags splitters/columns."""
@@ -554,7 +583,7 @@ class SequenceBrowserDialog(QDialog):
         keys = self._keys
         save_shared_geometry(self.saveGeometry(), settings)
         settings.setValue(keys.outer_split, self._outer_splitter.sizes())
-        # Only store content split when Inspect is open (hidden pane is 0-width).
+        # Only store content split when Metadata is open (hidden pane is 0-width).
         if self._meta_panel.isVisible():
             settings.setValue(keys.content_split, self._content_splitter.sizes())
         th = self._table.horizontalHeader()
@@ -626,11 +655,9 @@ class SequenceBrowserDialog(QDialog):
 
     def _navigate_to(self, directory: str, *, restore_tree: bool = False) -> None:
         # Stay on Preview if active — scan reloads the first sequence of the new folder.
-        expand_path_chain(self._tree, self._fs_model, directory)
-        idx = self._fs_model.index(directory)
-        if idx.isValid():
-            self._tree.setCurrentIndex(idx)
-            self._tree.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
+        # The tree lists missing levels in the background, then selects the folder.
+        expand_path_chain(self._tree, self._fs_model, directory, select=True)
+        self._fs_model.refresh(directory)
         if restore_tree:
             self._restore_tree_session(directory)
         self._path_edit.setText(directory)
@@ -651,19 +678,73 @@ class SequenceBrowserDialog(QDialog):
         except (TypeError, ValueError):
             scroll_val = -1
         if scroll_val >= 0:
-            # After model/layout settle so the bar range is meaningful.
-            QTimer.singleShot(0, lambda v=scroll_val: set_tree_vscroll(self._tree, v))
+            # Once the focused folder has been listed and laid out.
+            self._fs_model.reveal(
+                directory,
+                lambda _i, v=scroll_val: QTimer.singleShot(0, lambda: self._restore_vscroll(v)),
+            )
+
+    def _restore_vscroll(self, value: int) -> None:
+        """Last session's tree scroll, but never hiding the current folder."""
+        set_tree_vscroll(self._tree, value)
+        cur = self._tree.currentIndex()
+        if cur.isValid():
+            self._tree.scrollTo(cur, QAbstractItemView.ScrollHint.EnsureVisible)
 
     def _on_tree_clicked(self, index) -> None:
         path = self._fs_model.filePath(index)
         if not path:
             return
+        if self._fs_model.kind(index) == KIND_SEQUENCE:
+            self._select_tree_sequence(index)
+            return
         _tree_click_toggle_expand(self._tree, self._fs_model, index)
+        self._fs_model.refresh(path)
         self._path_edit.setText(path)
         self._places.set_current_dir(path)
         self._searchable_tree.set_search_root(path)
         self._seq_index.ensure_indexed(path)
         self._scan_directory(path)
+
+    def _select_tree_sequence(self, index) -> bool:
+        """Show a sequence row from the tree: open its folder and select it.
+
+        Returns True when the sequence is already selected in the list.
+        """
+        first = self._fs_model.first_frame(index)
+        directory = (
+            os.path.dirname(first) if first else os.path.dirname(self._fs_model.filePath(index))
+        )
+        if not directory:
+            return False
+        if _same_dir(directory, self._selected_dir) and self._seq_data and not self._scanning:
+            want = os.path.normpath(first)
+            for row, s in enumerate(self._seq_data):
+                if os.path.normpath(str(s.get("first_frame") or "")) == want:
+                    self._apply_selection(row)
+                    self._table.scrollToItem(
+                        self._table.item(row, 0), QAbstractItemView.ScrollHint.EnsureVisible
+                    )
+                    if self._view_seg.currentData() == _SEQ_BROWSER_VIEW_PREVIEW:
+                        self._load_preview_sequence()
+                    return True
+        self._auto_select_frame = first
+        self._path_edit.setText(directory)
+        self._places.set_current_dir(directory)
+        self._searchable_tree.set_search_root(directory)
+        self._seq_index.ensure_indexed(directory)
+        self._scan_directory(directory)
+        return False
+
+    def _on_tree_double_clicked(self, index) -> None:
+        """Double-click a sequence in the tree to open it."""
+        if self._fs_model.kind(index) != KIND_SEQUENCE:
+            return
+        if self._select_tree_sequence(index) and self._ok_btn.isEnabled():
+            self.accept()
+        else:
+            # Folder still scanning: open as soon as the row is selected.
+            self._accept_after_scan = True
 
     def _on_path_entered(self) -> None:
         """Navigate to a pasted/typed path (folder, frame file, or Nuke #### pattern)."""
@@ -716,9 +797,34 @@ class SequenceBrowserDialog(QDialog):
             settings.setValue(self._keys.view, _SEQ_BROWSER_VIEW_LIST)
             settings.setValue(self._keys.last_browse, _SEQ_BROWSER_VIEW_LIST)
 
+    def _drop_pending_preview(self) -> None:
+        """A saved / pasted Preview found nothing to play: back to the browse view."""
+        if not self._pending_preview:
+            return
+        self._pending_preview = False
+        if self._view_seg.currentData() == _SEQ_BROWSER_VIEW_PREVIEW:
+            self._view_seg.blockSignals(True)
+            self._view_seg.setCurrentData(self._last_browse_mode)
+            self._view_seg.blockSignals(False)
+            self._view_stack.setCurrentIndex(
+                1 if self._last_browse_mode == _SEQ_BROWSER_VIEW_GRID else 0
+            )
+
+    def is_scanning(self) -> bool:
+        """True while the current folder is still being read in the background."""
+        return self._scanning
+
     def _scan_directory(self, directory: str) -> None:
-        # Invalidate in-flight thumbnail jobs for the previous folder.
+        """Clear the list and read *directory* on a worker thread.
+
+        Listing is metadata only (fast even on Dropbox); header columns
+        (resolution, type, compression, colour space) fill in afterwards from
+        a second background pass, so a slow folder never freezes the dialog.
+        """
+        # Invalidate in-flight thumbnail / header / scan jobs for the previous folder.
         self._thumb_gen += 1
+        self._scan_gen += 1
+        gen = self._scan_gen
         self._table.setRowCount(0)
         self._grid.clear()
         self._selected_dir = directory
@@ -726,17 +832,31 @@ class SequenceBrowserDialog(QDialog):
         self._selected_frame_path = ""
         self._seq_data = []
         self._ok_btn.setEnabled(False)
+        self._meta_gen += 1
         self._meta_text.clear()
+        self._scanning = True
+        self._status.setText(f"Reading {Path(directory).name or directory}\u2026")
+        self._jobs.run(
+            lambda d=directory: list_image_sequences(d),
+            lambda result, g=gen, d=directory: self._on_scan_listed(g, d, result),
+        )
 
-        try:
-            seqs = scan_exr_sequences(directory)
-        except Exception as e:
-            self._status.setText(f"Error: {e}")
+    def _on_scan_listed(self, gen: int, directory: str, result: object) -> None:
+        if gen != self._scan_gen:
+            return  # the user moved on to another folder
+        self._scanning = False
+        accept_after = bool(getattr(self, "_accept_after_scan", False))
+        self._accept_after_scan = False
+        if isinstance(result, BaseException):
+            self._drop_pending_preview()
+            self._status.setText(f"Error: {result}")
             if self._view_seg.currentData() == _SEQ_BROWSER_VIEW_PREVIEW:
                 self._stop_preview_playback()
             return
+        seqs = list(result) if isinstance(result, list) else []
 
         if not seqs:
+            self._drop_pending_preview()
             self._status.setText(
                 f"No image sequences in this folder ({', '.join(sorted(IMAGE_SEQUENCE_EXTS))})."
             )
@@ -745,52 +865,13 @@ class SequenceBrowserDialog(QDialog):
             return
 
         self._seq_data = seqs
-        self._table.setRowCount(len(seqs))
-        for row, s in enumerate(seqs):
-            display_name = s.get("pattern", s["name"])
-            name_item = QTableWidgetItem(display_name)
-            name_item.setData(Qt.ItemDataRole.UserRole, s["name"])
-
-            frames_item = QTableWidgetItem(str(s["frames"]))
-            frames_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            )
-
-            range_item = QTableWidgetItem(s["range"])
-            range_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
-            )
-
-            res_item = QTableWidgetItem(s.get("resolution", ""))
-            res_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-
-            type_item = QTableWidgetItem(s.get("pixel_type", ""))
-            type_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-
-            comp_item = QTableWidgetItem(s.get("compression", ""))
-            comp_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-
-            cs_item = QTableWidgetItem(s.get("colorspace", ""))
-            cs_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-
-            self._table.setItem(row, 0, name_item)
-            self._table.setItem(row, 1, frames_item)
-            self._table.setItem(row, 2, range_item)
-            self._table.setItem(row, 3, res_item)
-            self._table.setItem(row, 4, type_item)
-            self._table.setItem(row, 5, comp_item)
-            self._table.setItem(row, 6, cs_item)
-
-            # Grid shell immediately (placeholder icon); thumbnails fill async.
-            res = s.get("resolution") or ""
-            caption = f"{display_name}\n{s['frames']}f"
-            if res:
-                caption += f"  {res}"
-            gitem = QListWidgetItem(self._placeholder_icon, caption)
-            gitem.setData(Qt.ItemDataRole.UserRole, row)
-            gitem.setTextAlignment(int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop))
-            gitem.setSizeHint(QSize(_SEQ_THUMB_ICON.width() + 24, _SEQ_THUMB_ICON.height() + 48))
-            self._grid.addItem(gitem)
+        self._table.setUpdatesEnabled(False)
+        self._grid.setUpdatesEnabled(False)
+        try:
+            self._fill_rows(seqs)
+        finally:
+            self._table.setUpdatesEnabled(True)
+            self._grid.setUpdatesEnabled(True)
 
         select_row = -1
         if self._auto_select_frame:
@@ -806,7 +887,7 @@ class SequenceBrowserDialog(QDialog):
                     select_row = row
                     break
         if select_row < 0 and seqs:
-            # Always pick a row so Open is enabled without an extra click / Inspect dance.
+            # Always pick a row so Open is enabled without an extra click / Metadata dance.
             # Preview mode always uses the first sequence (VFX: one seq per folder).
             select_row = 0
         if select_row >= 0:
@@ -826,11 +907,107 @@ class SequenceBrowserDialog(QDialog):
             self._status.setText(f"{n} sequence(s) found — Preview uses the first")
         else:
             self._status.setText(f"{n} sequence(s) found")
+
+        self._probe_headers(gen, seqs)
+
+        if accept_after and self._ok_btn.isEnabled():
+            QTimer.singleShot(0, self.accept)
+            return
+        was_pending = self._pending_preview
+        self._pending_preview = False
         mode = self._view_seg.currentData()
+        if was_pending and mode == _SEQ_BROWSER_VIEW_PREVIEW:
+            self._on_view_changed(0)  # switches the stack and loads the player
+            return
         if mode == _SEQ_BROWSER_VIEW_GRID:
             self._queue_thumbnails()
         elif mode == _SEQ_BROWSER_VIEW_PREVIEW:
             self._load_preview_sequence()
+
+    def _fill_rows(self, seqs: list[dict]) -> None:
+        self._table.setRowCount(len(seqs))
+        center = Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+        for row, s in enumerate(seqs):
+            display_name = s.get("pattern", s["name"])
+            name_item = QTableWidgetItem(display_name)
+            name_item.setData(Qt.ItemDataRole.UserRole, s["name"])
+
+            frames_item = QTableWidgetItem(str(s["frames"]))
+            frames_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+
+            range_item = QTableWidgetItem(s["range"])
+            range_item.setTextAlignment(center)
+
+            self._table.setItem(row, 0, name_item)
+            self._table.setItem(row, 1, frames_item)
+            self._table.setItem(row, 2, range_item)
+            for col, key in (
+                (3, "resolution"),
+                (4, "pixel_type"),
+                (5, "compression"),
+                (6, "colorspace"),
+            ):
+                item = QTableWidgetItem(str(s.get(key, "") or ""))
+                item.setTextAlignment(center)
+                self._table.setItem(row, col, item)
+
+            # Grid shell immediately (placeholder icon); thumbnails fill async.
+            gitem = QListWidgetItem(self._placeholder_icon, self._grid_caption(s))
+            gitem.setData(Qt.ItemDataRole.UserRole, row)
+            gitem.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+            gitem.setSizeHint(QSize(_SEQ_THUMB_ICON.width() + 24, _SEQ_THUMB_ICON.height() + 48))
+            self._grid.addItem(gitem)
+
+    @staticmethod
+    def _grid_caption(s: dict) -> str:
+        caption = f"{s.get('pattern', s['name'])}\n{s['frames']}f"
+        res = s.get("resolution") or ""
+        if res:
+            caption += f"  {res}"
+        return caption
+
+    def _probe_headers(self, gen: int, seqs: list[dict]) -> None:
+        """Fill resolution / type / compression / colour space off the GUI thread."""
+        todo = [
+            (row, str(s.get("first_frame") or "")) for row, s in enumerate(seqs) if s.get("probe")
+        ]
+        if not todo:
+            return
+        post = self._jobs.poster(lambda v, g=gen: self._on_header_probed(g, v))
+
+        def job() -> None:
+            for row, path in todo:
+                if gen != self._scan_gen:
+                    return  # folder changed: stop opening files for it
+                post((row, path, probe_sequence_header(path)))
+
+        self._jobs.run(job, lambda _r: None)
+
+    def _on_header_probed(self, gen: int, value: object) -> None:
+        if gen != self._scan_gen or not isinstance(value, tuple):
+            return
+        row, path, info = value
+        if not (0 <= row < len(self._seq_data)):
+            return
+        s = self._seq_data[row]
+        if str(s.get("first_frame") or "") != path:
+            return
+        s.update(info)
+        s["probe"] = ""
+        for col, key in (
+            (3, "resolution"),
+            (4, "pixel_type"),
+            (5, "compression"),
+            (6, "colorspace"),
+        ):
+            item = self._table.item(row, col)
+            if item is not None:
+                item.setText(str(info.get(key, "") or ""))
+        gitem = self._grid.item(row)
+        if gitem is not None:
+            gitem.setText(self._grid_caption(s))
 
     def _queue_thumbnails(self) -> None:
         """Dispatch background thumbnail jobs for the current folder (grid only)."""
@@ -896,8 +1073,12 @@ class SequenceBrowserDialog(QDialog):
             item.setIcon(QIcon(pixmap))
 
     def _first_frame_for_sequence(self, name: str, directory: str, *, cached: str = "") -> str:
-        """Resolve the first frame path for sequence *name* in *directory*."""
-        if cached and path_is_file(cached):
+        """Resolve the first frame path for sequence *name* in *directory*.
+
+        The background listing always records the first frame; trust it rather
+        than stat it on the GUI thread. The folder re-scan is a last resort.
+        """
+        if cached:
             return cached
         try:
             seqs = fileseq.findSequencesOnDisk(directory)
@@ -1062,10 +1243,38 @@ class SequenceBrowserDialog(QDialog):
             settings=browser_qsettings(),
             show_cache_ui=False,
             prefer_gpu=True,
+            show_in_out=True,
             parent=self._preview_page,
         )
+        self._player.in_out_changed.connect(self._on_in_out_changed)
         self._preview_host.addWidget(self._player, 1)
         return self._player
+
+    def selected_frame_range(self) -> str:
+        """``"first-last"`` from the Preview in/out points, or ``""``.
+
+        Only for the sequence being opened: in/out set on another sequence
+        does not carry over.
+        """
+        player = self._player
+        if player is None or not self._in_out_media:
+            return ""
+        if os.path.normpath(self._in_out_media) != os.path.normpath(
+            self._selected_frame_path or ""
+        ):
+            return ""
+        rng = player.in_out_range()
+        return f"{rng[0]}-{rng[1]}" if rng else ""
+
+    def _on_in_out_changed(self, in_point: object, out_point: object) -> None:
+        player = self._player
+        rng = player.in_out_range() if player is not None else None
+        if rng is None:
+            return
+        self._status.setText(
+            f"In {rng[0]} \u00b7 Out {rng[1]} ({rng[1] - rng[0] + 1} frames) \u2014 "
+            "Open uses this range"
+        )
 
     def _load_preview_sequence(self) -> None:
         """Load the first sequence in the current folder into the player.
@@ -1108,8 +1317,42 @@ class SequenceBrowserDialog(QDialog):
             self._status.setText("Could not resolve first frame for preview")
             return
 
+        player = self._player
+        if (
+            player is not None
+            and self._in_out_media
+            and os.path.normpath(path) == os.path.normpath(self._in_out_media)
+            and player.restart_prefetch()
+        ):
+            # Same sequence as last time (Space / Esc round trip): keep the
+            # cache and in/out instead of loading it again.
+            player.setFocus(Qt.FocusReason.OtherFocusReason)
+            self._status.setText(f"Preview · {s.get('pattern') or s.get('name')}")
+            return
+
+        ctx = self._preview_ctx
+        label = str(s.get("pattern") or s.get("name") or Path(path).name)
+        self._status.setText(f"Loading preview \u00b7 {label}\u2026")
+        # Listing the frames and probing colour attributes touch the disk:
+        # do it on a worker, then hand the result to the player.
+        self._preview_gen += 1
+        gen = self._preview_gen
+        cfg, src = ctx.ocio_cfg, ctx.src_colorspace or ""
+        self._jobs.run(
+            lambda p=path: SequencePlayer.prepare_sequence(p, ocio_cfg=cfg, src_colorspace=src),
+            lambda result, g=gen, p=path, lb=label: self._on_preview_prepared(g, p, lb, result),
+        )
+
+    def _on_preview_prepared(self, gen: int, path: str, label: str, result: object) -> None:
+        if gen != self._preview_gen or not self._previewing:
+            return
         ctx = self._preview_ctx
         fps = float(ctx.fps) if ctx.fps and ctx.fps > 0 else 24.0
+        self._in_out_media = ""
+        if isinstance(result, BaseException):
+            log.warning("Preview load failed for %s: %s", path, result)
+            self._status.setText(f"Preview failed: {result}")
+            return
 
         try:
             player = self._ensure_player()
@@ -1124,13 +1367,14 @@ class SequenceBrowserDialog(QDialog):
                 fps=fps,
                 ocio_cfg=ctx.ocio_cfg,
                 src_colorspace=ctx.src_colorspace or "",
+                prepared=result if isinstance(result, dict) else None,
             )
         except Exception as e:
             log.exception("Preview load failed for %s", path)
             self._status.setText(f"Preview failed: {e}")
             return
 
-        label = str(s.get("pattern") or s.get("name") or Path(path).name)
+        self._in_out_media = path if ok else ""
         n = len(self._seq_data)
         if ok:
             extra = f" · {n} sequences (using first)" if n > 1 else ""
@@ -1138,8 +1382,6 @@ class SequenceBrowserDialog(QDialog):
         else:
             self._status.setText(f"No frames found for {label}")
         self.setWindowTitle(f"Browse Image Sequences — {label}")
-        if self._meta_panel.isVisible():
-            self._show_metadata(0)
         player.setFocus(Qt.FocusReason.OtherFocusReason)
         QTimer.singleShot(0, player.fit_in_view)
 
@@ -1189,9 +1431,15 @@ class SequenceBrowserDialog(QDialog):
                     self._apply_selection(rows[0].row())
         if not self._selected_name:
             return
+        # Read in/out before the player is shut down.
+        self._accepted_frame_range = self.selected_frame_range()
         self._shutdown_browser_workers()
         self._save_browser_layout()
         super().accept()
+
+    def accepted_frame_range(self) -> str:
+        """Frame range from the Preview in/out points at Open, or ``""``."""
+        return str(getattr(self, "_accepted_frame_range", "") or "")
 
     def reject(self) -> None:
         # Always close the dialog. Escape already leaves Preview via keyPressEvent /
@@ -1215,8 +1463,12 @@ class SequenceBrowserDialog(QDialog):
         ``QObject::~QObject``).
         """
         self._previewing = False
-        # Invalidate in-flight thumb jobs.
+        # Invalidate in-flight thumb / scan / probe jobs.
         self._thumb_gen += 1
+        self._scan_gen += 1
+        self._jobs.shutdown()
+        self._fs_model.shutdown()
+        self._searchable_tree.shutdown()
         self._shutdown_seq_index()
         player = self._player
         # Keep self._player set until after shutdown so slots still resolve if a
@@ -1240,7 +1492,7 @@ class SequenceBrowserDialog(QDialog):
     def _toggle_inspect(self, checked: bool) -> None:
         self._meta_panel.setVisible(checked)
         if checked:
-            # Prefer last Inspect width from QSettings; otherwise a modest default.
+            # Prefer last Metadata width from QSettings; otherwise a modest default.
             total = sum(self._content_splitter.sizes())
             if total <= 0:
                 total = max(self._content_splitter.width(), 640)
@@ -1269,27 +1521,49 @@ class SequenceBrowserDialog(QDialog):
         return -1
 
     def _show_metadata(self, row: int) -> None:
+        """Fill the Metadata pane for *row*; the header is read on a worker thread."""
+        self._meta_gen += 1
+        gen = self._meta_gen
         if row < 0 or row >= len(self._seq_data):
             self._meta_text.setPlainText("")
             return
         s = self._seq_data[row]
-        directory = s["path"]
-        name = s["name"]
-        first_path = self._first_frame_for_sequence(
-            name, directory, cached=str(s.get("first_frame") or "")
-        )
+        first_path = str(s.get("first_frame") or "")
         if not first_path:
             self._meta_text.setPlainText("Could not locate first frame.")
             return
-        if not can_probe_media(first_path):
+        if not s.get("probe") and not any(
+            s.get(k) for k in ("resolution", "pixel_type", "compression", "colorspace")
+        ):
+            # Listing found it online-only: never open (that downloads it).
             self._meta_text.setPlainText(
                 "This file is not fully local (cloud placeholder / online-only).\n"
-                "Download it in Dropbox, iCloud, or OneDrive before Inspect or Preview.\n"
+                "Download it in Dropbox, iCloud, or OneDrive before Metadata or Preview.\n"
                 f"Path: {first_path}"
             )
             return
+        self._meta_text.setPlainText(f"File: {Path(first_path).name}\n\nReading metadata\u2026")
 
-        meta = probe_exr_metadata(first_path)
+        def job(p: str = first_path) -> object:
+            if not can_probe_media(p):
+                return None
+            return probe_exr_metadata(p)
+
+        self._jobs.run(job, lambda meta, g=gen, p=first_path: self._on_metadata(g, p, meta))
+
+    def _on_metadata(self, gen: int, first_path: str, meta: object) -> None:
+        if gen != self._meta_gen:
+            return
+        if meta is None:
+            self._meta_text.setPlainText(
+                "This file is not fully local (cloud placeholder / online-only).\n"
+                "Download it in Dropbox, iCloud, or OneDrive before Metadata or Preview.\n"
+                f"Path: {first_path}"
+            )
+            return
+        if isinstance(meta, BaseException) or not isinstance(meta, dict):
+            self._meta_text.setPlainText(f"File: {Path(first_path).name}\n\nerror: {meta}")
+            return
         lines = [f"File: {Path(first_path).name}", ""]
         for k, v in meta.items():
             lines.append(f"{k}: {v}")
