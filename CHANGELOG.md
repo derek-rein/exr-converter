@@ -18,16 +18,32 @@ rolling the `[Unreleased]` section into a versioned heading.
 - The macOS Quick Look preview has the player's controls: exposure gain, gamma, an input color space menu, and an OCIO display / view menu with every SDR view of the sRGB and Display P3 displays. It remembers the view you pick.
 - Quick Look reads the EXR header to pick the input color space, in the same order as the player (`exrconverter:dstColorSpace`, `colorInteropID`, chromaticities, `oiio:ColorSpace`). Log and video spaces from the config work as well as linear ones.
 - Quick Look caches decoded frames and reads ahead on several threads, with a green cache bar under a frame ruler like the player's, plus previous / play / next buttons and the file's resolution.
+- The browsers' folder tree shows media under each folder: image sequences as one row each (`plate.####.exr  1001-1100`) in the sequence browser, video files in the video browser. Click one to select it (and play it in Preview); double-click to open it.
+- Browser Preview has **In** and **Out** buttons (keys **I** / **O**) to mark a frame range. Playback loops inside it, and **Open** puts that range in the convert tab's **Frames** field.
 
 ### Changed
 
 - Software and VideoToolbox codec labels say ProRes 422 / 4444 (`.mov`) without a vendor name. Docs and the About dialog use the same wording.
 - Docs describe `.crm` as camera RAW plugin support and no longer list unsupported camera RAW extensions.
 - On a Display P3 screen, Quick Look now opens in the config's Display P3 view (`ACES 2.0 - SDR 100 nits (P3 D65)` on the bundled config) and tags the picture as Display P3. Other screens keep sRGB.
+- **Inspect** in the browsers is now called **Metadata**.
+- The browsers no longer read the disk on the UI thread. Folders in the tree are listed in the background the first time they open, folder contents show before their resolution, codec, and other columns fill in, and the Metadata pane, Preview loading, and mounted-drive checks run in the background. Slow, network, and Dropbox folders no longer beachball the dialog.
+- **Find sequence** indexing and **Search folders** run in a separate background process, so a large search no longer slows down the dialog.
+- Re-entering Preview on the same clip keeps its cache and in/out points instead of loading it again.
+- **Transcode** always converts color with OCIO. The clip list has an **Input color space** column filled in from each clip's metadata. Set a space on a folder row to apply it to every clip inside, or expand the folder and set clips one by one. One **Output space** applies to every clip.
+- **Transcode** shows the output space and invisible watermark in a plain **Color and watermark** section instead of a collapsed one.
+- Preferences → Invisible watermark: the payload defaults to `exrcnvrt` and the field only accepts up to 8 printable ASCII characters. Strength is held to 0.10–2.00.
+- Preferences: sections no longer stretch to fill the window, so the Slate box has no empty space below **Thumbnail frame**.
+- The Video → Proxy watch folder is no longer a collapsed section. Its folder, options, and **Start Watching** are always shown in one row, and the status is in the group title.
 
 ### Fixed
 
 - Quick Look sequence playback no longer runs slower than 24 fps. The wait for the next frame used to start after the current frame finished decoding, so decode time was added to every frame.
+- Preview flickered while scrubbing because the drive list in the sidebar was rebuilt every 3 seconds; it now changes only when a drive is added or removed.
+- The Mac boot drive was listed twice in the folder tree (again under `/Volumes`).
+- The clear button in the browser search fields was not vertically centred on macOS.
+- **Search folders** in the browsers skipped every subfolder on macOS (APFS folders looked like online-only cloud stubs), so it only found matches at the top level.
+- Opening a collapsed section (Transcode's **Color and watermark**) no longer lays out and repaints the whole tab twice. Only the section and the rows below it move.
 
 ---
 

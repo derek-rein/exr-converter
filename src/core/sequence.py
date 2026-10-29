@@ -437,6 +437,80 @@ def probe_exr_metadata(filepath: str) -> dict[str, str]:
     return result
 
 
+def list_image_sequences(directory: str) -> list[dict]:
+    """List supported image sequences in *directory* without opening any frame.
+
+    Same rows as :func:`scan_exr_sequences` with the header fields
+    (``resolution``, ``pixel_type``, ``compression``, ``colorspace``) left
+    empty. ``probe`` is ``"1"`` when the first frame is local and safe to open
+    with :func:`probe_sequence_header`, ``""`` for cloud placeholders.
+    Metadata only (``scandir``), so it is quick on slow folders.
+    """
+    results = []
+    for s in _find_image_seqs(directory):
+        frame_list = sorted(s.frameSet())
+        range_str = s.frameRange() if frame_list else "?"
+        first_path = s.frame(frame_list[0]) if frame_list else ""
+        ext = s.extension()
+        results.append(
+            {
+                "name": s.basename().rstrip("._"),
+                "pattern": sequence_pattern_name(s),
+                "frames": len(frame_list),
+                "range": range_str,
+                "resolution": "",
+                "pixel_type": "",
+                "compression": "",
+                "colorspace": "",
+                "path": directory,
+                "first_frame": first_path,
+                "extension": ext.lower() if ext else "",
+                "probe": "1" if first_path and can_probe_media(first_path) else "",
+            }
+        )
+    return results
+
+
+def probe_sequence_header(first_path: str) -> dict[str, str]:
+    """Header fields for a browser row, from one open of the first frame.
+
+    Returns ``resolution`` (``W×H``), ``pixel_type``, ``compression`` and
+    ``colorspace`` (empty strings when unknown). Never raises.
+    """
+    out = {"resolution": "", "pixel_type": "", "compression": "", "colorspace": ""}
+    if not first_path:
+        return out
+    is_dng = first_path.lower().endswith(".dng")
+    if is_dng:
+        # OIIO reports the raw sensor size for DNG; use the display size.
+        w, h = _probe_resolution(first_path)
+        out["resolution"] = f"{w}\u00d7{h}" if w and h else ""
+    try:
+        import OpenImageIO as oiio
+
+        inp = oiio.ImageInput.open(first_path)
+        if not inp:
+            return out
+        try:
+            spec = inp.spec()
+            w = spec.full_width if spec.full_width > 0 else spec.width
+            h = spec.full_height if spec.full_height > 0 else spec.height
+            if not is_dng:
+                out["resolution"] = f"{w}\u00d7{h}" if w and h else ""
+            out["pixel_type"] = str(spec.format)
+            comp = spec.getattribute("compression")
+            if comp:
+                out["compression"] = str(comp)
+            cs = spec.getattribute("oiio:ColorSpace")
+            if cs:
+                out["colorspace"] = str(cs)
+        finally:
+            inp.close()
+    except Exception:
+        pass
+    return out
+
+
 def scan_exr_sequences(directory: str) -> list[dict]:
     """Return metadata dicts for every supported image sequence found in *directory*.
 
@@ -447,58 +521,16 @@ def scan_exr_sequences(directory: str) -> list[dict]:
         resolution - "W×H" string from the first frame
         path       - the directory scanned
         extension  - file extension including the leading dot (e.g. ".exr")
+
+    Opens the first frame of every sequence. The browsers use
+    :func:`list_image_sequences` + :func:`probe_sequence_header` off the GUI
+    thread instead.
     """
-    results = []
-    for s in _find_image_seqs(directory):
-        fs = s.frameSet()
-        frame_list = sorted(fs)
-        range_str = s.frameRange() if frame_list else "?"
-
-        first_path = s.frame(frame_list[0]) if frame_list else ""
-        can_open = bool(first_path) and can_probe_media(first_path)
-        w, h = _probe_resolution(first_path) if can_open else (0, 0)
-        res_str = f"{w}\u00d7{h}" if w and h else ""
-
-        pixel_type = ""
-        compression = ""
-        colorspace = ""
-        if can_open:
-            try:
-                import OpenImageIO as oiio
-
-                inp = oiio.ImageInput.open(first_path)
-                if inp:
-                    spec = inp.spec()
-                    pixel_type = str(spec.format)
-                    comp = spec.getattribute("compression")
-                    if comp:
-                        compression = str(comp)
-                    cs = spec.getattribute("oiio:ColorSpace")
-                    if cs:
-                        colorspace = str(cs)
-                    inp.close()
-            except Exception:
-                pass
-
-        ext = s.extension()
-        pattern = sequence_pattern_name(s)
-
-        results.append(
-            {
-                "name": s.basename().rstrip("._"),
-                "pattern": pattern,
-                "frames": len(frame_list),
-                "range": range_str,
-                "resolution": res_str,
-                "pixel_type": pixel_type,
-                "compression": compression,
-                "colorspace": colorspace,
-                "path": directory,
-                "first_frame": first_path,
-                "extension": ext.lower() if ext else "",
-            }
-        )
-    return results
+    rows = list_image_sequences(directory)
+    for row in rows:
+        if row.pop("probe", ""):
+            row.update(probe_sequence_header(str(row["first_frame"])))
+    return rows
 
 
 def _scan_dir_and_pattern(

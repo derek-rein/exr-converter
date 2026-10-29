@@ -27,7 +27,7 @@ from a Read. See [nuke.md](./nuke.md).
 | **Video → EXR** | Decode video → OCIO → EXR sequence | **Ingest only.** Slate, burn-in, and watermark are never applied. Output is an EXR sequence, not a video or a still. The output field uses ``name.####.exr``; that basename is written (not forced to the video stem). Accepts common video containers plus optional **`.r3d` / `.nev`** when the [R3D SDK bridge](./r3d.md) is available (browser thumbs and player preview use low-res R3D decode; convert is full quality: **Metal GPU** on macOS, **CUDA / OpenCL** on Windows. The RHEL 8 package does not include the RED runtime (those libraries need glibc 2.29), so `.r3d` and `.nev` are unavailable there. Camera and timecode metadata lands on the EXRs) and optional **`.braw`** when the [Blackmagic RAW bridge](./braw.md) is available (Linear ACES AP0 / `ACES2065-1`; **Metal** on macOS, **CUDA / OpenCL** on Windows and Linux, CPU fallback). |
 | **EXR → Video** | Image sequence → OCIO → video | OpenEXR primary; also CinemaDNG (`.dng`), DPX, PNG, JPEG, and WebP as **inputs**. Output is a video file. Slate, burn-in, and watermark use that tab’s controls. Sequences may use ``name.####.ext`` or ``name_####.ext`` pads. DJI CinemaDNG is tagged Linear P3-D60 with +1.4 stops already applied. See [CinemaDNG](./cinemadng.md). |
 | **Video → Proxy** | Video → smaller video (no OCIO) | Batch editing proxies plus a **watch folder**, modelled on DaVinci Resolve proxy generation. See [Video → Proxy](#video--proxy). |
-| **Transcode** | Video → video (optional OCIO) | Batch transcodes to ProRes, DNxHR, H.264, HEVC, or AV1 with size, frame rate, audio, quality, naming, and an optional color transform. See [Transcode](#transcode). |
+| **Transcode** | Video → video (OCIO) | Batch transcodes to ProRes, DNxHR, H.264, HEVC, or AV1 with size, frame rate, audio, quality, naming, and an OCIO conversion with an input space per folder or clip. See [Transcode](#transcode). |
 
 Dragging the **Log** splitter up does not squash Input / Output / Options
 fields. Those controls keep a fixed readable height, and the convert form
@@ -65,27 +65,51 @@ opens **Preview** so you can hit **Open** immediately.
 Display-encoded stills (PNG/JPEG/WebP) auto-suggest an **sRGB** source color
 space; EXR, CinemaDNG, and DPX default toward scene-linear / metadata.
 
-**Views:** the top bar has **List | Grid | Preview** plus **Inspect** (always
-available). **List** is the metadata table; **Grid** shows first-frame
+**Views:** the top bar has **List | Grid | Preview** plus **Metadata** (always
+available; it shows the image header of the selected sequence). **List** is the metadata table; **Grid** shows first-frame
 thumbnails (async OIIO downscale; EXR/DPX get a cheap display curve).
 **Preview** plays the **currently selected** sequence (or the first listed row
-if nothing is selected). To preview another sequence, return to List/Grid,
-select it, then enter Preview again. Folder tree and path stay visible.
+if nothing is selected). To preview another sequence, click it in the folder
+tree, or return to List/Grid, select it, then enter Preview again. Folder tree
+and path stay visible.
 Browser Preview uses the same GPU OCIO `SequencePlayer` as the slate editor
 (the GL widget is created with the dialog before show). **Space** toggles
 Preview ↔ last list/grid mode; **Esc** leaves Preview; **Left/Right** step
-frames. Double-click or **Open** commits the **selected** sequence via its
+frames.
+
+**In / out points:** Preview has **In** and **Out** buttons next to the
+timeline (keys **I** and **O** set them at the current frame; **✕** clears
+both). The timeline dims the frames outside the range and playback loops
+inside it. When you press **Open**, the in-out range goes into the convert
+tab's **Frames** field instead of the full source range (**↺** next to the
+field still resets to the full range). The video browser works the same way,
+with 1-based frame numbers like Video → EXR. In/out belongs to the clip it was
+set on: selecting another clip clears it.
+
+Double-click or **Open** commits the **selected** sequence via its
 **first-frame path** (not the folder alone), so multi-sequence directories keep
 the chosen basename through convert, restore, and slate. Typing only a
 directory still resolves a default sequence on disk (EXR first, then DPX;
 prefers a basename matching the folder name when several sequences share the
 folder). The slate editor reuses the player with live burn-in/watermark overlays.
 
+**Folder tree:** the tree shows folders and, under each folder, its media:
+image sequences collapsed to one row each (``plate.####.exr  1001-1100``) in
+the sequence browser, and video files in the video browser. Click a sequence
+or clip to select it in the list (and play it when Preview is on);
+double-click it to open it. Each folder is listed in the background the first
+time you expand it and kept while the dialog is open, so slow, network, or
+cloud folders never freeze the dialog; a folder you click again is re-listed
+in the background after a few seconds and new or removed items are merged in.
+The list's resolution, type, compression, codec, and duration columns, the
+Metadata pane, and Preview loading are read in the background too, so rows
+appear first and those details fill in.
+
 **Find sequence (fuzzy search):** the field above the sequence list searches
 image sequences by name, tolerating typos and partial names (``shto_010_comp``
 or ``010_comp`` finds ``shot_010_comp``). Each folder you open in the browser
-is indexed with its subfolders in the background, so the dialog stays
-responsive and results fill in while indexing runs. Results replace the list
+is indexed with its subfolders in a separate background process, so indexing
+never slows down the dialog, and results fill in while indexing runs. Results replace the list
 while the field has text: up to 50 sequences, best match first, each showing
 its pattern, frame count, range, and folder. Click a result, or press **Enter**
 for the highlighted one (**Up/Down** move the highlight), to jump to its folder
@@ -102,11 +126,11 @@ hidden folders, and system folders are skipped.
 volumes are hidden. They share the media extension but are resource-fork
 metadata, not video. RED **`.RMD`** metadata files are never listed (not a
 video extension). Selecting **`.r3d` / `.nev` / `.braw`** uses the optional
-SDK bridges for listing, **Inspect**, Preview, and grid thumbs. Never
+SDK bridges for listing, **Metadata**, Preview, and grid thumbs. Never
 PyAV/FFmpeg (those containers are not libav-safe). Without the SDK, the clip
-still appears; Inspect shows SDK missing. **`.crm`** is camera RAW plugin
+still appears; Metadata shows SDK missing. **`.crm`** is camera RAW plugin
 support for `.crm` and is never opened with PyAV. Without a source plugin, the codec column shows
-**Camera RAW (plugin not installed)**, and Inspect and convert report
+**Camera RAW (plugin not installed)**, and Metadata and convert report
 **Camera RAW plugin not installed**. Release builds can include the optional
 plugin; its runtime notices stay inside the app bundle.
 
@@ -116,7 +140,7 @@ files, Windows recall-on-open attributes, ``*.partial`` downloads). The
 browsers **list those names** but do **not** open them for sequence headers,
 video probes, or grid thumbnails. That would hang the UI while the client
 downloads. Online-only videos show **Online-only** in the Codec column.
-Inspect / Preview / convert of a stub still needs the client to hydrate the
+Metadata / Preview / convert of a stub still needs the client to hydrate the
 file (open it once in Finder, or pin it locally). Search skips ``.dropbox``
 cache directories and does not recurse into dataless folders.
 
@@ -139,23 +163,24 @@ in the folder tree and under a **Volumes** heading in the places sidebar
 
 | Platform | What you see |
 |----------|----------------|
-| **macOS** | Boot volume (e.g. Macintosh HD) plus each entry under `/Volumes` (USB, network, disk images). macOS hides `/Volumes` from a plain “root `/`” file model, so sticks would otherwise be invisible. |
+| **macOS** | Boot volume (e.g. Macintosh HD) plus each entry under `/Volumes` (USB, network, disk images). The `/Volumes` folder itself is not listed under the boot volume, so each drive appears once. |
 | **Windows** | Each drive letter (`C:\`, `D:\`, …), not only the system drive. |
 | **Linux** | `/` plus user-facing mounts (typically `/media/…`, `/mnt/…`, `/run/media/…`); pseudo filesystems (`proc`, `sysfs`, …) are omitted. |
 
-The list refreshes every few seconds while Browse is open so plug-in / eject
-updates without restarting the dialog.
+Mounts are checked in the background every few seconds while Browse is open,
+so plug-in / eject updates without restarting the dialog; the sidebar and tree
+only change when a drive actually appears or goes away.
 
 **Browser layout memory** (both input browsers):
 
 | What | Shared or separate? | Keys |
 |------|---------------------|------|
 | Window size + position | **Shared** (Video ↔ Sequence) | `ui/browser_geometry` |
-| List \| Grid \| Preview, Inspect on/off, outer/content splitters, list column widths | **Per mode** | `ui/sequence_browser_*` / `ui/video_browser_*` |
+| List \| Grid \| Preview, Metadata on/off, outer/content splitters, list column widths | **Per mode** | `ui/sequence_browser_*` / `ui/video_browser_*` |
 | Folder tree expansion, tree scroll, last folder + selection | **Per mode**, restored when Browse reopens the **same** start directory as last time | `…_tree_expanded`, `…_tree_vscroll`, `…_last_dir`, `…_selected` |
 
 If the convert tab’s current path maps to a **different** folder than the last
-browse session, layout prefs (size, splitters, view, Inspect, columns) still
+browse session, layout prefs (size, splitters, view, Metadata, columns) still
 restore, but the tree focuses that new folder instead of replaying the previous
 expansion set.
 
@@ -331,10 +356,10 @@ watermark, and watch folder) between sessions. Named presets in the
 
 ### Watch folder
 
-The watch folder is a collapsed section under Output, so the tab stays the
-same height as Video → EXR and EXR → Video. The header always shows the
-status (**Not watching**, or copying / queued / done / failed) and
-**Start Watching**. Open the section for the folder path and the option below.
+The **Watch folder** group sits under Output and is always shown: the folder
+path, **Browse…**, **Existing clips too**, and **Start Watching** share one
+row. The group title shows the status (**Not watching**, or copying / queued /
+done / failed).
 
 Pick a folder and press **Start Watching**. Every new clip that appears there
 is proxied with the settings above, joining the same queue as a batch.
@@ -345,7 +370,7 @@ is proxied with the settings above, joining the same queue as a batch.
 - **Include subfolders** (on the source-clip row) also watches nested folders.
   `Proxy` folders and the custom output folder are never watched, so proxies
   are not re-proxied.
-- **Also convert clips already there** proxies what is already in the folder
+- **Existing clips too** proxies what is already in the folder
   when you start. Off, only clips that arrive afterwards are converted.
 - A clip that is replaced later (new size or modified time) is proxied again,
   unless **Skip clips that already have a proxy** finds its proxy.
@@ -368,11 +393,13 @@ feature from the visible text watermark on **EXR → Video**.
 
 **EXR → Video.** Tick **Invisible WM** next to Slate / Burn-in / Watermark.
 The payload and strength come from **File → Preferences… → Invisible
-watermark**, not from the tab. The payload there is a template:
+watermark**, not from the tab. The payload there defaults to `exrcnvrt`.
+The field accepts only printable ASCII, up to 8 characters, and can use
+these tokens:
 
 | Token | Becomes |
 |-------|---------|
-| `{user}` | Login name (the default payload) |
+| `{user}` | Login name |
 | `{host}` | Computer name, up to the first dot |
 | `{date}` | Render date as `YYMMDD` |
 | `{time}` | Render time as `HHMM` |
@@ -447,22 +474,23 @@ payload.
 
 Batch video → video transcodes for VFX and post: camera originals or
 editorial files into ProRes, DNxHR, H.264, HEVC, or AV1. It runs on the same
-encode engine as **Video → Proxy**. By default there is **no color change**:
-the picture, the source **timecode**, and the source color tags pass straight
-through. The matching CLI is
+encode engine as **Video → Proxy**. Every clip goes through an **OCIO
+conversion** from its input space to the one output space, and the source
+**timecode** passes through. The matching CLI is
 [`main.py transcode`](./cli.md#transcode-video-to-video).
 
 **Source formats:** the same video files as Video → Proxy (`.mov`, `.mp4`,
 `.m4v`, `.mxf`, `.mkv`, `.avi`, `.webm`, `.ts`, `.mts`, `.m2ts`), plus
 `.r3d` / `.nev` and `.braw` when the [R3D](./r3d.md) or [BRAW](./braw.md)
 bridge is available. Camera RAW decodes to the camera space the SDK reports
-and has no audio, so it usually wants the OCIO transform. `.crm`
-is not supported.
+and has no audio. ARRIRAW and `.crm`
+are not supported.
 
 | Section | Control | Default | Notes |
 |---------|---------|---------|-------|
-| **Source clips** | Add Clips… / Add Folder… / Remove / Clear | empty | Drop videos or folders on the window while this tab is open to add them. **Include subfolders** makes Add Folder… search nested folders (`Proxy` folders are skipped). |
-| **Output** | Codec | **ProRes 422 HQ** | ProRes 422 Proxy / LT / 422 / HQ / 4444 / 4444 XQ (`.mov`), VideoToolbox ProRes (macOS), DNxHR LB / SQ / HQ / HQX / 444, H.264, HEVC 8 / 10 / 12-bit, and AV1 when the FFmpeg build has SVT-AV1. The tooltip on each entry gives bit depth, chroma, and pixel format. |
+| **Source clips** | Add Clips… / Add Folder… / Remove / Clear | empty | Drop videos or folders on the window while this tab is open to add them. A folder becomes one row holding its clips; clips added on their own are rows of their own. **Include subfolders** makes Add Folder… search nested folders (`Proxy` folders are skipped). |
+| | Input color space | detected | Shown next to each clip and folder. See [Input color space](#input-color-space). |
+| **Output** | Codec | **Apple ProRes 422 HQ** | ProRes 422 Proxy / LT / 422 / HQ / 4444 / 4444 XQ, VideoToolbox ProRes (macOS), DNxHR LB / SQ / HQ / HQX / 444, H.264, HEVC 8 / 10 / 12-bit, and AV1 when the FFmpeg build has SVT-AV1. The tooltip on each entry gives bit depth, chroma, and pixel format. |
 | | Container | codec default | ProRes: `.mov`. DNxHR: `.mov` or `.mxf`. H.264 / HEVC: `.mp4` or `.mov`. AV1: `.mp4` or `.mkv`. Each codec remembers its last container. |
 | | Resolution | **Keep source size** | 75%, 50%, 25%, Fit 2160p / 1080p / 720p (never upscale), or **Custom size** (shows Width × Height; set one side to 0 to keep the aspect ratio). Sizes round to even numbers. |
 | | Frame rate | **Keep source** | **Conform to** a common rate or a custom one. Conform plays the same frames at the new rate (none are added or dropped), so the clip gets shorter or longer, and the audio is dropped. |
@@ -471,15 +499,33 @@ is not supported.
 | | If file exists | **Skip** | **Overwrite**, or **Add a number** (`_1`, `_2`, …). An output can never replace its own source. |
 | | Location | **Next to each clip** | **Custom folder** reveals a folder field for all outputs. |
 | | Name | `<name>_<codec>` | File name without the extension. Tokens: `<name>`, `<codec>` (for example `ProRes422HQ`, `DNxHR_HQX`, `H264`, `HEVC10`), `<width>`, `<height>`, `<fps>`, `<date>`. Characters that are not allowed in file names become `_`. |
-| **Color and watermark** (collapsed) | OCIO transform | off | Source and destination from the OCIO config at the top of the window. A display as the destination uses that display's default view, as on EXR → Video. The section header shows the current color and watermark state. |
+| **Color and watermark** | Output space | `Output - Rec.709` | One output space or display for every clip, from the OCIO config at the top of the window. A display uses that display's default view, as on EXR → Video. |
 | | Invisible watermark | off | Payload and strength, the same [invisible watermark](#invisible-watermark) as Video → Proxy, added after the color step on the picture the codec encodes. |
 
-**Color.** With the OCIO transform off, YUV sources are reformatted straight
-to the codec's pixel format with no RGB round trip, and the source matrix,
-primaries, and transfer tags are copied when the source has them. With it
-on, frames go through 16-bit RGB and back using the source's YUV matrix, and
-only the matrix tag is written. Slates and burn-ins from EXR → Video are not
-applied to transcodes.
+### Input color space
+
+Each clip converts from its own input space. When a clip is added, its color
+tags and codec are read with the same detection Video → EXR uses (falling
+back to `Output - Rec.709`), and the result is shown in *italics* until you
+pick a space yourself.
+
+- Click a folder's input space (or right-click the row) to set it for every
+  clip inside. This also clears picks made on single clips in that folder.
+- Expand the folder and click a clip's space to set that clip on its own.
+- With several rows selected, a pick applies to all of them.
+- The first menu entry goes back to the folder's space or the detected one.
+- A folder whose clips differ shows **Mixed**.
+
+A space missing from the current OCIO config shows `⚠` in red, and Convert
+stays off until you pick another. Convert also waits until every clip's
+space has been detected.
+
+**Color.** Frames go through 16-bit RGB and back using the source's YUV
+matrix, and only the matrix tag is written. When a clip's input space is the
+same as the output space, the picture is not changed: YUV sources are
+reformatted straight to the codec's pixel format and the source matrix,
+primaries, and transfer tags are copied when the source has them. Slates and
+burn-ins from EXR → Video are not applied to transcodes.
 
 Press **Convert** to queue every listed clip. Clips run one at a time in the
 background, and you can keep adding clips while a batch runs. Each row shows
@@ -492,7 +538,8 @@ current frame and how many clips are queued, then how many were made and how
 many failed.
 
 The tab remembers its settings (codec and container, size, frame rate,
-quality, audio, naming, location, color, and watermark) between sessions.
+quality, audio, naming, location, output space, and watermark) between
+sessions. Input spaces belong to the listed clips and are not saved.
 
 ---
 

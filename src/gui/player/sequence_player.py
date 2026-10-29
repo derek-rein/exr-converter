@@ -76,6 +76,8 @@ class SequencePlayer(QWidget):
 
     frame_changed = Signal(int)
     playing_changed = Signal(bool)
+    # (in frame or None, out frame or None)
+    in_out_changed = Signal(object, object)
 
     def __init__(
         self,
@@ -84,6 +86,7 @@ class SequencePlayer(QWidget):
         settings: QSettings | None = None,
         show_cache_ui: bool = True,
         prefer_gpu: bool = True,
+        show_in_out: bool = False,
     ) -> None:
         super().__init__(parent)
         self._settings = settings if settings is not None else QSettings(APP_ORG, APP_NAME)
@@ -120,6 +123,12 @@ class SequencePlayer(QWidget):
         self._width: int = 1920
         self._height: int = 1080
         self._fps: float = 24.0
+        self._in_point: int | None = None
+        self._out_point: int | None = None
+        self._in_btn: QToolButton | None = None
+        self._out_btn: QToolButton | None = None
+        self._in_out_clear_btn: QToolButton | None = None
+        self._in_out_label: QLabel | None = None
 
         self._shot_cache = FrameCache(cache_budget_bytes(self._settings), self)
         self._prefetch: ExrPrefetchService | VideoPrefetchService | None = None
@@ -192,6 +201,8 @@ class SequencePlayer(QWidget):
         transport_row.setSpacing(0)
         transport_row.addWidget(self._shuttle)
         transport_row.addWidget(self._timeline, 1)
+        if show_in_out:
+            self._build_in_out_ui(transport_row, ideal_h)
         root.addLayout(transport_row)
 
         if self._show_cache_ui:
@@ -257,6 +268,9 @@ class SequencePlayer(QWidget):
         self._first_shot = None
         self._last_shot = None
         self._playback_wait_frame = None
+        self._set_in_out(None, None)
+        if self._gpu_plane is not None:
+            self._gpu_plane.reset_view_fit()
         if fps > 0:
             self.set_fps(fps)
         if resolution is not None and resolution[0] > 0 and resolution[1] > 0:
@@ -282,6 +296,35 @@ class SequencePlayer(QWidget):
         self.refresh()
         return True
 
+    @staticmethod
+    def prepare_sequence(
+        input_path: str, *, ocio_cfg: object | None = None, src_colorspace: str = ""
+    ) -> dict:
+        """Disk work for :meth:`load_sequence`; safe to run on a worker thread.
+
+        Lists the folder, resolves the sequence and probes the first frame's
+        colour attributes. Raises on failure.
+        """
+        from ...core.sequence import find_exr_sequence_info, resolve_sequence_src_colorspace
+
+        paths, _name, frames, _pad, seq = find_exr_sequence_info(input_path)
+        src = ""
+        if frames:
+            probe_path = paths[0] if paths else input_path
+            src = resolve_sequence_src_colorspace(probe_path, ocio_cfg, preferred=src_colorspace)
+        return {"frames": list(frames), "seq": seq, "src_colorspace": src}
+
+    @staticmethod
+    def prepare_video(
+        path: str, *, ocio_cfg: object | None = None, src_colorspace: str = ""
+    ) -> dict:
+        """Disk work for :meth:`load_video`; safe to run on a worker thread."""
+        from ...core.video import probe_video, resolve_video_src_colorspace
+
+        w, h, fps, n_frames = probe_video(path)
+        src = resolve_video_src_colorspace(path, ocio_cfg, preferred=src_colorspace)
+        return {"w": w, "h": h, "fps": fps, "n_frames": n_frames, "src_colorspace": src}
+
     def load_sequence(
         self,
         input_path: str,
@@ -291,6 +334,7 @@ class SequencePlayer(QWidget):
         src_colorspace: str = "",
         resolution: tuple[int, int] | None = None,
         prefer_video_monitoring: bool = False,
+        prepared: dict | None = None,
     ) -> bool:
         """Resolve *input_path* as an EXR sequence and start prefetch.
 
@@ -300,6 +344,10 @@ class SequencePlayer(QWidget):
         via viewing rules / encodings (``getDefaultView(display, videoCS)``),
         select it; otherwise keep the config default. Leave false for
         camera/scene-linear EXR.
+
+        *prepared* is the result of :meth:`prepare_sequence` (run it on a
+        worker thread): the folder listing and header probe are then skipped
+        here, so the GUI thread never touches the disk.
         """
         self._prefer_video_monitoring = bool(prefer_video_monitoring)
         self._begin_media_load(
@@ -315,9 +363,14 @@ class SequencePlayer(QWidget):
             return False
 
         try:
-            from ...core.sequence import find_exr_sequence_info, resolve_sequence_src_colorspace
-
-            paths, _name, frames, _pad, seq = find_exr_sequence_info(input_path)
+            info = (
+                prepared
+                if prepared is not None
+                else self.prepare_sequence(
+                    input_path, ocio_cfg=self._ocio_cfg, src_colorspace=self._src_colorspace
+                )
+            )
+            frames = info.get("frames") or []
             if not frames:
                 self._repopulate_display_views()
                 self._sync_gpu_view_settings()
@@ -326,13 +379,8 @@ class SequencePlayer(QWidget):
             self._shot_frames_set = set(self._shot_frames)
             self._first_shot = self._shot_frames[0]
             self._last_shot = self._shot_frames[-1]
-            self._exr_seq = seq
-
-            # Caller (post-convert dst / tab) preferred; else file attrs.
-            probe_path = paths[0] if paths else input_path
-            self._src_colorspace = resolve_sequence_src_colorspace(
-                probe_path, self._ocio_cfg, preferred=self._src_colorspace
-            )
+            self._exr_seq = info["seq"]
+            self._src_colorspace = str(info.get("src_colorspace") or "")
             log.info(
                 "SequencePlayer load: src=%r working=%r frames=%s–%s",
                 self._src_colorspace,
@@ -367,6 +415,7 @@ class SequencePlayer(QWidget):
         ocio_cfg: object | None = None,
         src_colorspace: str = "",
         resolution: tuple[int, int] | None = None,
+        prepared: dict | None = None,
     ) -> bool:
         """Open a video file for cache-first playback (same viewer as sequences).
 
@@ -392,9 +441,16 @@ class SequencePlayer(QWidget):
             from ...core.braw import scale_for_decode_mode as braw_scale_for_mode
             from ...core.r3d import DECODE_PREVIEW, is_r3d_path, scale_for_decode_mode
             from ...core.source_plugins import plugin_for_path
-            from ...core.video import probe_video, resolve_video_src_colorspace
 
-            w, h, probed_fps, n_frames = probe_video(path)
+            info = (
+                prepared
+                if prepared is not None
+                else self.prepare_video(
+                    path, ocio_cfg=self._ocio_cfg, src_colorspace=self._src_colorspace
+                )
+            )
+            w, h = int(info.get("w") or 0), int(info.get("h") or 0)
+            probed_fps, n_frames = float(info.get("fps") or 0.0), int(info.get("n_frames") or 0)
         except Exception:
             log.exception("Could not probe video for player: %s", path)
             self._repopulate_display_views()
@@ -441,9 +497,7 @@ class SequencePlayer(QWidget):
         self._first_shot = 1
         self._last_shot = n_frames
 
-        self._src_colorspace = resolve_video_src_colorspace(
-            path, self._ocio_cfg, preferred=self._src_colorspace
-        )
+        self._src_colorspace = str(info.get("src_colorspace") or "")
         log.info(
             "SequencePlayer load_video: %s frames=%s fps=%.3f src=%r working=%r",
             path,
@@ -512,6 +566,40 @@ class SequencePlayer(QWidget):
         self._display_f32 = None
         self._composed_working_f32 = None
         self._release_gpu_plane()
+
+    def restart_prefetch(self) -> bool:
+        """Restart background loading for the media already loaded.
+
+        Pairs with :meth:`shutdown_prefetch_only`: the RAM cache, frame range
+        and in/out points are kept, so re-entering a preview is instant.
+        Returns False when nothing is loaded.
+        """
+        if self._prefetch is not None:
+            return True
+        if self._exr_seq is not None and self._shot_frames:
+            self._prefetch = ExrPrefetchService(
+                self._exr_seq,
+                self._shot_cache,
+                self._shot_frames,
+                max_workers=_PREFETCH_WORKERS,
+                frame_transform=self._build_worker_frame_transform(),
+                parent=self,
+            )
+        elif self._video_path and self._shot_frames:
+            self._prefetch = VideoPrefetchService(
+                self._video_path,
+                self._shot_cache,
+                self._shot_frames,
+                fps=self._fps,
+                frame_transform=self._build_worker_frame_transform(),
+                parent=self,
+            )
+        else:
+            return False
+        self._prefetch.frame_loaded.connect(self._on_prefetch_frame_loaded)
+        self._sync_prefetch()
+        self.refresh()
+        return True
 
     def shutdown_prefetch_only(self) -> None:
         if self._prefetch is not None:
@@ -584,6 +672,112 @@ class SequencePlayer(QWidget):
 
     def shot_frames(self) -> list[int]:
         return list(self._shot_frames)
+
+    # ------------------------------------------------------------------
+    # In / out points
+    # ------------------------------------------------------------------
+
+    def in_point(self) -> int | None:
+        return self._in_point
+
+    def out_point(self) -> int | None:
+        return self._out_point
+
+    def in_out_range(self) -> tuple[int, int] | None:
+        """``(first, last)`` chosen with in/out, or ``None`` when neither is set."""
+        if self._in_point is None and self._out_point is None:
+            return None
+        if self._first_shot is None or self._last_shot is None:
+            return None
+        return self._play_range()
+
+    def set_in_point(self, frame: int | None = None) -> None:
+        """Set the in point (default: current frame). An out point before it is cleared."""
+        if self._first_shot is None:
+            return
+        f = self._current_frame if frame is None else int(frame)
+        out = self._out_point if self._out_point is None or self._out_point >= f else None
+        self._set_in_out(f, out)
+
+    def set_out_point(self, frame: int | None = None) -> None:
+        """Set the out point (default: current frame). An in point after it is cleared."""
+        if self._first_shot is None:
+            return
+        f = self._current_frame if frame is None else int(frame)
+        inp = self._in_point if self._in_point is None or self._in_point <= f else None
+        self._set_in_out(inp, f)
+
+    def clear_in_out(self) -> None:
+        self._set_in_out(None, None)
+
+    def _set_in_out(self, in_point: int | None, out_point: int | None) -> None:
+        if (in_point, out_point) == (self._in_point, self._out_point):
+            return
+        self._in_point = in_point
+        self._out_point = out_point
+        self._timeline.set_in_out(in_point, out_point)
+        self._refresh_in_out_ui()
+        self.in_out_changed.emit(in_point, out_point)
+
+    def _build_in_out_ui(self, row: QHBoxLayout, height: int) -> None:
+        style = (
+            "QToolButton { background: #2a2a2a; color: #e0e0e0; border: 1px solid #3c3c3c;"
+            " border-radius: 3px; font-size: 11px; padding: 0 6px; }"
+            "QToolButton:hover { background: #3c3c3c; }"
+            "QToolButton:checked { background: #6b5a1e; border-color: #e6c85a; color: #fff; }"
+            "QToolButton:disabled { color: #666; }"
+        )
+        host = QWidget()
+        lay = QHBoxLayout(host)
+        lay.setContentsMargins(4, 0, 4, 0)
+        lay.setSpacing(2)
+
+        def make(text: str, tip: str) -> QToolButton:
+            b = QToolButton()
+            b.setText(text)
+            b.setToolTip(tip)
+            b.setStyleSheet(style)
+            b.setFixedHeight(22)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            lay.addWidget(b)
+            return b
+
+        self._in_btn = make("In", "Set the in point at the current frame (I)")
+        self._in_btn.setCheckable(True)
+        self._out_btn = make("Out", "Set the out point at the current frame (O)")
+        self._out_btn.setCheckable(True)
+        self._in_out_clear_btn = make("\u2715", "Clear in and out points")
+        self._in_out_label = QLabel()
+        self._in_out_label.setStyleSheet("font-size: 10px; color: #c8b45a;")
+        self._in_out_label.setMinimumWidth(64)
+        lay.addWidget(self._in_out_label)
+        host.setFixedHeight(height)
+        row.addWidget(host)
+
+        # clicked(bool) toggles the check state first; re-sync from our state.
+        self._in_btn.clicked.connect(lambda _c=False: self.set_in_point())
+        self._out_btn.clicked.connect(lambda _c=False: self.set_out_point())
+        self._in_out_clear_btn.clicked.connect(lambda _c=False: self.clear_in_out())
+        self._refresh_in_out_ui()
+
+    def _refresh_in_out_ui(self) -> None:
+        if self._in_btn is None or self._out_btn is None:
+            return
+        self._in_btn.setChecked(self._in_point is not None)
+        self._out_btn.setChecked(self._out_point is not None)
+        if self._in_out_clear_btn is not None:
+            self._in_out_clear_btn.setEnabled(
+                self._in_point is not None or self._out_point is not None
+            )
+        if self._in_out_label is not None:
+            rng = self.in_out_range()
+            if rng is None:
+                self._in_out_label.setText("")
+                self._in_out_label.setToolTip("")
+            else:
+                n = rng[1] - rng[0] + 1
+                self._in_out_label.setText(f"{rng[0]}\u2013{rng[1]}")
+                self._in_out_label.setToolTip(f"{n} frame(s) between in and out")
 
     # ------------------------------------------------------------------
     # Viewer controls
@@ -894,6 +1088,15 @@ class SequencePlayer(QWidget):
             self.set_playing(not self.is_playing())
             event.accept()
             return
+        if self._in_btn is not None and not event.modifiers():
+            if key == Qt.Key.Key_I:
+                self.set_in_point()
+                event.accept()
+                return
+            if key == Qt.Key.Key_O:
+                self.set_out_point()
+                event.accept()
+                return
         super().keyPressEvent(event)
 
     def _step_frame(self, delta: int) -> None:
@@ -927,10 +1130,23 @@ class SequencePlayer(QWidget):
             self._playback_tick()
 
     def _next_playback_frame(self, frame: int) -> int:
+        first, last = self._play_range()
         nxt = frame + 1
-        if nxt > self._timeline.last_frame:
-            nxt = self._timeline.first_frame
+        if nxt > last or nxt < first:
+            nxt = first
         return nxt
+
+    def _play_range(self) -> tuple[int, int]:
+        """Loop range for playback: in/out when set, else the whole timeline."""
+        first = self._timeline.first_frame
+        last = self._timeline.last_frame
+        if self._in_point is not None:
+            first = max(first, self._in_point)
+        if self._out_point is not None:
+            last = min(last, self._out_point)
+        if last < first:
+            return self._timeline.first_frame, self._timeline.last_frame
+        return first, last
 
     def _needs_disk_cache(self, frame: int) -> bool:
         """True when *frame* is a media frame that must hit the RAM cache."""

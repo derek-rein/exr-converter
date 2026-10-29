@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPoint, QSettings, Qt, QTimer, Signal
@@ -55,6 +56,39 @@ def lock_form_row_height(widget: QWidget, height: int = FORM_ROW_MIN_HEIGHT) -> 
 # ---------------------------------------------------------------------------
 # Color-space menu button
 # ---------------------------------------------------------------------------
+
+
+def fill_color_space_menu(
+    menu: QMenu, families: dict[str, list[str]], on_pick: Callable[[str], None]
+) -> set[str]:
+    """Add *families* to *menu* as nested submenus. Returns every space name.
+
+    Families with a ``/`` nest one submenu per part; a family holding a single
+    space sits at the top level. Each action calls *on_pick* with its name.
+    """
+    submenu_cache: dict[str, QMenu] = {}
+    all_names: set[str] = set()
+    for family in sorted(families.keys()):
+        names = families[family]
+        if "/" in family:
+            parts = family.split("/")
+            for depth in range(len(parts)):
+                key = "/".join(parts[: depth + 1])
+                if key not in submenu_cache:
+                    parent_key = "/".join(parts[:depth]) if depth else ""
+                    parent = submenu_cache[parent_key] if parent_key else menu
+                    submenu_cache[key] = parent.addMenu(parts[depth])
+            target_menu = submenu_cache[family]
+        elif len(names) == 1:
+            target_menu = menu
+        else:
+            target_menu = menu.addMenu(family)
+            submenu_cache[family] = target_menu
+        for cs_name in names:
+            all_names.add(cs_name)
+            action = target_menu.addAction(cs_name)
+            action.triggered.connect(lambda _checked=False, n=cs_name: on_pick(n))
+    return all_names
 
 
 class ColorSpaceButton(QToolButton):
@@ -169,39 +203,10 @@ class ColorSpaceButton(QToolButton):
         self._menu = QMenu(self)
         old_menu.deleteLater()
 
-        submenu_cache: dict[str, QMenu] = {}
-        found = False
-        all_names: set[str] = set()
-
-        for family in sorted(families.keys()):
-            names = families[family]
-            if "/" in family:
-                parts = family.split("/")
-                for depth in range(len(parts)):
-                    key = "/".join(parts[: depth + 1])
-                    if key not in submenu_cache:
-                        parent_key = "/".join(parts[:depth]) if depth else ""
-                        parent = submenu_cache[parent_key] if parent_key else self._menu
-                        submenu_cache[key] = parent.addMenu(parts[depth])
-                target_menu = submenu_cache[family]
-            else:
-                if len(names) == 1:
-                    target_menu = self._menu
-                else:
-                    target_menu = self._menu.addMenu(family)
-                    submenu_cache[family] = target_menu
-
-            for cs_name in names:
-                all_names.add(cs_name)
-                action = target_menu.addAction(cs_name)
-                # Menu pick is always manual — clears any auto-detect flash.
-                action.triggered.connect(lambda checked, n=cs_name: self._pick(n, auto=False))
-                if cs_name == select:
-                    found = True
+        all_names = fill_color_space_menu(self._menu, families, lambda n: self._pick(n, auto=False))
+        found = select in all_names
 
         if select and found:
-            self._pick(select, auto=False)
-        elif select and select in all_names:
             self._pick(select, auto=False)
         elif select:
             # Name not in menu — invalid until the user picks.
