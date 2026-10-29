@@ -18,7 +18,7 @@ import queue
 from collections.abc import Iterator
 
 from .fs_skip import SEARCH_SKIP_ABSPATHS, SEARCH_SKIP_DIRS, SEARCH_SKIP_FILES, SEARCH_SKIP_SUFFIXES
-from .local_fs import is_cloud_placeholder
+from .local_fs import is_cloud_placeholder_dir
 
 MAX_SEARCH_DEPTH = 15
 SEARCH_BATCH_SIZE = 60
@@ -74,7 +74,7 @@ def iter_search(
                     and name not in SEARCH_SKIP_DIRS
                     and not name.startswith(".")
                     and entry.path not in SEARCH_SKIP_ABSPATHS
-                    and not is_cloud_placeholder(entry.path, entry=entry)
+                    and not is_cloud_placeholder_dir(entry.path, entry=entry)
                 ):
                     stack.append((entry.path, depth + 1))
         yield found

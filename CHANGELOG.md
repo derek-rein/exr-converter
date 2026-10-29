@@ -35,6 +35,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 - Preview flickered while scrubbing because the drive list in the sidebar was rebuilt every 3 seconds; it now changes only when a drive is added or removed.
 - The Mac boot drive was listed twice in the folder tree (again under `/Volumes`).
 - The clear button in the browser search fields was not vertically centred on macOS.
+- **Search folders** in the browsers skipped every subfolder on macOS (APFS folders looked like online-only cloud stubs), so it only found matches at the top level.
 - Opening a collapsed section (Transcode's **Color and watermark**) no longer lays out and repaints the whole tab twice. Only the section and the rows below it move.
 
 ---
