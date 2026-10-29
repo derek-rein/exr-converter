@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -62,12 +63,40 @@ def exceeding_symbols(needs: set[str], ceilings: dict[str, tuple[int, ...] | Non
 
 
 def is_optional_gpu_library(path: Path) -> bool:
-    """True for an OpenCL helper the decoder can run without.
+    """True for an OpenCL or CUDA helper the decoder can run without.
 
-    The core RED and Blackmagic libraries are not OpenCL-named, so they stay
-    even when this filter is on. CUDA libraries stay too.
+    The core RED and Blackmagic libraries do not use those names, so they stay
+    even when this filter is on.
     """
-    return "opencl" in path.name.lower()
+    name = path.name.lower()
+    return "opencl" in name or "cuda" in name
+
+
+def drop_incompatible_vendor_dirs(
+    root: Path, ceilings: dict[str, tuple[int, ...] | None]
+) -> list[tuple[Path, list[tuple[Path, list[str]]]]]:
+    """Remove an ``r3d/`` or ``braw/`` folder whose remaining libraries exceed the floor.
+
+    Optional GPU libraries are removed first. If the decoder itself still needs
+    a newer glibc, the folder cannot load on RHEL 8, so the whole runtime goes.
+    """
+    if not root.is_dir():
+        return []
+    removed: list[tuple[Path, list[tuple[Path, list[str]]]]] = []
+    for name in ("r3d", "braw"):
+        folder = root / name
+        if not folder.is_dir():
+            continue
+        blockers: list[tuple[Path, list[str]]] = []
+        for path in iter_elf_files(folder):
+            over = exceeding_symbols(readelf_needs(path), ceilings)
+            if over:
+                blockers.append((path, over))
+        if not blockers:
+            continue
+        shutil.rmtree(folder)
+        removed.append((folder, blockers))
+    return removed
 
 
 def drop_optional_gpu(
@@ -158,7 +187,10 @@ def main() -> int:
     parser.add_argument(
         "--drop-optional-gpu",
         action="store_true",
-        help="Remove OpenCL libraries that exceed the ceiling, then recheck",
+        help=(
+            "Drop OpenCL/CUDA libraries over the ceiling. If r3d/ or braw/ "
+            "still exceeds it, remove that folder, then recheck"
+        ),
     )
     args = parser.parse_args()
     root = args.root.resolve()
@@ -171,12 +203,20 @@ def main() -> int:
         "CXXABI": args.max_cxxabi,
     }
     if args.drop_optional_gpu:
+        parent = root if root.is_dir() else root.parent
         for path, over in drop_optional_gpu(root, ceilings):
             try:
-                rel = path.relative_to(root if root.is_dir() else root.parent)
+                rel = path.relative_to(parent)
             except ValueError:
                 rel = path
             print(f"Dropped optional GPU library {rel} ({', '.join(over)})")
+        for folder, blockers in drop_incompatible_vendor_dirs(root, ceilings):
+            try:
+                rel_dir = folder.relative_to(parent)
+            except ValueError:
+                rel_dir = folder
+            names = ", ".join(f"{path.name} ({', '.join(over)})" for path, over in blockers)
+            print(f"Omitted {rel_dir}: libraries need a newer glibc ({names})")
     best = scan(root)
     if not best:
         print(f"ERROR: no ELF version needs under {root}", file=sys.stderr)

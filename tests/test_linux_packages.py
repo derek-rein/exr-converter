@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from check_glibc_floor import (  # noqa: E402
+    drop_incompatible_vendor_dirs,
     drop_optional_gpu,
     exceeds,
     is_optional_gpu_library,
@@ -275,26 +276,52 @@ def test_drop_optional_gpu_keeps_core_red_library(tmp_path: Path, monkeypatch) -
     opencl = r3d / "REDOpenCL-x64.so"
     core = r3d / "REDR3D-x64.so"
     cuda = r3d / "REDCuda-x64.so"
-    for path in (opencl, core, cuda):
+    decoder = r3d / "REDDecoder-x64.so"
+    for path in (opencl, core, cuda, decoder):
         path.write_bytes(b"\x7fELF" + b"\0" * 16)
     assert is_optional_gpu_library(opencl)
+    assert is_optional_gpu_library(cuda)
     assert not is_optional_gpu_library(core)
-    assert not is_optional_gpu_library(cuda)
+    assert not is_optional_gpu_library(decoder)
 
     def fake_needs(path: Path) -> set[str]:
-        if path.name.startswith("REDOpenCL"):
+        if "OpenCL" in path.name or "Cuda" in path.name:
             return {"GLIBC_2.29", "GLIBCXX_3.4.26"}
-        if path.name.startswith("REDCuda"):
-            return {"GLIBC_2.29"}
         return {"GLIBC_2.17"}
 
     monkeypatch.setattr(check_glibc_floor, "readelf_needs", fake_needs)
     ceilings = {"GLIBC": (2, 28), "GLIBCXX": (3, 4, 25), "CXXABI": (1, 3, 11)}
     dropped = drop_optional_gpu(root, ceilings)
-    assert [path.name for path, _over in dropped] == ["REDOpenCL-x64.so"]
+    assert {path.name for path, _over in dropped} == {"REDOpenCL-x64.so", "REDCuda-x64.so"}
     assert not opencl.exists()
+    assert not cuda.exists()
     assert core.is_file()
-    assert cuda.is_file()
+    assert decoder.is_file()
+    assert drop_incompatible_vendor_dirs(root, ceilings) == []
+    assert r3d.is_dir()
+
+
+def test_incompatible_red_decoder_omits_the_runtime(tmp_path: Path, monkeypatch) -> None:
+    import check_glibc_floor
+
+    root = tmp_path / "main.dist"
+    r3d = root / "r3d"
+    r3d.mkdir(parents=True)
+    decoder = r3d / "REDDecoder-x64.so"
+    core = r3d / "REDR3D-x64.so"
+    for path in (decoder, core):
+        path.write_bytes(b"\x7fELF" + b"\0" * 16)
+
+    def fake_needs(path: Path) -> set[str]:
+        if path.name.startswith("REDDecoder"):
+            return {"GLIBC_2.29", "GLIBCXX_3.4.26"}
+        return {"GLIBC_2.17"}
+
+    monkeypatch.setattr(check_glibc_floor, "readelf_needs", fake_needs)
+    ceilings = {"GLIBC": (2, 28), "GLIBCXX": (3, 4, 25), "CXXABI": None}
+    removed = drop_incompatible_vendor_dirs(root, ceilings)
+    assert [folder.name for folder, _blockers in removed] == ["r3d"]
+    assert not r3d.exists()
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="glibc ELF")

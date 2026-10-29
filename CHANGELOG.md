@@ -15,6 +15,18 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ---
 
+## [0.12.10] - 2026-10-29
+
+Published release. v0.12.5 through v0.12.9 were tagged but not published. This build includes those sections: camera RAW plugin support for `.crm`, CinemaDNG frame sequences, the Transcode tab, fuzzy sequence search, and a Microsoft Store package that does not request `unvirtualizedResources`.
+
+### Fixed
+
+- Windows release packages pass the camera RAW plugin to the packager with normal line endings, so the plugin is included in the app.
+- macOS no longer quits at launch while publishing Quick Look preferences. The App Group folder lookup passed a null string into Foundation and aborted the app before the window opened.
+- The RHEL 8 package leaves out the RED R3D runtime. `REDDecoder-x64.so` and the RED GPU libraries need glibc 2.29, so `.r3d` and `.nev` are unavailable in that package. macOS and Windows packages still include them.
+
+---
+
 ## [0.12.9] - 2026-10-29
 
 Published release. v0.12.5, v0.12.6, v0.12.7, and v0.12.8 were tagged but not published. This build includes those sections: camera RAW plugin support for `.crm`, CinemaDNG frame sequences, the Transcode tab, fuzzy sequence search, and a Microsoft Store package that does not request `unvirtualizedResources`.
@@ -1043,7 +1055,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.9...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.10...HEAD
+[0.12.10]: https://github.com/derek-rein/exr-converter/compare/v0.12.9...v0.12.10
 [0.12.9]: https://github.com/derek-rein/exr-converter/compare/v0.12.8...v0.12.9
 [0.12.8]: https://github.com/derek-rein/exr-converter/compare/v0.12.7...v0.12.8
 [0.12.7]: https://github.com/derek-rein/exr-converter/compare/v0.12.6...v0.12.7
