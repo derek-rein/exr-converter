@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Fixed
+
+- Quick Look sequence playback no longer runs slower than 24 fps. The wait for the next frame used to start after the current frame finished decoding, so decode time was added to every frame.
+
 ---
 
 ## [0.12.11] - 2026-10-29

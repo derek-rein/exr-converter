@@ -21,6 +21,10 @@ final class FlipbookView: NSView {
     private var timer: DispatchSourceTimer?
     private var maxPixel = 1920
     private let frameDelay: TimeInterval = 1.0 / 24.0
+    /// When the current frame was asked for. The next frame is due one frame
+    /// period after this, so decode time is not added on top of the 24 fps
+    /// period. A slow decode makes the next frame due at once.
+    private var frameStarted = DispatchTime.now()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -56,6 +60,7 @@ final class FlipbookView: NSView {
         slider.maxValue = Double(max(urls.count - 1, 0))
         slider.doubleValue = Double(index)
         caption = playlist?.caption(at: index) ?? ""
+        frameStarted = .now()
         image = decode(urls[index], maxPixel: maxPixel)
             ?? PreviewRenderer.errorImage(message: "Could not read this frame.")
         needsLayout = true
@@ -108,6 +113,7 @@ final class FlipbookView: NSView {
         }
         playing.toggle()
         if playing {
+            frameStarted = .now()
             scheduleNext()
         } else {
             timer?.cancel()
@@ -178,10 +184,11 @@ final class FlipbookView: NSView {
     private func scheduleNext() {
         timer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + frameDelay)
+        timer.schedule(deadline: frameStarted + frameDelay)
         timer.setEventHandler { [weak self] in
             DispatchQueue.main.async {
                 guard let self, self.playing, self.urls.count > 1 else { return }
+                self.frameStarted = .now()
                 let next = (self.index + 1) % self.urls.count
                 self.show(index: next)
             }
