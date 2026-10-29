@@ -3,6 +3,14 @@ name: Store screenshots
 
 on:
   workflow_dispatch:
+  # Also runs when the screenshot script changes, so a PR can produce the
+  # artifact before this file is on the default branch (workflow_dispatch
+  # alone is not listed until then). Unrelated PRs do not start this job.
+  pull_request:
+    paths:
+      - scripts/store_screenshots.py
+      - .github/workflows/store-screenshots.yml
+      - tests/test_store_screenshots.py
 
 permissions:
   contents: read

@@ -24,13 +24,14 @@ def test_store_screenshot_workflow_is_windows_desktop() -> None:
         encoding="utf-8"
     )
     script = (ROOT / "scripts" / "store_screenshots.py").read_text(encoding="utf-8")
-    assert "on:\n  workflow_dispatch:" in workflow
-    assert "pull_request:" not in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "pull_request:" in workflow
+    assert "paths:" in workflow
+    assert "scripts/store_screenshots.py" in workflow
     assert "schedule:" not in workflow
     assert "runs-on: windows-latest" in workflow
     assert "QT_QPA_PLATFORM: windows" in workflow
     assert "offscreen" not in workflow
-    assert "scripts/store_screenshots.py" in workflow
     assert "store-screenshots/*.png" in workflow
     assert 'os.environ["QT_QPA_PLATFORM"] = "windows"' in script
     assert "offscreen" in script

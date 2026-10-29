@@ -113,4 +113,4 @@ Listing screenshots are not inside the package. Regenerate them from a Windows r
 gh workflow run "Store screenshots" --ref main
 ```
 
-The workflow is `.github/workflows/store-screenshots.yml`. It runs `scripts/store_screenshots.py` and uploads the PNGs as the `store-screenshots` artifact. Upload those files in Partner Center. Do not use macOS captures for the Windows listing.
+The workflow is `.github/workflows/store-screenshots.yml`. It runs `scripts/store_screenshots.py` and uploads the PNGs as the `store-screenshots` artifact. A pull request that changes that script also runs the job. Upload those files in Partner Center. Do not use macOS captures for the Windows listing.
