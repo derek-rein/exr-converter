@@ -14,7 +14,8 @@ not add a separate stills browser.
 
 ## Color
 
-DJI Inspire 3 and Zenmuse X9 frames (Make or Model contains `DJI` or `Zenmuse`)
+DJI Inspire 3 and Zenmuse X9 frames (Make, Model, or UniqueCameraModel contains
+`DJI` or `Zenmuse`)
 are developed to **scene-linear P3-D60** with the **+1.4 stops** DJI recommends
 for CinemaDNG. The pixels are tagged **Linear P3-D60**.
 
@@ -74,7 +75,7 @@ do not add it again in the grade:
 ```bash
 uv run python main.py exr2video -i /path/to/shot \
   --src "Linear P3-D60" --dst "D-Log D-Gamut" \
-  -o /tmp/proxy.mov --codec prores_hq
+  -o /tmp/proxy.mov --codec prores
 ```
 
 EXR from the same sequence (`video2exr`). Pass the folder or the first frame.
@@ -107,4 +108,4 @@ Release builds copy that library next to the executable. On macOS it is signed
 and notarized with the rest of the app.
 
 This product includes DNG technology under license by Adobe. The Adobe DNG SDK
-is not linked or shipped. See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+is not linked or shipped. See [THIRD_PARTY_NOTICES.md](https://github.com/derek-rein/exr-converter/blob/main/THIRD_PARTY_NOTICES.md).

@@ -261,9 +261,7 @@ Camera names on the bundled config are listed under [Cameras and formats](#camer
 
 ## Documentation
 
-Guides live under [`docs/`](docs/) (Markdown source of truth). The public site is built with Astro from [`site/`](site/) and published on Vercel:
-
-**[https://exr-converter.derekvfx.ca/](https://exr-converter.derekvfx.ca/)**
+Guides live under [`docs/`](docs/) (Markdown source of truth). They are published at **[vfx.systems/docs/exr-converter](https://vfx.systems/docs/exr-converter)**, which loads that folder. In the app, **Help → Documentation** opens the same page.
 
 | Guide | |
 | --- | --- |
@@ -276,11 +274,6 @@ Guides live under [`docs/`](docs/) (Markdown source of truth). The public site i
 | [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship when `BRAW_SDK_READ_TOKEN` is set) |
 | [12-bit ProRes (oxideav)](docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 ProRes; 4444 and XQ are 12-bit, 422 decodes as 10-bit |
 | [Nuke](docs/nuke.md) | Menu: open selected Read + session OCIO |
-
-```bash
-make docs-serve   # local preview at http://127.0.0.1:1313/
-make docs-build   # write site/public/
-```
 
 ## CLI
 

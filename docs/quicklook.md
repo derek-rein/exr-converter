@@ -24,6 +24,10 @@ thumbnails**, and press OK. The app asks macOS to elect both extensions with
 re-applies your choice, so an update that re-registers the extensions does
 not switch them back on.
 
+Under the checkbox the dialog shows what macOS reports: the extensions are
+on, off, or not registered yet. The per-format checkboxes are only available
+while the main checkbox is ticked.
+
 If the box does not take effect, enable **EXR Converter Quick Look** and
 **EXR Converter Thumbnails** by hand under
 **System Settings → General → Login Items & Extensions → Quick Look**. The
@@ -59,8 +63,10 @@ label on numbered frames.
   without those SDKs, and it is optional above. The RAW develop is the system
   default, not the app’s camera pipeline, so the look can differ.
 
-The convert pipeline’s sequence inputs are still OpenEXR, DPX, PNG, JPEG, and
-WebP. TIFF and DNG previews do not add those formats as convert inputs.
+The convert pipeline’s sequence inputs are OpenEXR, CinemaDNG, DPX, PNG,
+JPEG, and WebP (see [CinemaDNG](./cinemadng.md)). The TIFF preview does not
+make TIFF a convert input, and the DNG preview uses the system RAW decoder,
+not the app’s CinemaDNG reader.
 
 ## Per-format toggles
 

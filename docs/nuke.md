@@ -6,10 +6,11 @@ description: Open a Read node and session OCIO from Nuke
 
 Launch **EXR Converter** from Nuke with:
 
-- the selected **Read** node’s file path (or the node under the cursor), and  
+- the selected **Read** node’s file path (or another selected node with a
+  `file` knob), and  
 - this Nuke session’s **OCIO config** path when available.
 
-Scripts live under [`integrations/nuke/`](../integrations/nuke/).
+Scripts live under [`integrations/nuke/`](https://github.com/derek-rein/exr-converter/tree/main/integrations/nuke).
 
 ---
 
@@ -26,6 +27,9 @@ export EXR_CONVERTER="/Applications/EXR Converter.app/Contents/MacOS/exr_convert
 # Windows (example)
 set EXR_CONVERTER=C:\Program Files\EXR Converter\exr_converter.exe
 
+# Linux RPM (example; or the tarball's exr-converter launcher)
+export EXR_CONVERTER="/usr/bin/exr-converter"
+
 # or a source checkout
 export EXR_CONVERTER="/path/to/exr-converter/.venv/bin/python"
 export EXR_CONVERTER_ARGS="/path/to/exr-converter/main.py"   # optional second token
@@ -35,8 +39,11 @@ If `EXR_CONVERTER` is unset, the script probes common install locations:
 
 - `/Applications/EXR Converter.app/Contents/MacOS/exr_converter`
 - `~/Applications/EXR Converter.app/…`
-- `%ProgramFiles%\EXR Converter\exr_converter.exe`
 - `exr_converter` on `PATH`
+- `%ProgramFiles%\EXR Converter\exr_converter.exe`
+
+The Linux launcher is named `exr-converter` (hyphen), which the probe does not
+look for. On Linux, set `EXR_CONVERTER`.
 
 ### 2. Load the menu
 
@@ -79,8 +86,8 @@ Also under **Nodes → EXR Converter** for discoverability.
 
 ## Usage
 
-1. Select a **Read** (or leave nothing selected and run the command with a
-   single Read selected in the DAG).
+1. Select a **Read** in the DAG. If no Read is selected, any selected node with a
+   `file` knob is used. With several selected, the first one is used.
 2. **EXR Converter → Open selected Read…**
 3. The GUI opens on **EXR → Video** with that path and Nuke’s OCIO config
    pre-selected (when a real `.ocio` path can be resolved).
@@ -99,7 +106,7 @@ exr_converter --open <read file> --gui-ocio <config.ocio> --mode exr2video|video
 |--------|----------------|
 | Media path | Read `file` knob (evaluated), sequence-friendly |
 | OCIO | Root `customOCIOConfigPath` (and a few aliases) when set and on disk; else `$OCIO`; else omit (app default) |
-| Mode | `.exr` / sequence → `exr2video`; common video extensions → `video2exr` |
+| Mode | Common video extensions (`.mov`, `.mp4`, `.mxf`, `.mkv`, …) → `video2exr`; anything else (EXR, other sequences, folders) → `exr2video` |
 
 See [CLI: GUI launch](./cli.md#gui-launch-for-shells--nuke) and [GUI](./gui.md)
 for what the app does with those flags.

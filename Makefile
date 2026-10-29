@@ -8,7 +8,7 @@
 #   make release PUSH=0                   # … local only; push branch + tag yourself to trigger CI
 
 .PHONY: help run lint typecheck fmt test test-unit resources bundle clean bump release \
-	sync ensure-ocio docs-serve docs-build r3d-bridge r3d-sdk-fetch \
+	sync ensure-ocio r3d-bridge r3d-sdk-fetch \
 	braw-bridge braw-sdk-fetch oxideav-prores cinemadng
 
 APP_NAME := exr_converter
@@ -45,7 +45,6 @@ help:
 	@echo "  make resources                         # regenerate Qt resources"
 	@echo "  make bundle                            # Nuitka standalone build"
 	@echo "  make clean                             # remove build artifacts"
-	@echo "  make docs-serve / docs-build           # Astro site from docs/ (local / CI; Node 22.12+)"
 	@echo "  make r3d-sdk-fetch                     # download private R3D SDK (CI feed / gh auth)"
 	@echo "  make r3d-bridge                        # build optional RED R3D bridge (needs SDK)"
 	@echo "  make braw-sdk-fetch                    # download private BRAW SDK (CI feed / gh auth)"
@@ -57,7 +56,7 @@ help:
 	@echo "  make release PART=… PUSH=0             # preferred: bump+commit+tag on release/* branch"
 	@echo "  make release PART=…                    # also pushes (fails if main is protected)"
 	@echo ""
-	@echo "  Docs: docs/*.md → Astro site/ → Vercel (exr-converter.derekvfx.ca)"
+	@echo "  Docs: docs/*.md → https://vfx.systems/docs/exr-converter"
 	@echo "        AGENTS.md          (release/deploy + agent context; main is protected)"
 	@echo "        CHANGELOG.md       (user-facing history — update every release)"
 	@echo "Current tags: git tag -l 'v*' --sort=-v:refname | head"
@@ -207,20 +206,8 @@ bundle: resources
 	# Quick Look + Finder thumbnail appexes (macOS). Release re-signs them.
 	$(PYTHON) scripts/build_quicklook_appex.py --app "dist/$(MACOS_BUNDLE_NAME).app"
 
-# ── Docs site (Astro → Vercel, see site/vercel.json) ─────────────────────────
-# Source of truth: docs/*.md  ·  site config/theme: site/  ·  preview: http://localhost:4321/
-
-site/node_modules: site/package-lock.json
-	npm ci --prefix site
-
-docs-serve: site/node_modules
-	npm run dev --prefix site
-
-docs-build: site/node_modules
-	npm run build --prefix site
-
 clean:
-	rm -rf dist build *.build *.dist *.onefile-build __pycache__ site/dist site/.astro
+	rm -rf dist build *.build *.dist *.onefile-build __pycache__
 
 # ── Version bump (no git) ────────────────────────────────────────────────────
 

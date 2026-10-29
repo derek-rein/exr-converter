@@ -7,11 +7,11 @@ description: Tagging, Auto-tag, and the Release workflow
 The full release and deployment process (protected `main`, Makefile, GitHub
 Actions, `gh` CLI, checklist, troubleshooting) lives in:
 
-**[AGENTS.md: Releasing and deployment](../AGENTS.md#releasing-and-deployment)**
+**[AGENTS.md: Releasing and deployment](https://github.com/derek-rein/exr-converter/blob/main/AGENTS.md#releasing-and-deployment)**
 
 User-facing history (required on every release):
 
-**[CHANGELOG.md](../CHANGELOG.md)**
+**[CHANGELOG.md](https://github.com/derek-rein/exr-converter/blob/main/CHANGELOG.md)**
 
 **Short path:** merge a release PR that bumps `pyproject.toml` **and** rolls
 `CHANGELOG.md` (`## [X.Y.Z]` + compare link) → **Auto-tag release** pushes
@@ -70,7 +70,7 @@ Non-code files Nuitka drops under `Contents/MacOS` are moved to
 `Contents/Resources` (with symlinks left behind) before that signature, because
 a Developer ID seal rejects them as unsigned nested code. Secret names and the
 entitlements are in
-[AGENTS.md](../AGENTS.md#apple-developer-id-macos-notarization).
+[AGENTS.md](https://github.com/derek-rein/exr-converter/blob/main/AGENTS.md#apple-developer-id-macos-notarization).
 
 To test signing without publishing a GitHub Release:
 
@@ -96,11 +96,9 @@ upload's contents are never signed. A later release can also submit the
 are set. The first submission is manual, and a publish failure does not
 block the GitHub Release. Steps: [msix.md](./msix.md).
 
-**Docs site:** Markdown under `docs/` is built with Astro (`site/`) and published
-by Vercel on push to `main` (config in `site/vercel.json`).
-That is independent of the versioned app **Release** workflow. Preview locally
-with `make docs-serve`. Public URL:
-[exr-converter.derekvfx.ca](https://exr-converter.derekvfx.ca/).
+**Docs site:** [vfx.systems/docs/exr-converter](https://vfx.systems/docs/exr-converter)
+loads the Markdown under `docs/` from this repo. It is independent of the
+versioned app **Release** workflow.
 
 User-facing ProRes / VideoToolbox guide: [prores.md](./prores.md).
 Related design notes (not release machinery):

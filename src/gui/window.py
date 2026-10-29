@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 
 from ..core.constants import (
     APP_VERSION,
+    DOCS_URL,
     GITHUB_REPO,
     IMAGE_SEQUENCE_EXTS,
     is_image_sequence_ext,
@@ -160,7 +161,7 @@ class AboutDialog(QDialog):
             "<hr>"
             "<p>by <b>Derek Rein</b></p>"
             '<p><a href="https://derekvfx.ca">derekvfx.ca</a> &nbsp;|&nbsp; '
-            '<a href="https://ocio.cc">ocio.cc</a></p>'
+            '<a href="https://vfx.systems">vfx.systems</a></p>'
             "<hr>"
             "<p><b>Bundled OCIO config:</b> ACES Studio Config v4 (ACES 2.0)<br>"
             "Sourced from <a href='https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES/releases'>"
@@ -540,6 +541,13 @@ class MainWindow(QMainWindow):
         self._presets_menu.aboutToShow.connect(self._populate_presets_menu)
 
         help_menu = mb.addMenu("&Help")
+
+        docs_action = QAction("&Documentation", self)
+        docs_action.setShortcut(QKeySequence.StandardKey.HelpContents)
+        docs_action.setToolTip(DOCS_URL)
+        docs_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(DOCS_URL)))
+        help_menu.addAction(docs_action)
+        help_menu.addSeparator()
 
         update_action = QAction("Check for &Updates\u2026", self)
         update_action.triggered.connect(self._check_for_updates)

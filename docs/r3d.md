@@ -9,7 +9,7 @@ clips when built against the official **RED R3D Software Developer’s Kit**.
 Without the SDK bridge, those extensions are recognized in the UI but conversion
 fails with a clear “SDK missing” message.
 
-Related: [CLI](./cli.md) · [GUI](./gui.md) · [AGENTS.md](../AGENTS.md)
+Related: [CLI](./cli.md) · [GUI](./gui.md) · [AGENTS.md](https://github.com/derek-rein/exr-converter/blob/main/AGENTS.md)
 
 ---
 
@@ -21,7 +21,7 @@ Related: [CLI](./cli.md) · [GUI](./gui.md) · [AGENTS.md](../AGENTS.md)
 | Decode | R3D SDK IPP2 **Primary Development** → **REDWideGamutRGB + Log3G10** |
 | OCIO | Auto-detect source space prefers Log3G10 / RWG names on the active config |
 | Output | Same video→EXR pipeline (EXR compression, scale ladder, frame range, workers) |
-| GPU | **macOS Metal**. **Windows:** CUDA if an NVIDIA device is present, otherwise OpenCL. CPU fallback when no GPU init, or for clips Metal cannot GPU-decompress (N-RAW / R3D NE / RED ONE on macOS). Force CPU with `EXR_CONVERTER_R3D_CPU=1`. The RHEL 8 package does not include the RED runtime: `REDDecoder-x64.so` and the GPU libraries need glibc 2.29, so `.r3d` and `.nev` are unavailable there. |
+| GPU | **macOS Metal**. **Windows / Linux:** CUDA if an NVIDIA device is present, otherwise OpenCL. CPU fallback when no GPU init, or for clips Metal cannot GPU-decompress (N-RAW / R3D NE / RED ONE on macOS). Force CPU with `EXR_CONVERTER_R3D_CPU=1`. Linux release packages do not include the RED runtime (see below), so `.r3d` and `.nev` are unavailable there. |
 | Preview | Sequence player + video browser (half-res decode for scrub) |
 | Thumbnails | Grid thumbs via sixteenth-res decode (fast ID, not full premium) |
 | Inspect | Video-browser Inspect reads clip metadata through the SDK, not PyAV |
@@ -31,15 +31,18 @@ Scale maps to the SDK resolution ladder (full / half / quarter / …) for faster
 proxies; odd scale factors may apply a small software resize after decode.
 
 The SDK is cross-platform, but GPU APIs are not one path: **Metal** on macOS
-(full GPU decompress), **CUDA then OpenCL** on Windows via managed
+(full GPU decompress), **CUDA then OpenCL** on Windows and Linux via managed
 `R3DDecoder` (CPU decompress + GPU IPP2). CUDA needs an NVIDIA driver and the
 CUDA runtime (`cudart`) on the library path; OpenCL needs a GPU ICD. No extra
 compile-time CUDA/OpenCL SDK is required to build the bridge.
 
-The RHEL 8 package leaves the RED runtime out. `REDDecoder-x64.so`,
-`REDCuda-x64.so`, and `REDOpenCL-x64.so` need glibc 2.29, so they cannot ship
-in a build that still runs on RHEL 8. macOS and Windows packages still include
-the runtime.
+Linux release packages (AppImage, tarball, and RPM) are built on Rocky Linux 8
+and leave the RED runtime out. `REDDecoder-x64.so`, `REDCuda-x64.so`, and
+`REDOpenCL-x64.so` need glibc 2.29, so they cannot ship in a build that still
+runs on RHEL 8. The release build drops any `r3d/` folder whose libraries need
+a newer glibc than 2.28. macOS and Windows packages still include the runtime.
+A source checkout on a newer Linux can still build and use the bridge
+(`make r3d-bridge`).
 
 ---
 
@@ -65,7 +68,7 @@ Summary of constraints that affect this project (not a substitute for the legal 
 **Do not commit the R3D SDK tree into the public git repository.** The R3D bridge source is **not** in this public repo: it is proprietary
 (Medeu Global LLC) and lives in the private `derek-rein/r3d-sdk-private` repo
 (`bridge/`), fetched at build time by `scripts/build_r3d_bridge.py`. This repo
-only contains the build wrapper and Python ctypes glue (`src/core/r3d.py`).
+only contains the build wrapper and Python ctypes glue (`src/core/r3d/`).
 
 Contact RED for edge cases: `RED-r3dsdk@nikon.com`.
 
@@ -139,6 +142,8 @@ The **Release** workflow (Nuitka multi-OS):
 2. Build `libr3d_bridge` (macOS / Linux / Windows + MSVC).
 3. After Nuitka, copy **bridge + Redistributable only** into `…/r3d/` next to the executable.
 4. Refuse the build if headers / `.a` / `.lib` appear under that folder.
+5. Linux (Rocky Linux 8): drop RED GPU libraries over the glibc 2.28 floor,
+   then the whole `r3d/` folder if the decoder still needs a newer glibc.
 
 If the secret is missing, Release still publishes the app **without** R3D support.
 
@@ -153,7 +158,7 @@ gh secret set R3D_SDK_READ_TOKEN --repo derek-rein/exr-converter
 
 ```text
 macOS:  EXR Converter.app/Contents/MacOS/r3d/
-Linux:  <dist>/r3d/
+Linux:  <dist>/r3d/        (source builds; release packages omit it)
 Windows:<dist>/r3d/
           libr3d_bridge.*
           REDR3D.*  REDDecoder.*  …   # original Redistributable names only
@@ -169,6 +174,7 @@ Windows:<dist>/r3d/
 | `RED Redistributable libraries not found` | Set `EXR_CONVERTER_R3D_LIBS` or rebuild bridge (copies redistributables) |
 | `R3D bridge init failed` | Wrong folder (must contain `REDR3D.*`); SDK version mismatch |
 | CI skips R3D | Secret `R3D_SDK_READ_TOKEN` not set or cannot read private release |
+| `.r3d` unavailable in a Linux release package | Expected. The RED runtime needs glibc 2.29 and is left out of the Rocky Linux 8 build. Use macOS or Windows, or build from source on a newer Linux |
 | Wrong colors | Use Log3G10 / RWG source (auto-detect). The primary pipeline is not display Rec.709 |
 | Multi-part classic R3D | Point at any part (e.g. `…_001.R3D`); the SDK loads siblings |
 | `._….R3D` in browser | macOS AppleDouble metadata next to the real clip, hidden from the video browser (not media) |

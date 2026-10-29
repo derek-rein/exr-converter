@@ -31,7 +31,7 @@ LICENSE_NAME = "MIT"
 OPT_PREFIX = "/opt/exr-converter"
 BINARY_NAME = "exr_converter"
 LAUNCHER_NAME = "exr-converter"
-HOMEPAGE = "https://exr-converter.derekvfx.ca/"
+HOMEPAGE = "https://vfx.systems/docs/exr-converter"
 
 # Sonames provided by Rocky / RHEL 8 and 9 base packages. The GUI loads these
 # from the host; the rest of the stack is inside the prefix.
