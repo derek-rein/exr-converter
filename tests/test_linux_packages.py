@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from check_glibc_floor import (  # noqa: E402
+    drop_optional_gpu,
     exceeds,
+    is_optional_gpu_library,
     parse_version_needs,
     version_tuple,
 )
@@ -197,6 +199,7 @@ def test_release_workflow_linux_job_is_rocky_only() -> None:
     assert "scripts/install_r3d_into_bundle.py" in script
     assert "scripts/check_glibc_floor.py" in script
     assert "--max-glibc 2.28" in script
+    assert "--drop-optional-gpu" in script
     assert 'NFPM_VER="2.41.3"' in script
     assert "nfpm_${NFPM_VER}_Linux_x86_64.tar.gz" in script
     # Shared Nuitka strip flags stay aligned with the macOS/Windows step.
@@ -263,7 +266,38 @@ def test_patchelf_strict_flag_is_wired() -> None:
     assert "$ORIGIN" in source
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="ELF readelf")
+def test_drop_optional_gpu_keeps_core_red_library(tmp_path: Path, monkeypatch) -> None:
+    import check_glibc_floor
+
+    root = tmp_path / "main.dist"
+    r3d = root / "r3d"
+    r3d.mkdir(parents=True)
+    opencl = r3d / "REDOpenCL-x64.so"
+    core = r3d / "REDR3D-x64.so"
+    cuda = r3d / "REDCuda-x64.so"
+    for path in (opencl, core, cuda):
+        path.write_bytes(b"\x7fELF" + b"\0" * 16)
+    assert is_optional_gpu_library(opencl)
+    assert not is_optional_gpu_library(core)
+    assert not is_optional_gpu_library(cuda)
+
+    def fake_needs(path: Path) -> set[str]:
+        if path.name.startswith("REDOpenCL"):
+            return {"GLIBC_2.29", "GLIBCXX_3.4.26"}
+        if path.name.startswith("REDCuda"):
+            return {"GLIBC_2.29"}
+        return {"GLIBC_2.17"}
+
+    monkeypatch.setattr(check_glibc_floor, "readelf_needs", fake_needs)
+    ceilings = {"GLIBC": (2, 28), "GLIBCXX": (3, 4, 25), "CXXABI": (1, 3, 11)}
+    dropped = drop_optional_gpu(root, ceilings)
+    assert [path.name for path, _over in dropped] == ["REDOpenCL-x64.so"]
+    assert not opencl.exists()
+    assert core.is_file()
+    assert cuda.is_file()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="glibc ELF")
 @pytest.mark.skipif(shutil.which("readelf") is None, reason="readelf")
 def test_host_glibc_scan_smoke(tmp_path: Path) -> None:
     """The scanner reports a floor for a real ELF (this host's /bin/ls or python)."""
