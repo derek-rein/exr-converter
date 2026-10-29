@@ -60,7 +60,7 @@ wheels = [
 
 [[package]]
 name = "exr-converter"
-version = "0.12.5"
+version = "0.12.6"
 source = { virtual = "." }
 dependencies = [
     { name = "av" },
