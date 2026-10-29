@@ -11,10 +11,9 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "site/**"
-      - "**/*.md"
+    # No paths-ignore: a docs-only PR must still report the required checks or
+    # it can never merge. The `changes` job below skips macOS/Windows tests
+    # when only docs/site files changed, so those PRs only cost a Linux run.
   workflow_dispatch:
 
 concurrency:
@@ -103,6 +102,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/ci-test
+      - name: Compile Quick Look extensions
+        run: |
+          set -euo pipefail
+          uv run python scripts/build_quicklook_appex.py --compile-check
+          swift test --package-path packaging/macos/quicklook
 
   test-windows:
     name: test (windows-latest)

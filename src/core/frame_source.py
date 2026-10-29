@@ -36,7 +36,7 @@ class MediaInfo:
     height: int
     fps: float
     frame_count: int
-    kind: str  # "video" | "r3d" | "braw" | "cinemadng"
+    kind: str  # "video" | "r3d" | "braw" | "cinemadng" | source-plugin kind
     colorspace_hint: str = ""
 
 
@@ -96,12 +96,17 @@ def open_preview_decoder(path: str, *, fps: float = 0.0) -> PreviewDecoder:
     from .cinemadng import is_cinemadng_input
     from .cinemadng.source import CinemaDNGPreviewDecoder
     from .r3d import is_r3d_path
+    from .source_plugins import plugin_for_path, require_available
     from .video import (
         _arriraw_unsupported_message,
         is_ignored_media_filename,
         is_libav_unsafe_media,
     )
 
+    plugin = plugin_for_path(path)
+    if plugin is not None:
+        require_available(plugin)
+        return plugin.open_preview(path, fps=fps)
     if is_cinemadng_input(path):
         return CinemaDNGPreviewDecoder(path, fps=fps)
     if is_r3d_path(path):
@@ -142,7 +147,12 @@ def open_ingest_source(
     path_s = str(path)
     if is_ignored_media_filename(path_s):
         raise RuntimeError(f"Not a media file (OS metadata sidecar): {Path(path_s).name}")
+    from .source_plugins import plugin_for_path, require_available
 
+    plugin = plugin_for_path(path_s)
+    if plugin is not None:
+        require_available(plugin)
+        return plugin.open_ingest(path_s, scale=scale)
     if is_cinemadng_input(path_s):
         return CinemaDNGIngestSource(path_s, scale=scale)
     if is_r3d_path(path_s):

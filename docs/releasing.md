@@ -45,6 +45,19 @@ CHANGELOG section for that version plus verify commands. Optional SignPath
 Authenticode for Windows is off until repository vars/secrets are set (see
 AGENTS.md).
 
+**Linux packages:** the Release workflow builds Linux on Rocky Linux 8
+(glibc 2.28) and publishes three files from that dist: the AppImage, a
+relocatable tarball, and an RPM. See [linux.md](./linux.md). To build only
+those artifacts and skip the GitHub Release:
+
+```bash
+gh workflow run Release --ref <branch> -f linux_only=true -f publish=false
+```
+
+That run still passes the lint and test gate, then uploads
+`exr_converter-linux-x86_64` (AppImage, `.tar.gz`, and `.rpm`). Cosign runs
+on a full release, together with the macOS and Windows assets.
+
 **macOS notarization:** when the Developer ID secrets are set, the build job
 signs each DMG with **Developer ID Application: Medeu Global LLC (83546T4BT8)**
 (team `83546T4BT8`, G2 cert, expires 2031-09-17), notarizes it, and staples it
@@ -72,6 +85,16 @@ The run uploads `exr_converter-macos-arm64-signed` and
 spctl -a -vvv -t install exr_converter-macos-arm64.dmg
 codesign --verify --deep --strict --verbose=2 exr_converter-macos-arm64.dmg
 ```
+
+**Microsoft Store:** the Windows build can also publish
+`exr_converter-windows-x86_64.msixupload` (unsigned Partner Center upload)
+and `exr_converter-windows-x86_64.msix` (self-distribution). The loose
+`.msix` is signed with `signtool` when Azure Artifact Signing secrets are
+set, and left unsigned otherwise. An unsigned MSIX does not install. The
+upload's contents are never signed. A later release can also submit the
+`.msixupload` with `msstore` when the Store secrets and `MSSTORE_APP_ID`
+are set. The first submission is manual, and a publish failure does not
+block the GitHub Release. Steps: [msix.md](./msix.md).
 
 **Docs site:** Markdown under `docs/` is built with Astro (`site/`) and published
 by Vercel on push to `main` (config in `site/vercel.json`).

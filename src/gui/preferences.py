@@ -11,6 +11,7 @@ from PySide6.QtCore import QSettings, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -28,6 +29,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.quicklook_prefs import (
+    QUICKLOOK_FORMATS,
+    clear_quicklook_cache,
+    format_enabled,
+    open_extension_settings,
+    publish_quicklook_preferences,
+    set_format_enabled,
+)
 from ..services.app_settings import Keys
 from ..services.cache_prefs import (
     load_cache_budget_pct,
@@ -466,6 +475,10 @@ class PreferencesDialog(QDialog):
         cache_layout.addLayout(cache_row)
         root.addWidget(cache_box)
 
+        self._ql_checks: dict[str, QCheckBox] = {}
+        if sys.platform == "darwin":
+            root.addWidget(self._build_quicklook_box(settings))
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -555,4 +568,51 @@ class PreferencesDialog(QDialog):
             int(thumb_data) if thumb_data is not None else THUMBNAIL_FRAME_MID,
         )
         save_cache_budget_pct(self._settings, int(self._cache_slider.value()))
+        if sys.platform == "darwin":
+            for key, box in self._ql_checks.items():
+                set_format_enabled(self._settings, key, box.isChecked())
+            publish_quicklook_preferences(self._settings)
         self.accept()
+
+    def _build_quicklook_box(self, settings: QSettings) -> QGroupBox:
+        box = QGroupBox("Quick Look")
+        layout = QVBoxLayout(box)
+        hint = QLabel(
+            "Spacebar previews and Finder icons on macOS 12 and later. "
+            "OpenEXR and DPX start on. PNG, JPEG, WebP, TIFF, and DNG stay off "
+            "so Finder keeps its own preview until you opt in. "
+            "A format you turn off is declined, and macOS uses its built-in "
+            "preview when it has one. EXR and DPX have none, so they go blank. "
+            "Enable the extension once under System Settings → General → "
+            "Login Items &amp; Extensions. "
+            "Scene-linear OpenEXR and DPX use this app’s default OCIO display "
+            "view (exposure 0, gamma 1), written when the OCIO config loads. "
+            "Numbered frames play in the preview when the folder can be read. "
+            "Movies, BRAW, R3D, and ARRIRAW are not previewed here."
+        )
+        hint.setWordWrap(True)
+        hint.setTextFormat(Qt.TextFormat.RichText)
+        hint.setStyleSheet("color: #aaa;")
+        layout.addWidget(hint)
+        for fmt in QUICKLOOK_FORMATS:
+            check = QCheckBox(fmt.label)
+            check.setObjectName(f"ql_{fmt.key}")
+            check.setToolTip(fmt.detail)
+            check.setChecked(format_enabled(settings, fmt.key))
+            self._ql_checks[fmt.key] = check
+            layout.addWidget(check)
+        buttons = QHBoxLayout()
+        extensions = QPushButton("Login Items && Extensions…")
+        extensions.setToolTip(
+            "Opens System Settings so you can enable EXR Converter Quick Look. "
+            "On older macOS the pane is General → Login Items & Extensions."
+        )
+        extensions.clicked.connect(lambda _checked=False: open_extension_settings())
+        cache = QPushButton("Clear Quick Look cache")
+        cache.setToolTip("Finder keeps a cached preview. Clear it after changing a format toggle.")
+        cache.clicked.connect(lambda _checked=False: clear_quicklook_cache())
+        buttons.addWidget(extensions)
+        buttons.addWidget(cache)
+        buttons.addStretch()
+        layout.addLayout(buttons)
+        return box

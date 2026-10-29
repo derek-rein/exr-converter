@@ -81,6 +81,48 @@ def read_image(path: str) -> np.ndarray:
     raise RuntimeError(f"Unsupported pixel layout in image {path!r}: shape={pixels.shape}")
 
 
+def _alpha_channel_index(spec) -> int:
+    idx = int(getattr(spec, "alpha_channel", -1))
+    if idx >= 0:
+        return idx
+    names = [str(n) for n in spec.channelnames]
+    for cand in ("A", "a", "Alpha", "alpha"):
+        if cand in names:
+            return names.index(cand)
+    return -1
+
+
+def image_has_alpha(path: str) -> bool:
+    """True when the still at *path* has an alpha channel (header only)."""
+    inp = oiio.ImageInput.open(path)
+    if not inp:
+        return False
+    try:
+        return _alpha_channel_index(inp.spec()) >= 0
+    finally:
+        inp.close()
+
+
+def read_image_alpha(path: str) -> np.ndarray | None:
+    """Alpha channel (float32, H×W, display window) or ``None`` when there is none."""
+    buf = oiio.ImageBuf(path)
+    if buf.has_error:
+        raise RuntimeError(f"Failed to open image {path!r}: {buf.geterror()}")
+    spec = buf.spec()
+    idx = _alpha_channel_index(spec)
+    if idx < 0:
+        return None
+    dx, dy, dw, dh = _display_window(spec)
+    roi = oiio.ROI(dx, dx + dw, dy, dy + dh, 0, 1, idx, idx + 1)
+    pixels = buf.get_pixels(oiio.FLOAT, roi)
+    if buf.has_error or pixels is None:
+        raise RuntimeError(f"Failed to read alpha from image {path!r}: {buf.geterror()}")
+    arr = np.asarray(pixels, dtype=np.float32)
+    if arr.ndim == 3:
+        arr = arr[:, :, 0]
+    return np.ascontiguousarray(arr)
+
+
 def read_exr(path: str) -> np.ndarray:
     """Alias for :func:`read_image` (historical name; works for any OIIO still)."""
     return read_image(path)

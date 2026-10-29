@@ -1,0 +1,28 @@
+#!/bin/sh
+# Relocatable launcher for the Linux tarball and RPM.
+#
+# Resolves this file through symlinks (/usr/bin/exr-converter ->
+# /opt/exr-converter/exr-converter, or a Rez PATH entry) and execs the
+# Nuitka binary that sits next to the real script. It does not create or
+# write files in the install directory, so the tree can live on a read-only
+# share. Qt settings use $XDG_CONFIG_HOME (default ~/.config). Caches use
+# $XDG_CACHE_HOME (default ~/.cache). Presets use $XDG_DATA_HOME
+# (default ~/.local/share).
+set -eu
+
+if ! SELF=$(readlink -f "$0" 2>/dev/null) || [ -z "$SELF" ]; then
+  SELF=$0
+  while [ -L "$SELF" ]; do
+    LINKDIR=$(dirname "$SELF")
+    TARGET=$(readlink "$SELF")
+    case $TARGET in
+      /*) SELF=$TARGET ;;
+      *) SELF="$LINKDIR/$TARGET" ;;
+    esac
+  done
+  SELF_DIR=$(CDPATH= cd -- "$(dirname "$SELF")" && pwd)
+  SELF="$SELF_DIR/$(basename "$SELF")"
+fi
+
+HERE=$(CDPATH= cd -- "$(dirname "$SELF")" && pwd)
+exec "$HERE/exr_converter" "$@"

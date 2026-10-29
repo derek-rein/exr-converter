@@ -1,6 +1,6 @@
 [project]
 name = "exr-converter"
-version = "0.12.3"
+version = "0.12.4"
 description = "A cross-platform GUI tool for converting and transcoding EXR and video files."
 authors = [
     {name = "DerekVFX", email = "derek@derekvfx.ca"},
@@ -8,7 +8,10 @@ authors = [
 dependencies = [
     "av>=17.0.0",
     "OpenImageIO>=3.1.17",
-    "PySide6-Essentials>=6.8.3",
+    # Exact Qt pin on every platform. 6.10+ Linux wheels are manylinux_2_34
+    # (glibc 2.34, RHEL 9). 6.9.2 is manylinux_2_28 and runs on RHEL / Rocky 8.
+    "PySide6-Essentials==6.9.2",
+    "shiboken6==6.9.2",
     "numpy>=2.3",
     "opencolorio>=2.5.2",
     "fileseq>=3.1.1",
@@ -16,6 +19,7 @@ dependencies = [
     # 1.24+ macOS wheels are arm64-only. Intel stays on the last x86_64 wheel.
     "onnxruntime>=1.20; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "onnxruntime>=1.20,<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "rapidfuzz>=3.9",
 ]
 requires-python = "==3.13.*"
 readme = "README.md"

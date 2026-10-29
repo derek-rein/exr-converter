@@ -19,7 +19,9 @@ binaries for Linux, macOS (arm64 + x86_64), and Windows.
 | Repo | https://github.com/derek-rein/exr-converter |
 | Org settings keys | `QSettings("VFXTools", "EXRConverter")` |
 
-VFX Reference Platform CY2026-ish stack: PySide6 6.8, OCIO 2.5, OIIO, NumPy 2.x, PyAV.
+VFX Reference Platform CY2026-ish stack: PySide6 6.9.2 (exact pin on every platform), OCIO 2.5, OIIO, NumPy 2.x, PyAV.
+Do not bump PySide6 past 6.9.x while Linux targets RHEL 8: 6.10+ Linux wheels are
+manylinux_2_34 (glibc 2.34). Do not use Qt 6.10+ APIs.
 
 ## Changelog (required)
 
@@ -45,7 +47,7 @@ builds them from [`site/`](./site/) and Vercel publishes them (config in
 |------|--------|
 | When | Any change that affects how users run or integrate the app: CLI flags, GUI behavior, codecs, OCIO/defaults, install/packaging users notice, Nuke/helpers, post-convert prefs, launch flags |
 | Where | Update the matching file under `docs/` in the **same PR / commit set** as the code (and [CHANGELOG.md](./CHANGELOG.md) when user-visible) |
-| Map | [docs/cli.md](./docs/cli.md) CLI + GUI launch · [docs/gui.md](./docs/gui.md) GUI / prefs / overlays · [docs/prores.md](./docs/prores.md) VideoToolbox / software / oxideav · [docs/nuke.md](./docs/nuke.md) Nuke menu · [docs/releasing.md](./docs/releasing.md) short release pointer · design notes only when the design changes |
+| Map | [docs/cli.md](./docs/cli.md) CLI + GUI launch · [docs/gui.md](./docs/gui.md) GUI / prefs / overlays · [docs/quicklook.md](./docs/quicklook.md) macOS Quick Look · [docs/prores.md](./docs/prores.md) VideoToolbox / software / oxideav · [docs/nuke.md](./docs/nuke.md) Nuke menu · [docs/releasing.md](./docs/releasing.md) short release pointer · design notes only when the design changes |
 | Local | `make docs-serve` (preview) · `make docs-build` (static `site/dist/`); needs Node 22.12+ |
 | Do not | Leave docs describing old flags/defaults/codecs. Do not hand-edit generated `site/dist/`. Do not put the only copy of user docs solely in chat or PR text. |
 
@@ -75,7 +77,8 @@ src/
 native/
   exr_prores/           # optional oxideav-prores PyO3 extension (12-bit ProRes)
 resources/              # icons, style.qss, OCIO config, screenshots
-scripts/                # bump_app_version.py, ensure_ocio.py, build_oxideav_prores.py, trustmark_detect.py
+scripts/                # bump_app_version.py, ensure_ocio.py, package_msix.py, build_oxideav_prores.py, build_quicklook_appex.py, trustmark_detect.py
+packaging/macos/quicklook/  # Swift Quick Look + thumbnail appex (view LUT + flipbook; macOS release embeds under Contents/PlugIns)
 tests/                  # pytest; integration + fixtures under tests/fixtures/
 docs/                   # user-facing Markdown (Astro content source of truth)
 site/                   # Astro site (layouts, styles); loads docs/ → Vercel
@@ -90,6 +93,7 @@ site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 | Optional R3D / N-RAW | `src/core/r3d/`, bridge source in private `derek-rein/r3d-sdk-private` (macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_r3d_bridge.py`, `scripts/fetch_r3d_sdk.py`, `scripts/install_r3d_into_bundle.py`, [docs/r3d.md](./docs/r3d.md) |
 | Optional BRAW | `src/core/braw/`, bridge source in private `derek-rein/braw-sdk-private` (Linear ACES AP0; macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_braw_bridge.py`, `scripts/fetch_braw_sdk.py`, `scripts/install_braw_into_bundle.py`, [docs/braw.md](./docs/braw.md) |
 | CinemaDNG | `native/cinemadng/cinemadng.c`, `src/core/cinemadng/`, `scripts/build_cinemadng.py`, [docs/cinemadng.md](./docs/cinemadng.md). Uncompressed and lossless JPEG Bayer only. Not the Adobe DNG SDK. |
+| Optional source plugins (generic hook) | `src/core/source_plugins.py` — private builds may drop decoder plugins into `src/plugins/` (git-ignored, listed in generated `src/plugins/_enabled.py`). The public repo ships none; dispatch order is sidecar check → plugins → CinemaDNG → R3D/BRAW → PyAV. Tests: `tests/test_source_plugins.py` |
 | Optional 12-bit ProRes (oxideav) | `native/exr_prores/` (PyO3), `src/core/oxideav_prores.py`, `make oxideav-prores`, [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) |
 | Private full SDK (local) | R3D: `~/code/r3d-sdk-private/R3DSDKv9_2_1` — CI feed `derek-rein/r3d-sdk-private` release `sdk-9.2.1` (`R3D_SDK_READ_TOKEN`). BRAW: `~/.braw-sdk/` or `~/code/braw-sdk-private/BlackmagicRAWSDK-6.0` — CI feed `derek-rein/braw-sdk-private` release `sdk-6.0` (`BRAW_SDK_READ_TOKEN`). Never commit either SDK. |
 | Codec ladder / bit depth labels | `src/core/constants.py` |
@@ -103,6 +107,8 @@ site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 | Slate dialog / viewer | `src/gui/slate_widgets.py` (composes player + overlay hooks), `src/gui/ocio_gpu_plane.py`, `src/services/slate_model.py` |
 | Background convert | `src/services/worker.py` |
 | Video → Proxy tab / watch folder | `src/gui/proxy_tab.py`, `src/core/proxy.py`, `src/core/watch_folder.py`, `src/services/proxy_queue.py` (CLI `proxy` in `src/cli.py`). Optional invisible watermark: `src/core/trustmark/` (ONNX Runtime, encoder downloaded on first use) and `scripts/trustmark_detect.py` |
+| Linux studio packages | `packaging/linux/` (Rocky 8 build, `exr-converter` launcher), `scripts/package_linux.py`, `scripts/check_glibc_floor.py`. Release job `build-linux` only |
+| Transcode tab (video → video) | `src/gui/transcode_tab.py`, `src/core/transcode.py` (shared PyAV encode engine: codecs/containers, sizes, audio, naming, OCIO, watermark; `run_video_to_proxy` is a thin wrapper over it), `TranscodeQueue` in `src/services/proxy_queue.py` (CLI `transcode` in `src/cli.py`) |
 
 ## Commands (local)
 
@@ -245,9 +251,10 @@ feature commits (PR → main)
    concurrency: one run per tag (cancel-in-progress: false)
         │  validate tag↔pyproject + CHANGELOG
         │  lint → test (3 OS) → gate → Nuitka (4 targets)
-        │  → optional SignPath (Windows) → Cosign + GH attestations → publish
+        │  → optional SignPath (Windows exe) → Cosign + GH attestations → publish
         ▼
- Artifacts: Linux AppImage, macOS DMG (arm64 + x86_64), Windows installer
+ Artifacts: Linux AppImage, macOS DMG (arm64 + x86_64), Windows installer,
+            Windows .msixupload and .msix when Store identity variables are set
             (+ .sigstore.json bundles; GH attestations for provenance)
 ```
 
@@ -346,10 +353,11 @@ gh pr checks
 | `lint` | Tag↔pyproject + CHANGELOG gate, then Ruff check + format |
 | `test` | Full pytest on ubuntu / macos / windows |
 | `gate` | Aborts release if lint or any OS test failed |
-| `build` | Nuitka → AppImage / DMG / Windows setup (3h timeout, 6h on macOS so notarization can finish; LTO + Qt strip aligned with `make bundle`). macOS DMGs are Developer ID-signed, notarized, and stapled here, before upload, when the Apple secrets below are set |
+| `build` | Nuitka → macOS DMG / Windows setup (3h timeout, 6h on macOS so notarization can finish; LTO + Qt strip aligned with `make bundle`). macOS DMGs are Developer ID-signed, notarized, and stapled here, before upload, when the Apple secrets below are set. Skipped for `linux_only` |
+| `build-linux` | Rocky Linux 8 container (`rockylinux:8`, glibc 2.28) → AppImage, relocatable tarball, and RPM from one Nuitka dist. Installs PySide6 from `uv.lock` like the other platforms (the project pins 6.9.2 everywhere because 6.10+ Linux wheels need glibc 2.34) and pins patchelf 0.19 (Rocky 8's patchelf 0.12, and patchelf's RPATH rewrite, mis-align NumPy OpenBLAS; those wheel copies are restored). Skipped for `macos_only` |
 | `sign-windows` | Optional SignPath Authenticode (skipped unless vars configured; runs **before** Cosign) |
-| `sign` | Assemble final bits → Cosign keyless + `actions/attest-build-provenance` (skipped for a `macos_only` signing test; those DMGs are already the build artifacts) |
-| `release` | CHANGELOG section + verify notes → single GitHub Release upload. Skipped when `publish` is false or `macos_only` is true |
+| `sign` | Assemble final bits → Cosign keyless + `actions/attest-build-provenance` for the AppImage, DMGs, and setup, then the Linux tarball and RPM. Skipped for `macos_only` and for `linux_only` (the matrix build did not run) |
+| `release` | CHANGELOG section + verify notes → single GitHub Release upload. Skipped when `publish` is false, `macos_only` is true, or `linux_only` is true |
 
 Local package only: `make bundle` (no GitHub Release). Shared Nuitka strip/LTO
 flags match CI; packaging (DMG/AppImage/Inno) is CI-only.
@@ -360,7 +368,7 @@ flags match CI; packaging (DMG/AppImage/Inno) is CI-only.
 - [`.github/dependabot.yml`](.github/dependabot.yml) opens weekly grouped PRs for
   `github-actions` bumps.
 - `astral-sh/setup-uv` pins **uv 0.12.3** (not `latest`).
-- AppImage packaging pins **appimagetool 1.9.1** and verifies SHA-256.
+- AppImage packaging pins **appimagetool 1.9.1** and verifies SHA-256. The Linux job also pins **nfpm 2.41.3** for the RPM and builds inside **Rocky Linux 8**.
 
 ### SignPath (optional Windows Authenticode)
 
@@ -375,7 +383,66 @@ Skipped until you set repository **variables** (and matching **secrets**):
 Also install the SignPath GitHub App and create a project/policy/artifact
 configuration in the SignPath dashboard. When `SIGNPATH_PROJECT_SLUG` is empty,
 `sign-windows` is skipped and the unsigned Inno setup is published (Cosign still
-applies).
+applies). SignPath is the setup `.exe` only. Do not send the MSIX through it.
+
+### Microsoft Store MSIX
+
+The Windows build job can pack two Release assets with `makeappx`
+(`scripts/package_msix.py`) from the same Nuitka folder the Inno setup uses:
+
+- `exr_converter-windows-x86_64.msixupload` — Partner Center upload. A zip of
+  the unsigned `.msix` plus an `.appxsym` when that folder contains PDB files.
+  No PDBs is still valid. **Do not sign the upload or the package inside it.**
+  Partner Center re-signs it.
+- `exr_converter-windows-x86_64.msix` — self-distribution. After the upload is
+  written, `signtool` signs this file when the Azure Artifact Signing secrets
+  below are all set. Otherwise it ships unsigned, and Windows will not install
+  it. An unsigned MSIX needs a trusted signature before `Add-AppxPackage` works.
+
+SignPath stays on the setup `.exe` only. A detached Cosign `.sigstore.json`
+is provenance for the file bytes, not an Appx signature, and is not uploaded
+to the Store.
+
+Optional **secrets** (all of them, or none) for `signtool` on the loose `.msix`:
+
+| Secret | Meaning |
+|--------|---------|
+| `AZURE_TENANT_ID` | Directory (tenant) id |
+| `AZURE_CLIENT_ID` | App registration client id |
+| `AZURE_CLIENT_SECRET` | Client secret |
+| `AZURE_ARTIFACT_SIGNING_ENDPOINT` | Regional Artifact Signing endpoint |
+| `AZURE_ARTIFACT_SIGNING_ACCOUNT` | Artifact Signing account name |
+| `AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE` | Certificate profile name |
+
+Optional Store publish, on a real release only (tag push, or
+`workflow_dispatch` with publish and not `macos_only`), after the
+`.msixupload` artifact is uploaded. Uses `msstore reconfigure` then
+`msstore publish <msixupload> --appId`. The action is
+`microsoft/microsoft-store-apppublisher` (setup-msstore-cli) at CLI v0.4.3.
+Missing values skip with a notice. A publish failure does not fail the job.
+The first Partner Center submission is manual. See [docs/msix.md](./docs/msix.md).
+
+| Name | Kind | Meaning |
+|------|------|---------|
+| `MSSTORE_TENANT_ID` | secret | Directory (tenant) id |
+| `MSSTORE_CLIENT_ID` | secret | App registration client id |
+| `MSSTORE_CLIENT_SECRET` | secret | Client secret |
+| `MSSTORE_SELLER_ID` | secret | Partner Center seller id |
+| `MSSTORE_APP_ID` | variable | Store product id of an already published app |
+
+Repository **variables** (not secrets):
+
+| Variable | Required | Meaning |
+|----------|----------|---------|
+| `MSIX_IDENTITY_NAME` | yes | Partner Center package identity name |
+| `MSIX_PUBLISHER` | yes | Exact `CN=...` publisher string |
+| `MSIX_PUBLISHER_DISPLAY_NAME` | no | Defaults to **DerekVFX** |
+
+If the required variables are empty, the step warns and skips. The setup
+`.exe` still ships. Manifest version is `pyproject.toml` `a.b.c` → `a.b.c.0`.
+Full-trust desktop (`runFullTrust`, `Windows.FullTrustApplication`,
+`Windows.Desktop`). No file associations or protocol handlers. Submission
+steps: [docs/msix.md](./docs/msix.md).
 
 ### Apple Developer ID (macOS notarization)
 
@@ -506,7 +573,7 @@ may still show the standard "downloaded from the internet" prompt.
 | [CI](.github/workflows/ci.yml) | push / PR to `main` | Ruff + basedpyright (`src/`, `main.py`; errors fail, warnings tolerated) + full pytest on 3 OS; job **`ci-ok`** requires all green |
 | [Docs](.github/workflows/docs.yml) | push / PR paths under `docs/`, `site/` | Astro build check; on `main`, deploys a redirect from the old GitHub Pages URL to the Vercel site |
 | [Auto-tag release](.github/workflows/auto-tag-release.yml) | push to `main` | CHANGELOG gate; if no `vX.Y.Z` tag → push tag; if no GitHub Release and no active run → `workflow_dispatch` Release |
-| [Release](.github/workflows/release.yml) | tag `v*` **or** `workflow_dispatch` | Tag/CHANGELOG validate + lint + tests via **`gate`** before Nuitka / Cosign / publish. `macos_only` dispatch notarizes the DMGs as artifacts and does not publish |
+| [Release](.github/workflows/release.yml) | tag `v*` **or** `workflow_dispatch` | Tag/CHANGELOG validate + lint + tests via **`gate`** before Nuitka / Cosign / publish. `macos_only` notarizes the DMGs and does not publish. `linux_only` builds the Rocky 8 AppImage, tarball, and RPM and does not publish |
 
 Branch protection on `main` should require `ci-ok`.
 
@@ -519,8 +586,10 @@ Branch protection on `main` should require `ci-ok`.
 | [README.md](./README.md) | Product overview, install, short CLI |
 | [docs/](./docs/) | User-facing Markdown (**must update** when behavior changes) |
 | [site/](./site/) | Astro site; loads `docs/` → Vercel (`site/vercel.json`) |
-| [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`) + GUI launch flags |
+| [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`, `transcode`) + GUI launch flags |
 | [docs/gui.md](./docs/gui.md) | GUI tabs, overlays, preferences, post-convert |
+| [docs/linux.md](./docs/linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
+| [docs/quicklook.md](./docs/quicklook.md) | macOS Quick Look + Finder thumbnails (EXR, DPX, optional stills) |
 | [docs/prores.md](./docs/prores.md) | Software vs VideoToolbox vs oxideav ProRes |
 | [docs/nuke.md](./docs/nuke.md) | Nuke menu integration |
 | [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 12-bit ProRes (oxideav; shipping in releases) |
@@ -528,6 +597,7 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/braw.md](./docs/braw.md) | Optional Blackmagic RAW (proprietary SDK; Linear ACES AP0) |
 | [docs/cinemadng.md](./docs/cinemadng.md) | CinemaDNG sequences (DJI Linear P3-D60 + 1.4 stops) |
 | [docs/releasing.md](./docs/releasing.md) | Short pointer here + docs-site note |
+| [docs/msix.md](./docs/msix.md) | Windows .msixupload (Store) and .msix (self-distribution) |
 | [integrations/nuke/](./integrations/nuke/) | Nuke `menu.py` + helpers |
 
 Public site: `make docs-serve` / `make docs-build`. Vercel (Root Directory `site`)
@@ -537,6 +607,7 @@ builds per `site/vercel.json` (`npm run build` → `site/dist`) and serves `http
 ## What not to do
 
 - Do not assume system `ffmpeg` / `ffplay` / `mpv` are installed for core features.
+- Do not publish Snap or Flatpak packages. Linux releases are the AppImage, the relocatable tarball, and the RPM.
 - Do not claim software ProRes is 12-bit.
 - Do not claim oxideav 422 profiles (`prores_ox_proxy` / `lt` / `422` / `hq`)
   are 12-bit to third-party decoders. They are 12-bit internal, 10-bit on
@@ -549,6 +620,7 @@ builds per `site/vercel.json` (`npm run build` → `site/dist`) and serves `http
   libraries + `libbraw_bridge` under a private `braw/` folder — see
   [docs/braw.md](./docs/braw.md).
 - Do not reintroduce Qt WebEngine for slate.
+- Do not sign the `.msixupload` or the package inside it (`signtool`, SignPath, or a local cert). Partner Center signs that package. The loose `.msix` may be signed with `signtool` only when the Azure Artifact Signing secrets are set. The Inno `.exe` is the direct download.
 - Do not push version tags without a changelog section and green Release gate intent.
 - Do not hand-edit `src/rc_resources.py` or force-push published release tags without a deliberate recovery process.
 - Do not finish user-visible work without updating **CHANGELOG.md** and **`docs/`** when the surface area changed.

@@ -19,6 +19,9 @@ from typing import Any
 
 from PySide6.QtCore import QStandardPaths
 
+from ..core.app_paths import profile_data_dir, writable_app_subdir
+from ..core.constants import APP_NAME, APP_ORG
+
 # Bump when the preset payload shape changes (add migration in normalize_preset).
 SCHEMA_VERSION = 1
 
@@ -27,10 +30,14 @@ _PRESET_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$")
 
 
 def _preset_dir() -> Path:
+    """Preset JSON directory under the user profile, never the install folder.
+
+    An MSIX package root is read-only. ``QStandardPaths`` can also return an
+    empty string, which would otherwise create ``presets/`` in the working
+    directory (the package root when the Store launches the app).
+    """
     base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
-    d = Path(base) / "presets"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return writable_app_subdir(base, "presets", fallback=profile_data_dir(APP_ORG, APP_NAME))
 
 
 def validate_preset_name(name: str) -> str:

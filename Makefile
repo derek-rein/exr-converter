@@ -199,6 +199,8 @@ bundle: resources
 	-$(PYTHON) scripts/install_braw_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
 	# CinemaDNG reader sits next to the executable so macOS codesign sees it.
 	$(PYTHON) scripts/install_cinemadng_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
+	# Quick Look + Finder thumbnail appexes (macOS). Release re-signs them.
+	$(PYTHON) scripts/build_quicklook_appex.py --app "dist/$(MACOS_BUNDLE_NAME).app"
 
 # ── Docs site (Astro → Vercel, see site/vercel.json) ─────────────────────────
 # Source of truth: docs/*.md  ·  site config/theme: site/  ·  preview: http://localhost:4321/
