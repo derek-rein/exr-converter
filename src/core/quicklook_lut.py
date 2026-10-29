@@ -17,6 +17,7 @@ sliders are not baked; the preview matches the viewer's default.
 
 from __future__ import annotations
 
+import json
 import os
 import struct
 from dataclasses import dataclass
@@ -33,6 +34,19 @@ from .ocio_utils import (
 )
 
 LUT_FILENAME = "view.lut"
+# Every SDR view of the sRGB and Display P3 displays, for the preview's view menu.
+LUT_BUNDLE_FILENAME = "views.lut"
+LUT_BUNDLE_VERSION = 1
+# Input color spaces the preview can detect from EXR metadata.
+INPUTS_FILENAME = "inputs.json"
+INPUTS_VERSION = 1
+INPUT_CURVE_SIZE = 1024
+INPUT_CURVE_MIN = -0.125
+INPUT_CURVE_MAX = 1.25
+# Core Graphics color space the preview tags its 8-bit output with.
+CG_SRGB = "sRGB"
+CG_DISPLAY_P3 = "displayP3"
+_NO_INDEX = 0xFFFF
 LUT_VERSION = 1
 # Analytic log2 shaper. 2^-10 … 2^6 covers about 0.001 to 64.
 LUT_MIN_EXP = -10.0
@@ -93,6 +107,18 @@ def bake_view_lut(
         display, view = default_display_view(config)
     if not display or not view:
         raise ValueError("OCIO config has no default display/view")
+    return _bake_one(config, source, display, view, cube_size, min_exp, max_exp)
+
+
+def _bake_one(
+    config: OCIO.Config,
+    source: str,
+    display: str,
+    view: str,
+    cube_size: int,
+    min_exp: float,
+    max_exp: float,
+) -> bytes:
     processor = make_display_processor(config, source, display, view, exposure=0.0, gamma=1.0)
     lattice = _lattice(cube_size, min_exp, max_exp)
     blue, green, red = np.meshgrid(lattice, lattice, lattice, indexing="ij")
@@ -105,13 +131,273 @@ def bake_view_lut(
     return _encode(rgba, cube_size, min_exp, max_exp, source, display, view)
 
 
-def bake_bundled_view_lut() -> bytes:
-    """LUT for the ACES Studio config shipped with the app."""
+def _bundled_config() -> OCIO.Config:
     path = get_bundled_aces_studio_path()
     if path is None:
         raise RuntimeError("bundled ACES Studio OCIO config was not found")
-    config = OCIO.Config.CreateFromFile(str(path))
-    return bake_view_lut(config)
+    return OCIO.Config.CreateFromFile(str(path))
+
+
+def bake_bundled_view_lut() -> bytes:
+    """LUT for the ACES Studio config shipped with the app."""
+    return bake_view_lut(_bundled_config())
+
+
+def bake_bundled_view_lut_bundle() -> bytes:
+    """``views.lut`` for the ACES Studio config shipped with the app."""
+    return bake_view_lut_bundle(_bundled_config())
+
+
+def bake_bundled_input_table() -> str:
+    """``inputs.json`` for the ACES Studio config shipped with the app."""
+    return bake_input_table(_bundled_config())
+
+
+@dataclass(frozen=True)
+class ViewBundleEntry:
+    """One cube of ``views.lut`` and the CG color space its output is in."""
+
+    cg_space: str
+    lut: ViewLUT
+
+
+@dataclass(frozen=True)
+class ViewBundle:
+    entries: list[ViewBundleEntry]
+    p3_default: int | None
+    srgb_default: int | None
+
+
+def _cg_space_for_display(config: OCIO.Config, display: str) -> str:
+    """``displayP3`` or ``sRGB`` for an SDR display Core Graphics can tag, else ``""``."""
+    interop = ""
+    try:
+        cs = config.getColorSpace(display)
+        if cs is not None and hasattr(cs, "getInteropID"):
+            interop = str(cs.getInteropID() or "").lower()
+    except Exception:
+        interop = ""
+    if interop:
+        if interop == "srgb_p3d65_display":
+            return CG_DISPLAY_P3
+        if interop == "srgb_rec709_display":
+            return CG_SRGB
+        return ""
+    name = display.lower()
+    if any(tag in name for tag in ("hdr", "pq", "hlg", "2084", "dci")):
+        return ""
+    if "p3" in name and "display" in name:
+        return CG_DISPLAY_P3
+    if "srgb" in name:
+        return CG_SRGB
+    return ""
+
+
+def _is_sdr_view(config: OCIO.Config, display: str, view: str) -> bool:
+    return "hdr" not in view.lower()
+
+
+def bake_view_lut_bundle(
+    config: OCIO.Config,
+    *,
+    cube_size: int = LUT_CUBE_SIZE,
+    min_exp: float = LUT_MIN_EXP,
+    max_exp: float = LUT_MAX_EXP,
+    max_entries: int = 16,
+) -> bytes:
+    """Every SDR view of the config's sRGB and Display P3 displays.
+
+    The preview picks Display P3 on a P3 screen and sRGB otherwise, each at its
+    display's default view. A config with neither display gets its default
+    display's views, tagged sRGB.
+    """
+    source = get_working_space(config)
+    displays: list[tuple[str, str]] = []
+    try:
+        names = [str(d) for d in config.getDisplays()]
+    except Exception:
+        names = []
+    for kind in (CG_DISPLAY_P3, CG_SRGB):
+        for name in names:
+            if _cg_space_for_display(config, name) == kind:
+                displays.append((name, kind))
+                break
+    if not displays:
+        display, _view = default_display_view(config, color_space=source)
+        if not display:
+            display, _view = default_display_view(config)
+        if not display:
+            raise ValueError("OCIO config has no displays")
+        displays.append((display, CG_SRGB))
+
+    blobs: list[tuple[str, bytes]] = []
+    p3_default: int | None = None
+    srgb_default: int | None = None
+    for display, kind in displays:
+        try:
+            default_view = str(config.getDefaultView(display, source) or "")
+        except Exception:
+            default_view = ""
+        if not default_view:
+            default_view = str(config.getDefaultView(display) or "")
+        views = [str(v) for v in config.getViews(display)]
+        for view in views:
+            if len(blobs) >= max_entries:
+                break
+            if not _is_sdr_view(config, display, view):
+                continue
+            try:
+                blob = _bake_one(config, source, display, view, cube_size, min_exp, max_exp)
+            except Exception:
+                continue
+            if view == default_view:
+                if kind == CG_DISPLAY_P3 and p3_default is None:
+                    p3_default = len(blobs)
+                if kind == CG_SRGB and srgb_default is None:
+                    srgb_default = len(blobs)
+            blobs.append((kind, blob))
+    if not blobs:
+        raise ValueError("no OCIO view could be baked")
+    if p3_default is None and srgb_default is None:
+        srgb_default = 0
+
+    out = bytearray(
+        struct.pack(
+            "<4sHHHH",
+            b"EXQB",
+            LUT_BUNDLE_VERSION,
+            len(blobs),
+            _NO_INDEX if p3_default is None else p3_default,
+            _NO_INDEX if srgb_default is None else srgb_default,
+        )
+    )
+    for kind, blob in blobs:
+        tag = kind.encode("utf-8")
+        out += struct.pack("<H", len(tag)) + tag
+        out += struct.pack("<I", len(blob)) + blob
+    return bytes(out)
+
+
+def parse_view_lut_bundle(data: bytes) -> ViewBundle | None:
+    """Return the cubes of ``views.lut``, or ``None`` when the bytes are not a bundle."""
+    if len(data) < 12 or data[:4] != b"EXQB":
+        return None
+    _magic, version, count, p3_default, srgb_default = struct.unpack_from("<4sHHHH", data)
+    if version != LUT_BUNDLE_VERSION or count == 0:
+        return None
+    offset = 12
+    entries: list[ViewBundleEntry] = []
+    for _ in range(count):
+        if offset + 2 > len(data):
+            return None
+        (tag_len,) = struct.unpack_from("<H", data, offset)
+        offset += 2
+        tag = data[offset : offset + tag_len].decode("utf-8", errors="replace")
+        offset += tag_len
+        if offset + 4 > len(data):
+            return None
+        (blob_len,) = struct.unpack_from("<I", data, offset)
+        offset += 4
+        lut = parse_view_lut(data[offset : offset + blob_len])
+        if lut is None:
+            return None
+        offset += blob_len
+        entries.append(ViewBundleEntry(cg_space=tag, lut=lut))
+
+    def index(value: int) -> int | None:
+        return value if value != _NO_INDEX and value < count else None
+
+    return ViewBundle(
+        entries=entries, p3_default=index(p3_default), srgb_default=index(srgb_default)
+    )
+
+
+def bake_input_table(config: OCIO.Config) -> str:
+    """JSON of scene color spaces the preview can turn into ``scene_linear``.
+
+    Each space is fitted as a per-channel curve followed by a 3×3 matrix, which
+    is how log and linear camera spaces are built. A space that does not fit
+    within tolerance (or a data space) is left out. Linear spaces get no curve.
+    """
+    target = get_working_space(config)
+    spaces: list[dict[str, object]] = []
+    try:
+        names = [
+            str(n)
+            for n in config.getColorSpaceNames(
+                OCIO.SEARCH_REFERENCE_SPACE_SCENE, OCIO.COLORSPACE_ACTIVE
+            )
+        ]
+    except Exception:
+        names = []
+    for name in names:
+        try:
+            cs = config.getColorSpace(name)
+            if cs is None or cs.isData():
+                continue
+            fitted = _fit_input(config, name, target)
+        except Exception:
+            continue
+        if fitted is None:
+            continue
+        matrix, curve = fitted
+        aliases = [str(a) for a in cs.getAliases()]
+        interop = ""
+        if hasattr(cs, "getInteropID"):
+            interop = str(cs.getInteropID() or "")
+        entry: dict[str, object] = {
+            "name": name,
+            "aliases": aliases,
+            "interop": interop,
+            "matrix": [round(float(v), 7) for v in matrix.reshape(-1)],
+        }
+        if curve is not None:
+            entry["curve"] = [round(float(v), 6) for v in curve]
+        spaces.append(entry)
+    payload = {
+        "version": INPUTS_VERSION,
+        "target": target,
+        "curve_min": INPUT_CURVE_MIN,
+        "curve_max": INPUT_CURVE_MAX,
+        "spaces": spaces,
+    }
+    return json.dumps(payload, separators=(",", ":"))
+
+
+def _fit_input(
+    config: OCIO.Config, source: str, target: str
+) -> tuple[np.ndarray, np.ndarray | None] | None:
+    processor = config.getProcessor(source, target).getDefaultCPUProcessor()
+
+    def run(rgb: np.ndarray) -> np.ndarray:
+        out = np.ascontiguousarray(rgb, dtype=np.float32).copy()
+        processor.applyRGB(out)
+        return out.astype(np.float64)
+
+    codes = np.linspace(INPUT_CURVE_MIN, INPUT_CURVE_MAX, INPUT_CURVE_SIZE)
+    grays = run(np.repeat(codes[:, None], 3, axis=1))
+    curve = grays.mean(axis=1)
+    if not np.all(np.isfinite(curve)):
+        return None
+
+    rng = np.random.default_rng(7)
+    probes = rng.uniform(0.0, 1.0, size=(64, 3))
+    expected = run(probes)
+    shaped = np.interp(probes, codes, curve)
+    matrix, *_ = np.linalg.lstsq(shaped, expected, rcond=None)
+    matrix = matrix.T
+    predicted = shaped @ matrix.T
+    scale = np.maximum(np.abs(expected), 0.05)
+    if (
+        not np.all(np.isfinite(predicted))
+        or float(np.max(np.abs(predicted - expected) / scale)) > 0.01
+    ):
+        return None
+
+    linear = np.allclose(curve, codes * (curve[-1] / codes[-1]), rtol=1e-4, atol=1e-6)
+    if linear:
+        return matrix * (curve[-1] / codes[-1]), None
+    return matrix, curve
 
 
 def parse_view_lut(data: bytes) -> ViewLUT | None:

@@ -7,8 +7,8 @@
 	     the iOS "group." form) so no provisioning profile is required.
 	     Home-relative "/" is the user's home (the path is already relative to
 	     ~). It lets a numbered sequence play sibling frames that live there.
-	     Absolute read-only covers external volumes and temp. The two named
-	     files stay listed so toggles and the OCIO LUT can be read even if a
+	     Absolute read-only covers external volumes and temp. The named
+	     files stay listed so toggles and the OCIO LUTs can be read even if a
 	     future signature drops the broad home entry. Read-only only.
 	     Directories end with /. These entitlements are not an App Review
 	     grant; notarization still has to accept the signature. Desktop,
@@ -25,6 +25,8 @@
 	<array>
 		<string>/Library/Application Support/EXR Converter/quicklook.json</string>
 		<string>/Library/Application Support/EXR Converter/view.lut</string>
+		<string>/Library/Application Support/EXR Converter/views.lut</string>
+		<string>/Library/Application Support/EXR Converter/inputs.json</string>
 		<string>/</string>
 	</array>
 	<key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>

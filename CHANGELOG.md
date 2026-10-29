@@ -13,6 +13,16 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- The macOS Quick Look preview has the player's controls: exposure gain, gamma, an input color space menu, and an OCIO display / view menu with every SDR view of the sRGB and Display P3 displays. It remembers the view you pick.
+- Quick Look reads the EXR header to pick the input color space, in the same order as the player (`exrconverter:dstColorSpace`, `colorInteropID`, chromaticities, `oiio:ColorSpace`). Log and video spaces from the config work as well as linear ones.
+- Quick Look caches decoded frames and reads ahead on several threads, with a green cache bar under a frame ruler like the player's, plus previous / play / next buttons and the file's resolution.
+
+### Changed
+
+- On a Display P3 screen, Quick Look now opens in the config's Display P3 view (`ACES 2.0 - SDR 100 nits (P3 D65)` on the bundled config) and tags the picture as Display P3. Other screens keep sRGB.
+
 ### Fixed
 
 - Quick Look sequence playback no longer runs slower than 24 fps. The wait for the next frame used to start after the current frame finished decoding, so decode time was added to every frame.

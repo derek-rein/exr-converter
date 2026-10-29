@@ -108,12 +108,20 @@ A name like `shot.1001.exr` or `shot_1001.dpx` is one frame of a sequence.
 `beauty.exr` is a still and has no frame label.
 
 When the extension can read the folder, Spacebar **plays** the frames at 24 fps
-in the Quick Look window. It starts on the file you selected and loops. Click
-the picture to pause. The slider and the left and right arrow keys scrub when
-Quick Look delivers those events. The label is the sequence name, the current
-frame, and the first–last frame (`plate  ·  1002  ·  1001–1003`). Playback
-decodes one frame at a time and keeps the long edge around 960 pixels. It does
-not preload the sequence.
+in the Quick Look window. It starts on the file you selected and loops. The
+bottom bar works like the player's: previous frame, play / pause, next frame,
+and a frame ruler you can click or drag. Clicking the picture or pressing Space
+also plays and pauses, and the left and right arrow keys step, when Quick Look
+delivers those events. Under the picture are the sequence name, the current
+frame, the first–last frame (`plate  ·  1002  ·  1001–1003`), and the file's
+full resolution.
+
+Frames are read ahead of the playhead on several threads and kept in memory,
+with the long edge around 960 pixels. The green bar under the ruler shows which
+frames are cached. The cache uses up to an eighth of your Mac's memory (at most
+1 GB, about 250 frames at that size). The first pass plays as fast as the files
+decode; a loop that fits in the cache then plays at a steady 24 fps. When the
+next frame is not ready yet, playback waits for it instead of skipping.
 
 The sandbox is allowed to read, and only read. Developer ID notarization
 accepted this set with no issues (notarytool submission
@@ -133,33 +141,64 @@ than 50,000 names, you get the **selected frame** only, at a longer edge around
 ## Color
 
 Scene-linear OpenEXR (when ImageIO returns a float or linear buffer), linear /
-printing-density / log DPX, and float TIFF go through the app’s **default OCIO
-display view**:
+printing-density / log DPX, and float TIFF go through an OCIO display view
+from the app's config. The bar above the picture has the same controls as the
+player:
 
-- source role `scene_linear` (ACEScg on the bundled ACES Studio config)
-- the config’s default display and view (bundled config:
-  `sRGB - Display` / `ACES 2.0 - SDR 100 nits (Rec.709)`)
-- exposure 0, gamma 1, which is the sequence viewer’s default
+- **Exposure gain** and **γ** sliders. Gain multiplies the scene-linear pixels
+  before the view; gamma is applied after it (`out = in^(1/γ)`, as in Nuke and
+  the player). Click a value to reset it to 1.0. Neither one re-reads the file.
+- **Input** color space. **Auto** shows what the extension picked (below). Pick
+  another space to override it for this preview; the frames are read again.
+- **Display / view**. Every SDR view of the config's `sRGB - Display` and
+  `Display P3 - Display`. The extension remembers the one you pick.
 
-That is the same transform the sequence player uses for an ACEScg plate at
-those defaults (ACEScg → ACES2065-1 → that display view). The app bakes it to
-a 33³ LUT with a log2 shaper from about 0.001 to 64 and writes `view.lut`
-when the OCIO config loads, into the App Group container and into
-`~/Library/Application Support/EXR Converter/view.lut`. The extension applies
-the shaper and then Core Image `CIColorCube`. The copy baked into the extension
-at build time is the bundled ACES view, used when neither file is there. If
-the LUT cannot be read, the preview falls back to a small Rec.709 filmic curve.
+**Default view.** On a screen that can show Display P3 (most Mac displays
+from 2016 on, and Apple's external displays), the
+preview opens in `Display P3 - Display` with that display's default view
+(bundled config: `ACES 2.0 - SDR 100 nits (P3 D65)`) and tags the picture as
+Display P3, so macOS shows it with the full gamut. On other screens it opens in
+`sRGB - Display` / `ACES 2.0 - SDR 100 nits (Rec.709)`. HDR (EDR) views are not
+offered yet.
 
-The cube is the default view only. It does not follow the viewer’s exposure or
-gamma sliders, and it does not switch when you pick a different display view
-in the player. Changing the OCIO config in the main window rebakes the LUT.
+**Input detection.** For OpenEXR the extension reads the file header and uses
+the same order as the player:
+
+1. `exrconverter:dstColorSpace`, which this app writes on every EXR
+2. `colorInteropID` (OpenEXR 3.4 / OCIO 2.5)
+3. `chromaticities`: Rec.709 / sRGB, ACES AP1 and AP0, P3-D65, Rec.2020
+4. `oiio:ColorSpace`
+5. otherwise `scene_linear` (ACEScg on the bundled config), the player's default
+
+Names match the config's color space names, aliases, and interop ids. Log and
+video spaces (ARRI LogC4, S-Log3, ACEScct, sRGB-encoded textures, and so on)
+are supported as well as linear ones. When ImageIO has already converted an EXR
+using its chromaticities, or for a float TIFF with an embedded profile, the
+pixels are linear Rec.709 and are treated as such.
+
+**How it is baked.** The extension cannot link OpenColorIO. When the OCIO
+config loads, the app writes three files into the App Group container and into
+`~/Library/Application Support/EXR Converter/`:
+
+- `views.lut`: one 33³ LUT per view above, from `scene_linear` through that
+  display / view, with a log2 shaper from about 0.001 to 64. The extension
+  applies the shaper, then Core Image `CIColorCube`.
+- `inputs.json`: each scene color space in the config, fitted as a
+  per-channel curve and a 3×3 matrix into `scene_linear`. Spaces that do not
+  fit that shape within 1% are left out.
+- `view.lut`: the default view alone, used by Finder thumbnails.
+
+Copies baked from the bundled ACES Studio config at build time are inside the
+extension and are used when those files are missing. Changing the OCIO config
+in the main window rebakes all three. If no LUT can be read, the preview falls
+back to a small Rec.709 filmic curve.
+
+Finder **thumbnails** use the input detection but always show the config's
+default view at gain 1 and gamma 1, in sRGB.
 
 ImageIO sometimes returns an 8-bit EXR it has already mapped. That buffer is
-shown as-is so it is not passed through the LUT twice. ImageIO may also convert
-an EXR that carries chromaticities into extended linear sRGB before the LUT.
-Many VFX EXRs omit chromaticities, so the stored RGB matches ACEScg code values
-and the LUT matches the player. A file that ImageIO has already converted will
-not. Multipart files show ImageIO’s first image. Deep and extra channels are
+shown as-is so it is not passed through the LUT twice, and the color controls
+are hidden. Multipart files show ImageIO’s first image. Deep and extra channels are
 not listed. DWAA and DWAB are whatever the system ImageIO / OpenEXR reader on
 that macOS supports. The extension does not ship its own OpenEXR.
 
@@ -180,10 +219,10 @@ DNG uses the system RAW filter. It is not a Blackmagic or ARRI develop.
 
 ## What you will not get
 
-- The viewer’s exposure, gamma, or a display view you picked in the player.
-  The LUT is the config default at exposure 0 and gamma 1.
-- A color-managed match for an EXR whose chromaticities ImageIO converted, or
-  for channels other than the default RGB.
+- HDR (EDR) display views, or display views other than sRGB and Display P3.
+- The display view you last picked in the player. Quick Look remembers its own
+  choice.
+- Channels other than the default RGB.
 - Playback of a folder the sandbox cannot list. That preview is the selected
   frame.
 - ProRes, H.264, HEVC, BRAW, R3D, or ARRIRAW in this extension.
