@@ -67,15 +67,38 @@ def main() -> None:
     tree = _get(f"https://api.github.com/repos/{REPO}/git/trees/HEAD?recursive=1", token)
     lines.append("")
     lines.append("tree:")
+    text_blobs: list[tuple[str, str]] = []
     if isinstance(tree, dict):
         lines.append(f"  truncated={bool(tree.get('truncated'))}")
         for item in tree.get("tree") or []:
             if not isinstance(item, dict):
                 continue
-            path = redact(str(item.get("path") or ""))
+            raw_path = str(item.get("path") or "")
+            path = redact(raw_path)
             kind = item.get("type") or ""
             size = item.get("size")
             lines.append(f"  {kind} {path} size={size}")
+            if kind != "blob" or not isinstance(size, int) or size > 80000:
+                continue
+            lower = raw_path.lower()
+            if lower.endswith((".py", ".sh", ".yml", ".yaml", ".md", ".txt", ".cmake")) or lower.endswith(
+                "cmakelists.txt"
+            ):
+                sha = str(item.get("sha") or "")
+                if sha:
+                    text_blobs.append((path, sha))
+    lines.append("")
+    lines.append("text:")
+    for path, sha in text_blobs:
+        blob = _get(f"https://api.github.com/repos/{REPO}/git/blobs/{sha}", token)
+        content = ""
+        if isinstance(blob, dict) and blob.get("encoding") == "base64":
+            import base64
+
+            content = base64.b64decode(str(blob.get("content") or "")).decode("utf-8", errors="replace")
+        lines.append(f"----- {path} -----")
+        lines.append(redact(content).rstrip())
+        lines.append("")
     text = "\n".join(lines) + "\n"
     if _REDACT.search(text):
         raise SystemExit("redaction failed")
