@@ -266,8 +266,6 @@ def test_patchelf_strict_flag_is_wired() -> None:
     assert "$ORIGIN" in source
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="ELF readelf")
-@pytest.mark.skipif(shutil.which("readelf") is None, reason="readelf")
 def test_drop_optional_gpu_keeps_core_red_library(tmp_path: Path, monkeypatch) -> None:
     import check_glibc_floor
 
@@ -299,6 +297,8 @@ def test_drop_optional_gpu_keeps_core_red_library(tmp_path: Path, monkeypatch) -
     assert cuda.is_file()
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="glibc ELF")
+@pytest.mark.skipif(shutil.which("readelf") is None, reason="readelf")
 def test_host_glibc_scan_smoke(tmp_path: Path) -> None:
     """The scanner reports a floor for a real ELF (this host's /bin/ls or python)."""
     candidate = Path("/bin/ls")
