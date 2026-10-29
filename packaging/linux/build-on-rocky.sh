@@ -153,6 +153,7 @@ uv run python scripts/prepare_macos_onnxruntime.py
 
 RAW_FLAGS=()
 while IFS= read -r flag || [ -n "$flag" ]; do
+  flag="${flag%$'\r'}"
   [ -n "$flag" ] || continue
   RAW_FLAGS+=("$flag")
 done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags)

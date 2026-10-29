@@ -38,9 +38,7 @@ def test_prepare_skips_without_token(
     assert not (tmp_path / "required").exists()
 
 
-def test_overlay_and_nuitka_flags(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_overlay_and_nuitka_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load()
     feed = tmp_path / "feed"
     package = feed / "plugin" / "privatepkg"
@@ -59,10 +57,11 @@ def test_overlay_and_nuitka_flags(
     text = (dest_root / "_enabled.py").read_text(encoding="utf-8")
     assert "src.plugins.camera_raw" in text
     assert "privatepkg" not in text
-    module.nuitka_flags()
-    flags = capsys.readouterr().out
-    assert "--include-package=src.plugins.camera_raw" in flags
-    assert "--include-module=src.plugins._enabled" in flags
+    flags = module.nuitka_flag_lines()
+    assert flags == [
+        "--include-module=src.plugins._enabled",
+        "--include-package=src.plugins.camera_raw",
+    ]
 
 
 def test_install_skips_when_unprepared(
