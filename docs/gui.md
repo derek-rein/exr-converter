@@ -331,10 +331,10 @@ watermark, and watch folder) between sessions. Named presets in the
 
 ### Watch folder
 
-The watch folder is a collapsed section under Output, so the tab stays the
-same height as Video → EXR and EXR → Video. The header always shows the
-status (**Not watching**, or copying / queued / done / failed) and
-**Start Watching**. Open the section for the folder path and the option below.
+The **Watch folder** group sits under Output and is always shown: the folder
+path, **Browse…**, **Existing clips too**, and **Start Watching** share one
+row. The group title shows the status (**Not watching**, or copying / queued /
+done / failed).
 
 Pick a folder and press **Start Watching**. Every new clip that appears there
 is proxied with the settings above, joining the same queue as a batch.
@@ -345,7 +345,7 @@ is proxied with the settings above, joining the same queue as a batch.
 - **Include subfolders** (on the source-clip row) also watches nested folders.
   `Proxy` folders and the custom output folder are never watched, so proxies
   are not re-proxied.
-- **Also convert clips already there** proxies what is already in the folder
+- **Existing clips too** proxies what is already in the folder
   when you start. Off, only clips that arrive afterwards are converted.
 - A clip that is replaced later (new size or modified time) is proxied again,
   unless **Skip clips that already have a proxy** finds its proxy.

@@ -15,8 +15,11 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
-- Software and VideoToolbox codec labels say ProRes 422 / 4444 (`.mov`) without a vendor name. Docs and the About dialog use the same wording.
-- Docs describe `.crm` as camera RAW plugin support and no longer list unsupported camera RAW extensions.
+- The Video → Proxy watch folder is no longer a collapsed section. Its folder, options, and **Start Watching** are always shown in one row, and the status is in the group title.
+
+### Fixed
+
+- Opening a collapsed section (Transcode's **Color and watermark**) no longer lays out and repaints the whole tab twice. Only the section and the rows below it move.
 
 ---
 

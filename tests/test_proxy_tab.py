@@ -81,8 +81,6 @@ def test_watch_refuses_missing_folder(tab: ProxyTab, tmp_path) -> None:
     tab.watch_btn.setChecked(True)
     assert not tab.is_watching()
     assert not tab.watch_btn.isChecked()
-    # A failed start still opens the section so the path can be corrected.
-    assert tab._watch_section.is_expanded()
 
 
 def test_custom_folder_row_follows_location(tab: ProxyTab, qapp: QApplication) -> None:
@@ -97,19 +95,43 @@ def test_custom_folder_row_follows_location(tab: ProxyTab, qapp: QApplication) -
     assert tab.output_dir.isHidden()
 
 
-def test_watch_section_starts_collapsed(tab: ProxyTab, qapp: QApplication) -> None:
+def test_watch_folder_is_always_shown(tab: ProxyTab, qapp: QApplication) -> None:
     tab.show()
-    qapp.processEvents()
-    assert not tab._watch_section.is_expanded()
-    assert not tab.watch_dir.isVisible()
-    tab._watch_section.set_expanded(True)
     qapp.processEvents()
     assert tab.watch_dir.isVisible()
     assert tab.existing_cb.isVisible()
+    assert tab.watch_btn.isVisible()
+    assert tab._watch_group.title() == "Watch folder · Not watching"
+
+
+def test_watch_status_update_does_not_relayout_tab(
+    tab: ProxyTab, qapp: QApplication, tmp_path
+) -> None:
+    """Starting the watcher and status changes leave the rest of the form alone."""
+    tab.resize(820, 700)
+    tab.show()
+    qapp.processEvents()
+    others = [tab.clip_list, tab.codec_combo, tab.location_combo, tab.watch_dir]
+    before = [w.geometry() for w in others]
+    tab.watch_dir.setText(str(tmp_path))
+    tab.watch_btn.setChecked(True)
+    qapp.processEvents()
+    try:
+        assert tab.is_watching()
+        assert tab._watch_group.title().startswith("Watch folder · Watching")
+        tab._on_watch_settling(2)
+        assert "2 copying" in tab._watch_group.title()
+        qapp.processEvents()
+        assert [w.geometry() for w in others] == before
+    finally:
+        tab.watch_btn.setChecked(False)
 
 
 def test_proxy_form_matches_convert_tab_height(qapp: QApplication, settings) -> None:
-    """Default proxy content stays within a row of the other convert tabs."""
+    """Default proxy content stays close to the other convert tabs.
+
+    The always-shown watch folder group costs one row plus its group frame.
+    """
     sheet = load_stylesheet()
     made: list[QWidget] = []
     heights: list[int] = []
@@ -128,7 +150,7 @@ def test_proxy_form_matches_convert_tab_height(qapp: QApplication, settings) -> 
             heights.append(body.sizeHint().height())
         video2exr, exr2video, proxy = heights
         assert video2exr == exr2video
-        assert proxy <= video2exr + 24
+        assert proxy <= video2exr + 64
     finally:
         for widget in made:
             if isinstance(widget, ProxyTab):
