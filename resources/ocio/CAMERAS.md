@@ -71,6 +71,7 @@ share a row. Status is against this file:
 | Kinefinity MAVO and TERRA | KineLOG3 | Wide Gamut | added in #59 | Kinefinity KineLOG3 technical specifications. |
 | Z CAM E2, F6, F8 | Z-Log2 | not published as a matrix | not possible | No published equation. Z CAM's LUT pages did not return a cube from this environment. |
 | DJI Ronin 4D, Inspire, Zenmuse X5 and X7 | D-Log | D-Gamut | already in config | DJI D-Log white paper. `D-Log D-Gamut`. |
+| DJI Inspire 3 / Zenmuse X9 CinemaDNG | scene-linear | P3-D60 | added | Decode writes `Linear P3-D60` with +1.4 stops. Convert with stock `Linear D-Gamut` or `D-Log D-Gamut`. |
 | DJI Mavic, Air, Avata, Osmo Action, Osmo Pocket | D-Log M | product gamut, not the white-paper D-Gamut | not possible | No scene-linear equation. Official Rec.709 cubes disagree with each other and map code 1 to display white. |
 | GoPro Protune bodies | Protune | Rec.709 | added in #59 | GoPro log note, base 113. |
 | GoPro HERO12 | GP-Log | Rec.709 | added in #59 | Same note, base 400. |
@@ -110,6 +111,7 @@ share a row. Status is against this file:
 | `BMD Pocket 6K Film Gen4` | Fitted | Same source, Pocket 6K Film Gen 4 transfer LUT. Pocket 6K-specific primaries were not published separately, so this uses the same Wide Gamut matrix as Gen 4/5. | Same, including the toe kink. |
 | `O-Log Rec.2020` | Published equation | OPPO *O-Log White Paper* (English, 2025-10-22), section 3. `P = 0.139·ln(R + 0.019) + 0.614` for scene reflectance `R` from 0 to 16. 18% grey is code 0.389591 (Table 1 rounds that to 0.3895463, 10-bit 399). Primaries are BT.2020, so the matrix is this config's Rec.2020 → ACES matrix. The paper's section 6 CTL divides by 16 and multiplies by 7.37235 (about 1.12 stops) and its prose maps 18% to 0.4901589, which is Table 1's 39% row. That gain is not applied: section 3 puts 18% reflectance on 0.18. The log is valid through code 0. | Equations only. The PDF is not bundled. |
 | `Apple Log 2` | Published curve, primaries from the OCIO implementation of Apple's white paper | Same transfer function as stock `Apple Log` (`CURVE - APPLE_LOG_to_LINEAR`). Apple Wide Gamut primaries R 0.725 0.301, G 0.221 0.814, B 0.068 −0.076, D65, Bradford to ACES2065-1, as in OpenColorIO commit `3f96f20` (PR 2343), which cites the Apple Log 2 white paper. Apple's public docs describe Apple Log 2 as Apple Gamut plus an Apple log curve. The PDF was not downloaded (Apple developer login). 18% grey uses the Apple Log code, about 0.48827. There is no second curve transform; `Apple Log - Curve` is the curve. | Matrix computed from those primaries. No LUT bundled. |
+| `Linear P3-D60` | Primaries and white point | SMPTE RP 431-2 P3 primaries, ACES D60 white (0.32168, 0.33767), Bradford not required because P3-D60 and ACES2065-1 share that white. `to_scene_reference` is P3-D60 to ACES2065-1. DJI CinemaDNG decode writes this space after +1.4 stops. `D-Log D-Gamut` and `Linear D-Gamut` are unchanged. | Matrix only. No new DJI curve. |
 
 Curve-only named transforms (no gamut matrix): `N-Log - Curve`, `F-Log - Curve`,
 `F-Log2 - Curve`, `F-Log2C - Curve`, `L-Log - Curve`, `S-Log - Curve`,

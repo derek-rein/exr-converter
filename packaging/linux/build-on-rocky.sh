@@ -128,6 +128,8 @@ else
   echo "BRAW_SDK_READ_TOKEN not set — skipping BRAW bridge"
 fi
 
+uv run python scripts/build_cinemadng.py
+
 uv run pyside6-rcc resources.qrc -o src/rc_resources.py
 uv run python scripts/prepare_macos_onnxruntime.py
 
@@ -172,6 +174,7 @@ uv run python -m nuitka \
   main.py
 
 uv run python scripts/fix_bundle_ocio.py --strict dist/main.dist
+uv run python scripts/install_cinemadng_into_bundle.py dist/main.dist
 uv run python scripts/install_r3d_into_bundle.py dist/main.dist
 uv run python scripts/install_braw_into_bundle.py dist/main.dist
 

@@ -98,11 +98,14 @@ uv run python main.py video2exr -i clip.R3D -o /tmp/exr_out \
 # Optional Blackmagic RAW (requires local BRAW SDK bridge; see docs/braw.md):
 uv run python main.py video2exr -i clip.braw -o /tmp/exr_out \
   --src ACES2065-1 --dst ACEScg
+# CinemaDNG sequence (DJI is Linear P3-D60 with +1.4 already in the pixels):
+uv run python main.py video2exr -i /path/to/shot -o /tmp/exr_out \
+  --src "Linear P3-D60" --dst ACEScg
 ```
 
 | Option | Default | Notes |
 |--------|---------|--------|
-| `-i` / `--input` | *(required)* | Input video file (also `.r3d` / `.nev` when R3D support is built; `.braw` when BRAW support is built) |
+| `-i` / `--input` | *(required)* | Input video file (also `.r3d` / `.nev` when R3D support is built; `.braw` when BRAW support is built; a `.dng` frame or a folder of CinemaDNG frames) |
 | `-o` / `--output-dir` | `<input_dir>/<stem>/` | Directory for EXR frames |
 | `--ocio` | bundled / `$OCIO` | Config file path |
 | `--src` | auto | Auto-detect from the video (stream color tags and codec ranking), then **`Output - Rec.709`**. `--help` calls that fallback Rec.709-ish. Names are alias-resolved. R3D/N-RAW defaults toward **Log3G10 REDWideGamutRGB**. BRAW defaults toward **ACES2065-1** (Linear ACES AP0). Not an OIIO still probe. |
@@ -138,9 +141,12 @@ file is never opened with PyAV. `proxy` and `transcode` do not accept it.
 
 ## `exr2video`: image sequence to video
 
-Primary path is **OpenEXR**. Also accepted as input: **DPX**, and display stills
-**PNG**, **JPEG** (`.jpg` / `.jpeg`), **WebP**. Mixed folders prefer EXR,
-then DPX, then display stills. The command always encodes a **video file**.
+Primary path is **OpenEXR**. Also accepted as input: **CinemaDNG** (`.dng`),
+**DPX**, and display stills **PNG**, **JPEG** (`.jpg` / `.jpeg`), **WebP**.
+Mixed folders prefer EXR, then CinemaDNG, then DPX, then display stills.
+The command always encodes a **video file**. DJI CinemaDNG is
+`Linear P3-D60` (the +1.4 stops are already in the pixels). See
+[cinemadng.md](./cinemadng.md).
 
 ```bash
 uv run python main.py exr2video -i ./plate

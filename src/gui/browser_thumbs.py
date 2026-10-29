@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import OpenImageIO as oiio
 
+from ..core.cinemadng import read_rgb
 from ..core.constants import is_scene_referred_image_ext
 from ..core.local_fs import can_probe_media
 
@@ -139,6 +140,12 @@ def load_browser_thumbnail_rgb(
     """
     if not path or not can_probe_media(path):
         return None
+    if Path(path).suffix.lower() == ".dng":
+        try:
+            rgb = _linear_to_display_u8_prep(read_rgb(path))
+            return _downscale_uint8_rgb(rgb, max_edge)
+        except Exception:
+            return None
     try:
         buf = oiio.ImageBuf(path)
         if buf.has_error:

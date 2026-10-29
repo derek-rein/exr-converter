@@ -80,8 +80,8 @@ From a source checkout (Python 3.13 and [uv](https://docs.astral.sh/uv/)): `uv r
 
 | Feature | What it does |
 |---|---|
-| **Video → EXR** | Decode a movie through OCIO into an EXR sequence. Ingest only: no slate, burn-in, or watermark. Optional RED R3D / N-RAW (`.r3d`, `.nev`) and Blackmagic RAW (`.braw`) when that SDK bridge is in the build. |
-| **EXR → Video** | Turn an OpenEXR sequence, or DPX, PNG, JPEG, or WebP, into ProRes, DNxHR, CineForm, H.264, HEVC, or FFV1. Optional slate, burn-in, and visible text watermark in the same pass. |
+| **Video → EXR** | Decode a movie through OCIO into an EXR sequence. Ingest only: no slate, burn-in, or watermark. CinemaDNG `.dng` sequences use the built-in reader. Optional RED R3D / N-RAW (`.r3d`, `.nev`) and Blackmagic RAW (`.braw`) when that SDK bridge is in the build. |
+| **EXR → Video** | Turn an OpenEXR sequence, or CinemaDNG, DPX, PNG, JPEG, or WebP, into ProRes, DNxHR, CineForm, H.264, HEVC, or FFV1. Optional slate, burn-in, and visible text watermark in the same pass. |
 | **Video → Proxy** | Resolve-style editing proxies. Default is ProRes 422 Proxy at half size, in a `Proxy` folder next to each clip, with the same name so editors can relink. Proxies keep the source look (no color transform), timecode, and audio. Also ProRes LT, VideoToolbox ProRes on macOS, DNxHR LB / SQ, H.264, and HEVC, at half, quarter, or one-eighth size, or fit to 1080p / 720p / 540p. A watch folder converts new clips once they finish copying. Same job from the `proxy` CLI, including `proxy --watch`. [Details](docs/gui/#video--proxy). |
 | **Invisible watermark** | Optional, off by default, Video → Proxy only. Writes an [Adobe TrustMark](https://github.com/adobe/trustmark) mark with up to 8 ASCII characters into every proxy frame. The encoder model downloads once on first use. A helper script reads the mark back. It is not encryption, and heavy re-encoding, scaling, or cropping can remove it. [Details and limits](docs/gui/#invisible-watermark). |
 | **Color** | Bundled **ACES Studio Config v4**, plus extra camera logs: Nikon N-Log, Fujifilm F-Log / F-Log2 / F-Log2 C, Leica L-Log, Sony S-Log and S-Log2, Canon Log in Rec.709 and Rec.2020, KineLOG3, GoPro Protune / GP-Log / GP-Log2, Blackmagic Film Gen 4, OPPO O-Log, and Apple Log 2. Stock ACES spaces cover Apple Log, ARRI LogC3/LogC4, RED Log3G10, Sony S-Log3, and more. Also `$OCIO`, a custom config, or a local Nuke config. |
@@ -115,6 +115,7 @@ uv run python main.py proxy -i ./A001_card --watermark ABCD1234
 | [ProRes and VideoToolbox](docs/prores/) | Software vs Apple VideoToolbox vs oxideav, with honest bit depths |
 | [RED R3D / N-RAW](docs/r3d/) | Optional RED SDK for `.r3d` and `.nev` |
 | [Blackmagic RAW](docs/braw/) | Optional BRAW SDK for `.braw` (Linear ACES AP0) |
+| [CinemaDNG](docs/cinemadng/) | `.dng` frame sequences. DJI Inspire 3 is Linear P3-D60 with +1.4 stops |
 | [Nuke integration](docs/nuke/) | Menu helpers to open a Read plus the session OCIO config |
 | [12-bit ProRes notes](docs/plan-12bit-prores-oxideav/) | Experimental RDD-36 ProRes. 4444 and XQ are 12-bit. 422 decodes as 10-bit |
 | [Microsoft Store](docs/msix/) | The Windows `.msixupload` and `.msix` packages. The setup `.exe` is the direct download |

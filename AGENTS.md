@@ -92,7 +92,8 @@ site/                   # Astro site (layouts, styles); loads docs/ → Vercel
 | Convert pipeline | `src/core/convert.py`, `src/core/video.py`, `src/core/exr_io.py` |
 | Optional R3D / N-RAW | `src/core/r3d/`, bridge source in private `derek-rein/r3d-sdk-private` (macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_r3d_bridge.py`, `scripts/fetch_r3d_sdk.py`, `scripts/install_r3d_into_bundle.py`, [docs/r3d.md](./docs/r3d.md) |
 | Optional BRAW | `src/core/braw/`, bridge source in private `derek-rein/braw-sdk-private` (Linear ACES AP0; macOS Metal; Win/Linux CUDA then OpenCL; CPU fallback), `scripts/build_braw_bridge.py`, `scripts/fetch_braw_sdk.py`, `scripts/install_braw_into_bundle.py`, [docs/braw.md](./docs/braw.md) |
-| Optional source plugins (generic hook) | `src/core/source_plugins.py` — private builds may drop decoder plugins into `src/plugins/` (git-ignored, listed in generated `src/plugins/_enabled.py`). The public repo ships none; dispatch order is sidecar check → plugins → R3D/BRAW → PyAV. Tests: `tests/test_source_plugins.py` |
+| CinemaDNG | `native/cinemadng/cinemadng.c`, `src/core/cinemadng/`, `scripts/build_cinemadng.py`, [docs/cinemadng.md](./docs/cinemadng.md). Uncompressed and lossless JPEG Bayer only. Not the Adobe DNG SDK. |
+| Optional source plugins (generic hook) | `src/core/source_plugins.py` — private builds may drop decoder plugins into `src/plugins/` (git-ignored, listed in generated `src/plugins/_enabled.py`). The public repo ships none; dispatch order is sidecar check → plugins → CinemaDNG → R3D/BRAW → PyAV. Tests: `tests/test_source_plugins.py` |
 | Optional 12-bit ProRes (oxideav) | `native/exr_prores/` (PyO3), `src/core/oxideav_prores.py`, `make oxideav-prores`, [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) |
 | Private full SDK (local) | R3D: `~/code/r3d-sdk-private/R3DSDKv9_2_1` — CI feed `derek-rein/r3d-sdk-private` release `sdk-9.2.1` (`R3D_SDK_READ_TOKEN`). BRAW: `~/.braw-sdk/` or `~/code/braw-sdk-private/BlackmagicRAWSDK-6.0` — CI feed `derek-rein/braw-sdk-private` release `sdk-6.0` (`BRAW_SDK_READ_TOKEN`). Never commit either SDK. |
 | Codec ladder / bit depth labels | `src/core/constants.py` |
@@ -594,6 +595,7 @@ Branch protection on `main` should require `ci-ok`.
 | [docs/plan-12bit-prores-oxideav.md](./docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 12-bit ProRes (oxideav; shipping in releases) |
 | [docs/r3d.md](./docs/r3d.md) | Optional RED R3D / N-RAW (proprietary SDK; license + build) |
 | [docs/braw.md](./docs/braw.md) | Optional Blackmagic RAW (proprietary SDK; Linear ACES AP0) |
+| [docs/cinemadng.md](./docs/cinemadng.md) | CinemaDNG sequences (DJI Linear P3-D60 + 1.4 stops) |
 | [docs/releasing.md](./docs/releasing.md) | Short pointer here + docs-site note |
 | [docs/msix.md](./docs/msix.md) | Windows .msixupload (Store) and .msix (self-distribution) |
 | [integrations/nuke/](./integrations/nuke/) | Nuke `menu.py` + helpers |

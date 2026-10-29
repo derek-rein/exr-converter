@@ -388,9 +388,11 @@ jobs:
           echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "Fetched BRAW SDK → ${SDK_ROOT}"
 
-      # Puts cl.exe / link.exe on PATH for R3D / BRAW native link steps.
+      # Puts cl.exe / link.exe on PATH for the CinemaDNG reader and optional
+      # R3D / BRAW native link steps. CinemaDNG always builds. Linux uses the
+      # Rocky 8 job, which already installs gcc.
       - name: Enable MSVC environment (Windows)
-        if: runner.os == 'Windows' && (steps.r3d_sdk.outputs.enabled == 'true' || steps.braw_sdk.outputs.enabled == 'true')
+        if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
 
       # Bridge source is confidential: fetched from derek-rein/r3d-sdk-private
@@ -418,6 +420,13 @@ jobs:
           set -euo pipefail
           uv run python scripts/build_braw_bridge.py -v
           ls -la build/braw/
+
+      - name: Build CinemaDNG reader
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python scripts/build_cinemadng.py
+          ls -la build/cinemadng/
 
       - name: Compile Qt resources
         run: uv run pyside6-rcc resources.qrc -o src/rc_resources.py
@@ -530,6 +539,18 @@ jobs:
             test -f dist/main.dist/OpenColorIO_2_5.dll \
               || find dist/main.dist -name 'OpenColorIO_2_5.dll' | grep -q . \
               || { echo "ERROR: OpenColorIO_2_5.dll missing from Windows bundle" >&2; exit 1; }
+          fi
+
+      # CinemaDNG reader is one libc-linked library. It sits next to the
+      # executable so macOS codesign (later in this job) signs the Mach-O.
+      - name: Install CinemaDNG reader into bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            uv run python scripts/install_cinemadng_into_bundle.py "dist/EXR Converter.app"
+          else
+            uv run python scripts/install_cinemadng_into_bundle.py dist/main.dist
           fi
 
       # Ship only Redistributable dylibs/so/dll + our bridge (private app dir).
