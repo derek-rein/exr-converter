@@ -12,6 +12,7 @@ from concurrent.futures import (
 )
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 import av
 import numpy as np
@@ -279,8 +280,11 @@ def _encode_rgb_u16(
     ow: int,
     oh: int,
     alpha_u16: np.ndarray | None = None,
+    watermark: Any = None,
 ) -> None:
     """Encode one full-range RGB48 frame (optional HxW alpha) as *pix_fmt*.
+
+    *watermark* (a TrustMark ``FrameWatermark``) marks the RGB at output size.
 
     Y'CbCr conversion is done by :func:`~src.core.yuv.rgb48_to_video_frame`
     (BT.709, rounded) instead of the encoder's implicit swscale step.
@@ -294,6 +298,8 @@ def _encode_rgb_u16(
         rgb_u16 = _resize_u16(rgb_u16, ow, oh)
         if alpha_u16 is not None:
             alpha_u16 = _resize_u16(alpha_u16, ow, oh)
+    if watermark is not None:
+        rgb_u16 = watermark.apply_u16(np.ascontiguousarray(rgb_u16))
     vf = rgb48_to_video_frame(rgb_u16, pix_fmt, alpha_u16)
     for packet in stream.encode(vf):
         container.mux(packet)
@@ -375,13 +381,16 @@ def _encode_slate_video_frame(
     ow: int,
     oh: int,
     pix_fmt: str = "",
+    watermark: Any = None,
 ) -> None:
     """Encode a slate (float32 RGB **already in display space**) as a video frame.
 
     Resizes when the slate is not *ow* × *oh*.
     """
     rgb_u16 = quantize_u16(slate_rgb_display)
-    _encode_rgb_u16(stream, container, rgb_u16, pix_fmt or str(stream.pix_fmt), ow, oh)
+    _encode_rgb_u16(
+        stream, container, rgb_u16, pix_fmt or str(stream.pix_fmt), ow, oh, watermark=watermark
+    )
 
 
 def _rgb_u16_display(
@@ -430,6 +439,7 @@ def _e2v_oxideav(
     config_source: str,
     config_path: str,
     workers: int,
+    watermark: Any = None,
 ) -> None:
     """EXR→video via in-process oxideav-prores PyO3 bindings (RDD-36)."""
     if not oxideav_prores_available():
@@ -463,7 +473,10 @@ def _e2v_oxideav(
                 dst_space,
                 slate_overlay_working,
             )
-            write_rgb48_frame(writer, _rgb_u16_display(slate_display, ow, oh, do_resize))
+            slate_u16 = _rgb_u16_display(slate_display, ow, oh, do_resize)
+            if watermark is not None:
+                slate_u16 = watermark.apply_u16(slate_u16)
+            write_rgb48_frame(writer, slate_u16)
             if log:
                 log("Slate frame encoded as first video frame (oxideav)")
 
@@ -521,6 +534,8 @@ def _e2v_oxideav(
                             vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
                             vf = vf.reformat(width=ow, height=oh)
                             rgb_u16 = vf.to_ndarray(format="rgb48le")
+                        if watermark is not None:
+                            rgb_u16 = watermark.apply_u16(np.ascontiguousarray(rgb_u16))
                         write_rgb48_frame(writer, rgb_u16)
                         finished += 1
                         if progress:
@@ -576,6 +591,8 @@ def _e2v_oxideav(
                     vf = av.VideoFrame.from_ndarray(rgb_u16, format="rgb48le")
                     vf = vf.reformat(width=ow, height=oh)
                     rgb_u16 = vf.to_ndarray(format="rgb48le")
+                if watermark is not None:
+                    rgb_u16 = watermark.apply_u16(np.ascontiguousarray(rgb_u16))
                 write_rgb48_frame(writer, rgb_u16)
                 finished += 1
                 if progress:
@@ -847,6 +864,18 @@ def _v2e_parallel_from_source(
 # ---- exr -> video ----------------------------------------------------------
 
 
+def _open_frame_watermark(text: str, strength: float, log: LogCallback | None) -> Any:
+    """Build the TrustMark encoder for *text*, or ``None`` when it is empty."""
+    if not (text or "").strip():
+        return None
+    from .trustmark.embed import FrameWatermark
+
+    wm = FrameWatermark(text, strength, log=log)
+    if log:
+        log(f"Invisible watermark: {wm.text!r} at strength {wm.strength:.2f}")
+    return wm
+
+
 def run_exr_to_video(
     input_spec: str,
     output_video: Path,
@@ -870,6 +899,8 @@ def run_exr_to_video(
     slate_overlay: np.ndarray | None = None,
     overlay_provider: Callable[[int | None], np.ndarray | None] | None = None,
     codec_opts: dict[str, str] | None = None,
+    watermark_text: str = "",
+    watermark_strength: float = 1.0,
 ) -> None:
     """Encode an image sequence (EXR/PNG/JPG/… with optional slate / overlays) to video.
 
@@ -904,6 +935,10 @@ def run_exr_to_video(
         the static *burnin_overlay* is reused for all frames (the fast path).
     codec_opts
         Optional libav codec options (e.g. ``{"crf": "18", "preset": "medium"}``).
+    watermark_text
+        Invisible TrustMark payload (1–8 printable ASCII). Empty means off.
+        Every encoded frame, slate included, is marked at output size after
+        the display transform.
     """
     ocio_cfg = _ensure_ocio(ocio_cfg, config_source, config_path)
     paths, basename = find_exr_sequence(input_spec)
@@ -946,6 +981,8 @@ def run_exr_to_video(
             ocio_cfg, slate_overlay, working_space=working_space
         )
 
+    watermark = _open_frame_watermark(watermark_text, watermark_strength, log)
+
     # Experimental RDD-36 ProRes via in-process oxideav bindings.
     n_workers = workers if workers > 0 else _DEFAULT_WORKERS
     if codec_key in OXIDEAV_PRORES_KEYS:
@@ -973,6 +1010,7 @@ def run_exr_to_video(
             config_source=config_source,
             config_path=config_path,
             workers=n_workers,
+            watermark=watermark,
         )
         return
 
@@ -1003,6 +1041,7 @@ def run_exr_to_video(
             overlay_auth_space=overlay_auth,
             overlay_provider=overlay_provider,
             codec_opts=codec_opts,
+            watermark=watermark,
         )
         return
 
@@ -1039,7 +1078,9 @@ def run_exr_to_video(
                 dst_space,
                 slate_overlay_working,
             )
-            _encode_slate_video_frame(slate_display, stream, container, ow, oh, pix_fmt_out)
+            _encode_slate_video_frame(
+                slate_display, stream, container, ow, oh, pix_fmt_out, watermark=watermark
+            )
             if log:
                 log("Slate frame encoded as first video frame")
 
@@ -1086,7 +1127,9 @@ def run_exr_to_video(
                 while next_encode in ready:
                     rgb_u16 = ready.pop(next_encode)
                     ready_bytes -= _array_nbytes(rgb_u16)
-                    _encode_rgb_u16(stream, container, rgb_u16, pix_fmt_out, ow, oh)
+                    _encode_rgb_u16(
+                        stream, container, rgb_u16, pix_fmt_out, ow, oh, watermark=watermark
+                    )
                     if progress:
                         progress(next_encode, total)
                     next_encode += 1
@@ -1140,6 +1183,7 @@ def _e2v_serial(
     overlay_auth_space: str = "",
     overlay_provider: Callable[[int | None], np.ndarray | None] | None = None,
     codec_opts: dict[str, str] | None = None,
+    watermark: Any = None,
 ) -> None:
     cpu_to_working = make_cpu_processor(ocio_cfg, src_space, working_space)
     cpu_to_display = make_export_processor(ocio_cfg, working_space, dst_space)
@@ -1175,7 +1219,9 @@ def _e2v_serial(
                 dst_space,
                 slate_overlay_working,
             )
-            _encode_slate_video_frame(slate_display, stream, container, w, h, pix_fmt_out)
+            _encode_slate_video_frame(
+                slate_display, stream, container, w, h, pix_fmt_out, watermark=watermark
+            )
             if log:
                 log("Slate frame encoded as first video frame")
 
@@ -1214,7 +1260,9 @@ def _e2v_serial(
                 alpha = read_image_alpha(path)
                 if alpha is not None and alpha.shape[:2] == (fh, fw):
                     alpha_u16 = quantize_u16(alpha)
-            _encode_rgb_u16(stream, container, rgb_u16, pix_fmt_out, w, h, alpha_u16)
+            _encode_rgb_u16(
+                stream, container, rgb_u16, pix_fmt_out, w, h, alpha_u16, watermark=watermark
+            )
             if progress:
                 progress(idx, total)
         for packet in stream.encode():

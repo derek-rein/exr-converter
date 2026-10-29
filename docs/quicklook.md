@@ -17,15 +17,18 @@ OCIO view is a LUT baked by the app, applied in the extension with Core Image.
 
 ## Turn the extension on
 
-macOS does not enable an embedded Quick Look extension until you allow it:
+The extensions are **off by default**. Open **File → Quick Look…** (the menu
+item only exists on macOS), tick **Use EXR Converter for Quick Look and Finder
+thumbnails**, and press OK. The app asks macOS to elect both extensions with
+`pluginkit -e use`; turning the box off runs `pluginkit -e ignore`. Each launch
+re-applies your choice, so an update that re-registers the extensions does
+not switch them back on.
 
-**System Settings → General → Login Items & Extensions → Quick Look**
-(and **Finder** / thumbnails, if that list is separate on your macOS version).
-
-Enable **EXR Converter Quick Look** and **EXR Converter Thumbnails**.
-Preferences has a **Login Items & Extensions…** button that opens this pane.
-On macOS Ventura the same list was under Login Items. The button uses the
-current Extensions URL; if it opens the wrong page, use the path above.
+If the box does not take effect, enable **EXR Converter Quick Look** and
+**EXR Converter Thumbnails** by hand under
+**System Settings → General → Login Items & Extensions → Quick Look**. The
+dialog’s **Login Items & Extensions…** button opens that pane. On macOS
+Ventura the same list was under Login Items.
 
 The extension only registers after the app has been installed (drag the app
 to `/Applications` from the DMG). A copy that only exists inside a disk image
@@ -62,7 +65,7 @@ WebP. TIFF and DNG previews do not add those formats as convert inputs.
 ## Per-format toggles
 
 `QLSupportedContentTypes` in the extension’s Info.plist is fixed at build time.
-Preferences cannot edit that list. Instead, **File → Preferences… → Quick Look**
+The app cannot edit that list. Instead, **File → Quick Look…**
 writes a small JSON file the extension reads each time it runs:
 
 1. **App Group container** (preferred). The group id is
@@ -77,7 +80,7 @@ writes a small JSON file the extension reads each time it runs:
    The sandboxed extension has a read-only home-relative exception for that
    one file, and it opens the real home directory (a sandboxed “home” is the
    extension’s own container, which is a different folder). The app writes the
-   file on every launch and whenever you press OK in Preferences. If the App
+   file on every launch and whenever you press OK in the Quick Look dialog. If the App
    Group file is missing, the extension uses this copy.
 
 If neither file exists, OpenEXR and DPX are on and the other formats are off.
@@ -90,9 +93,8 @@ turn the whole extension off in Login Items & Extensions. OpenEXR and DPX have
 no system preview, so turning them off leaves Quick Look empty, which is the
 same as before this extension existed.
 
-Finder caches previews. After you change a checkbox, use **Clear Quick Look
-cache** in Preferences (this runs `qlmanage -r cache`) or the old thumbnail
-can stick.
+Finder caches previews. OK in the Quick Look dialog clears that cache
+(`qlmanage -r cache`); **Clear Quick Look cache** does it on demand.
 
 ## Sequences
 

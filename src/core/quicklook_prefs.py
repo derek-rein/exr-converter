@@ -50,8 +50,11 @@ _lut_lock = threading.Lock()
 _lut_generation = 0
 
 __all__ = [
+    "EXTENSION_BUNDLE_IDS",
     "QUICKLOOK_FORMATS",
     "QuickLookFormat",
+    "apply_default_install_state",
+    "extensions_enabled_in_system",
     "application_support_json",
     "app_group_container_dir",
     "clear_quicklook_cache",
@@ -60,8 +63,10 @@ __all__ = [
     "load_enabled_map",
     "open_extension_settings",
     "publish_quicklook_preferences",
+    "quicklook_installed",
     "schedule_quicklook_view_lut",
     "set_format_enabled",
+    "set_quicklook_installed",
     "view_lut_destinations",
 ]
 
@@ -192,6 +197,91 @@ def publish_quicklook_preferences(
             continue
         written.append(path)
     return written
+
+
+# Bundle ids of the embedded appexes (scripts/build_quicklook_appex.py).
+EXTENSION_BUNDLE_IDS: tuple[str, ...] = (
+    "com.vfxtools.exrconverter.quicklook-preview",
+    "com.vfxtools.exrconverter.quicklook-thumbnail",
+)
+_INSTALLED_KEY = "quicklook/installed"
+
+
+def quicklook_installed(settings: QSettings) -> bool:
+    """Whether the user turned the extensions on. Off until they opt in."""
+    return _as_bool(settings.value(_INSTALLED_KEY, False), False)
+
+
+def _pluginkit_elect(enabled: bool) -> bool:
+    """``pluginkit -e use|ignore`` for both appexes. True when every call worked."""
+    if sys.platform != "darwin" or os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    election = "use" if enabled else "ignore"
+    ok = True
+    for bundle_id in EXTENSION_BUNDLE_IDS:
+        try:
+            result = subprocess.run(
+                ["pluginkit", "-e", election, "-i", bundle_id],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+            continue
+        ok = ok and result.returncode == 0
+    return ok
+
+
+def set_quicklook_installed(settings: QSettings, enabled: bool) -> bool:
+    """Save the choice and elect the appexes on or off with ``pluginkit``.
+
+    Returns whether ``pluginkit`` accepted the change. A source checkout has no
+    registered appex, so it returns False there; the setting is still saved.
+    """
+    settings.setValue(_INSTALLED_KEY, bool(enabled))
+    return _pluginkit_elect(bool(enabled))
+
+
+def apply_default_install_state(settings: QSettings) -> None:
+    """Keep the extensions off until the user turns them on.
+
+    macOS enables an embedded Quick Look appex as soon as the app is in
+    /Applications. On each launch this re-applies the saved choice (off by
+    default), so a fresh install or an update that re-registers the appex
+    does not take over Finder previews. Runs on a background thread so
+    ``pluginkit`` does not delay the window.
+    """
+    if sys.platform != "darwin" or os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    enabled = quicklook_installed(settings)
+    threading.Thread(
+        target=_pluginkit_elect, args=(enabled,), name="quicklook-elect", daemon=True
+    ).start()
+
+
+def extensions_enabled_in_system() -> bool | None:
+    """``True`` when pluginkit lists both appexes as enabled, ``None`` if unknown."""
+    if sys.platform != "darwin":
+        return None
+    states: list[bool] = []
+    for bundle_id in EXTENSION_BUNDLE_IDS:
+        try:
+            out = subprocess.run(
+                ["pluginkit", "-m", "-i", bundle_id],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=15,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+        line = next((ln for ln in out.splitlines() if bundle_id in ln), "")
+        if not line:
+            return None
+        states.append(line.lstrip().startswith("+"))
+    return all(states)
 
 
 # macOS 13–14 named this pane Login Items; macOS 15 uses Extensions Preferences.

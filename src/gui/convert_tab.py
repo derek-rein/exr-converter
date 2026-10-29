@@ -799,6 +799,20 @@ class ConvertTab(QWidget):
             self._watermark_check.setChecked(self._slate_model.watermark_enabled)
             scale_row.addWidget(self._watermark_check)
 
+            self._invisible_wm_check = QCheckBox("Invisible WM")
+            self._invisible_wm_check.setToolTip(
+                "Embed an invisible TrustMark watermark in every frame.\n"
+                "Set the payload and strength in Preferences → Invisible watermark.\n"
+                "The encoder model downloads once into your cache."
+            )
+            self._invisible_wm_check.setChecked(
+                settings.value(f"{mode}/invisible_watermark", False, type=bool)
+            )
+            self._invisible_wm_check.toggled.connect(
+                lambda on: self._settings.setValue(f"{self._mode}/invisible_watermark", bool(on))
+            )
+            scale_row.addWidget(self._invisible_wm_check)
+
             scale_row.addStretch()
 
             self._edit_slate_btn = QToolButton()
@@ -813,6 +827,7 @@ class ConvertTab(QWidget):
             self._slate_check = None
             self._burnin_check = None
             self._watermark_check = None
+            self._invisible_wm_check = None
 
         opts_layout.addRow("Scale", scale_row)
 
@@ -1323,6 +1338,10 @@ class ConvertTab(QWidget):
         if self._mode != "exr2video":
             return False
         return self._slate_model is not None and self._slate_model.watermark_enabled
+
+    def invisible_watermark_enabled(self) -> bool:
+        """True when the EXR → Video **Invisible WM** checkbox is on."""
+        return self._invisible_wm_check is not None and self._invisible_wm_check.isChecked()
 
     def get_watermark_params(self) -> dict | None:
         """Return watermark styling, or ``None`` if the tab master switch is off.

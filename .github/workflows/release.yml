@@ -403,7 +403,7 @@ jobs:
         run: uv run python scripts/camera_raw_plugin.py prepare
 
       - name: Compile Qt resources
-        run: uv run pyside6-rcc resources.qrc -o src/rc_resources.py
+        run: uv run pyside6-rcc --compress-algo zlib resources.qrc -o src/rc_resources.py
 
       - name: Determine platform icon
         id: icon

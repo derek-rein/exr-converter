@@ -399,6 +399,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Parallel workers (0=auto, 1=serial). Overrides global --workers.",
     )
+    e2v.add_argument(
+        "--watermark",
+        default="",
+        help="Invisible TrustMark payload (up to 8 ASCII characters). Off when omitted.",
+    )
+    e2v.add_argument(
+        "--watermark-strength",
+        type=float,
+        default=1.0,
+        help="TrustMark strength from 0.1 to 2.0 (default: 1.0)",
+    )
 
     from .core.proxy import (
         DEFAULT_PROXY_CODEC,
@@ -1168,6 +1179,16 @@ def run_cli(args: argparse.Namespace) -> int:
             if not args.output:
                 _log(f"Output video: {out_path}")
 
+            wm_text = ""
+            wm_strength = float(getattr(args, "watermark_strength", 1.0))
+            if str(getattr(args, "watermark", "") or "").strip():
+                try:
+                    wm_text = normalize_watermark_text(args.watermark)
+                    wm_strength = normalize_strength(wm_strength)
+                except ValueError as e:
+                    print(f"Error: {e}", file=sys.stderr)
+                    return 2
+
             src, dst = resolve_e2v_spaces(cfg, args, _log)
             _log(f"OCIO: {src} → {dst}")
 
@@ -1190,6 +1211,8 @@ def run_cli(args: argparse.Namespace) -> int:
                 codec_key=codec_key,
                 frame_set=frame_set,
                 codec_opts=_codec_opts_from_args(args),
+                watermark_text=wm_text,
+                watermark_strength=wm_strength,
             )
             _log(f"Done → {out_path}")
         print(file=sys.stderr)

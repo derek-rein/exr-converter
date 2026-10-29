@@ -53,7 +53,9 @@ from .preferences import (
     PreferencesDialog,
     open_video_with_player,
     player_mode,
+    resolve_invisible_watermark,
     reveal_in_file_manager,
+    sequence_display_name,
 )
 from .proxy_tab import ProxyTab
 from .size_grip import SizeGrip
@@ -523,6 +525,11 @@ class MainWindow(QMainWindow):
         prefs_action.setShortcut(QKeySequence.StandardKey.Preferences)
         prefs_action.triggered.connect(self._open_preferences)
         file_menu.addAction(prefs_action)
+        if sys.platform == "darwin":
+            ql_action = QAction("&Quick Look\u2026", self)
+            ql_action.setToolTip("Spacebar previews and Finder thumbnails for EXR and DPX")
+            ql_action.triggered.connect(self._open_quicklook)
+            file_menu.addAction(ql_action)
         file_menu.addSeparator()
         quit_action = QAction("&Quit", self)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
@@ -555,6 +562,11 @@ class MainWindow(QMainWindow):
     def _open_preferences(self) -> None:
         dlg = PreferencesDialog(self._settings, self)
         dlg.exec()
+
+    def _open_quicklook(self) -> None:
+        from .quicklook_dialog import QuickLookDialog
+
+        QuickLookDialog(self._settings, self).exec()
 
     # -- Updates --
 
@@ -923,6 +935,13 @@ class MainWindow(QMainWindow):
                 overlay_provider=overlay_provider,
                 codec_opts=tab.get_codec_opts() or None,
             )
+            if tab.invisible_watermark_enabled():
+                wm_text, wm_strength = resolve_invisible_watermark(
+                    self._settings, source_name=sequence_display_name(inp), log=self._append_log
+                )
+                if wm_text:
+                    kwargs["watermark_text"] = wm_text
+                    kwargs["watermark_strength"] = wm_strength
 
         out_path = Path(out)
         self._output_folder = str(out_path if out_path.is_dir() else out_path.parent)

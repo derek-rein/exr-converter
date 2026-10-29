@@ -13,7 +13,8 @@ The same entry point launches the **GUI** when no convert subcommand is given.
 
 Slate, burn-in, the visible text watermark, and post-convert toggles are
 **GUI-only**. See [GUI](./gui.md). The invisible proxy watermark is available
-from the CLI as `proxy --watermark` and `transcode --watermark`.
+from the CLI as `proxy --watermark`, `transcode --watermark`, and
+`exr2video --watermark`.
 
 ```bash
 # From a source checkout
@@ -172,6 +173,8 @@ uv run python main.py exr2video -i ./plate --codec h264 --crf 18
 | `--preset` | codec default | x264 / x265 preset name |
 | `--frame-range` | all | e.g. `1001-1100` |
 | `--workers` | global | Same meaning as `video2exr` |
+| `--watermark TEXT` | off | Invisible TrustMark payload, up to 8 printable ASCII characters, on every frame after the display transform. Same model and cache as `proxy --watermark`. A bad payload exits with code `2` |
+| `--watermark-strength N` | `1.0` | `0.1` to `2.0`. Used only with `--watermark` |
 
 **Default output path** when `-o` is omitted: sibling of the sequence folder,
 named after the folder, with a codec-appropriate extension:

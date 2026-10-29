@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QButtonGroup,
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -29,13 +31,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.quicklook_prefs import (
-    QUICKLOOK_FORMATS,
-    clear_quicklook_cache,
-    format_enabled,
-    open_extension_settings,
-    publish_quicklook_preferences,
-    set_format_enabled,
+from ..core.trustmark.payload import (
+    DEFAULT_STRENGTH,
+    MAX_TEXT_CHARS,
+    PAYLOAD_TOKENS,
+    STRENGTH_MAX,
+    STRENGTH_MIN,
+    expand_payload_template,
 )
 from ..services.app_settings import Keys
 from ..services.cache_prefs import (
@@ -127,6 +129,52 @@ def pick_thumbnail_index(count: int, which: int) -> int:
     if w == THUMBNAIL_FRAME_LAST:
         return n - 1
     return n // 2
+
+
+DEFAULT_INVISIBLE_WM_TEMPLATE = "{user}"
+
+
+def invisible_wm_template(settings: QSettings) -> str:
+    """Payload template for the EXR → Video invisible watermark."""
+    if not settings.contains(Keys.INVISIBLE_WM_TEMPLATE):
+        return DEFAULT_INVISIBLE_WM_TEMPLATE
+    return str(settings.value(Keys.INVISIBLE_WM_TEMPLATE, "") or "")
+
+
+def invisible_wm_strength(settings: QSettings) -> float:
+    try:
+        value = float(settings.value(Keys.INVISIBLE_WM_STRENGTH, DEFAULT_STRENGTH))
+    except (TypeError, ValueError):
+        return DEFAULT_STRENGTH
+    return min(max(value, STRENGTH_MIN), STRENGTH_MAX)
+
+
+def sequence_display_name(path: str | Path) -> str:
+    """``shot`` for ``/a/shot.1001.exr``, ``/a/shot_1001.dpx`` or the folder ``/a/shot``."""
+    p = Path(str(path or "")).expanduser()
+    if not p.suffix:
+        return p.name
+    stem = re.sub(r"[._-]?#*\d*#*$", "", p.stem)
+    return stem or p.stem
+
+
+def resolve_invisible_watermark(
+    settings: QSettings,
+    *,
+    source_name: str = "",
+    log: Callable[[str], None] | None = None,
+) -> tuple[str, float]:
+    """Expand the Preferences template. Returns ``("", strength)`` when it is empty."""
+    expanded = expand_payload_template(invisible_wm_template(settings), source_name=source_name)
+    strength = invisible_wm_strength(settings)
+    if log is not None:
+        if not expanded.text:
+            log("Invisible watermark skipped: the payload in Preferences is empty.")
+        elif expanded.truncated:
+            log(
+                f"Invisible watermark payload cut to {MAX_TEXT_CHARS} characters: {expanded.text!r}"
+            )
+    return expanded.text, strength
 
 
 def _is_macos_app_bundle(path: Path) -> bool:
@@ -475,9 +523,7 @@ class PreferencesDialog(QDialog):
         cache_layout.addLayout(cache_row)
         root.addWidget(cache_box)
 
-        self._ql_checks: dict[str, QCheckBox] = {}
-        if sys.platform == "darwin":
-            root.addWidget(self._build_quicklook_box(settings))
+        root.addWidget(self._build_invisible_wm_box(settings))
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -568,51 +614,53 @@ class PreferencesDialog(QDialog):
             int(thumb_data) if thumb_data is not None else THUMBNAIL_FRAME_MID,
         )
         save_cache_budget_pct(self._settings, int(self._cache_slider.value()))
-        if sys.platform == "darwin":
-            for key, box in self._ql_checks.items():
-                set_format_enabled(self._settings, key, box.isChecked())
-            publish_quicklook_preferences(self._settings)
+        self._settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, self._wm_template.text())
+        self._settings.setValue(Keys.INVISIBLE_WM_STRENGTH, float(self._wm_strength.value()))
         self.accept()
 
-    def _build_quicklook_box(self, settings: QSettings) -> QGroupBox:
-        box = QGroupBox("Quick Look")
+    def _build_invisible_wm_box(self, settings: QSettings) -> QGroupBox:
+        box = QGroupBox("Invisible watermark")
+        box.setObjectName("invisible_wm_box")
         layout = QVBoxLayout(box)
         hint = QLabel(
-            "Spacebar previews and Finder icons on macOS 12 and later. "
-            "OpenEXR and DPX start on. PNG, JPEG, WebP, TIFF, and DNG stay off "
-            "so Finder keeps its own preview until you opt in. "
-            "A format you turn off is declined, and macOS uses its built-in "
-            "preview when it has one. EXR and DPX have none, so they go blank. "
-            "Enable the extension once under System Settings → General → "
-            "Login Items &amp; Extensions. "
-            "Scene-linear OpenEXR and DPX use this app’s default OCIO display "
-            "view (exposure 0, gamma 1), written when the OCIO config loads. "
-            "Numbered frames play in the preview when the folder can be read. "
-            "Movies, BRAW, R3D, and ARRIRAW are not previewed here."
+            "Payload for <b>Invisible WM</b> on EXR → Video (Adobe TrustMark). "
+            f"Holds {MAX_TEXT_CHARS} ASCII characters; longer results are cut. "
+            "Tokens: {user} {host} {date} {time} {src}."
         )
         hint.setWordWrap(True)
         hint.setTextFormat(Qt.TextFormat.RichText)
         hint.setStyleSheet("color: #aaa;")
         layout.addWidget(hint)
-        for fmt in QUICKLOOK_FORMATS:
-            check = QCheckBox(fmt.label)
-            check.setObjectName(f"ql_{fmt.key}")
-            check.setToolTip(fmt.detail)
-            check.setChecked(format_enabled(settings, fmt.key))
-            self._ql_checks[fmt.key] = check
-            layout.addWidget(check)
-        buttons = QHBoxLayout()
-        extensions = QPushButton("Login Items && Extensions…")
-        extensions.setToolTip(
-            "Opens System Settings so you can enable EXR Converter Quick Look. "
-            "On older macOS the pane is General → Login Items & Extensions."
+
+        form = QFormLayout()
+        self._wm_template = QLineEdit(invisible_wm_template(settings))
+        self._wm_template.setObjectName("invisible_wm_template")
+        self._wm_template.setPlaceholderText("e.g. {user}  or  ACME{date}")
+        self._wm_template.setToolTip(
+            "\n".join(f"{tok}  {desc}" for tok, desc in PAYLOAD_TOKENS)
+            + "\n\nFilled in when the render starts."
         )
-        extensions.clicked.connect(lambda _checked=False: open_extension_settings())
-        cache = QPushButton("Clear Quick Look cache")
-        cache.setToolTip("Finder keeps a cached preview. Clear it after changing a format toggle.")
-        cache.clicked.connect(lambda _checked=False: clear_quicklook_cache())
-        buttons.addWidget(extensions)
-        buttons.addWidget(cache)
-        buttons.addStretch()
-        layout.addLayout(buttons)
+        self._wm_preview = QLabel()
+        self._wm_preview.setObjectName("invisible_wm_preview")
+        self._wm_preview.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._wm_strength = QDoubleSpinBox()
+        self._wm_strength.setRange(STRENGTH_MIN, STRENGTH_MAX)
+        self._wm_strength.setSingleStep(0.05)
+        self._wm_strength.setDecimals(2)
+        self._wm_strength.setValue(invisible_wm_strength(settings))
+        self._wm_strength.setToolTip("TrustMark strength. 1.00 is the normal strength.")
+        form.addRow("Payload:", self._wm_template)
+        form.addRow("Embeds now:", self._wm_preview)
+        form.addRow("Strength:", self._wm_strength)
+        layout.addLayout(form)
+        self._wm_template.textChanged.connect(self._update_wm_preview)
+        self._update_wm_preview(self._wm_template.text())
         return box
+
+    def _update_wm_preview(self, template: str) -> None:
+        expanded = expand_payload_template(template, source_name="shot")
+        if not expanded.text:
+            self._wm_preview.setText("(empty: no watermark)")
+            return
+        note = f"  (cut to {MAX_TEXT_CHARS})" if expanded.truncated else ""
+        self._wm_preview.setText(f"{expanded.text}{note}")

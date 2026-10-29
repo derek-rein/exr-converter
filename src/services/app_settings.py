@@ -44,7 +44,12 @@ class Keys:
     PLAYER_PATH = "player/path"
     CACHE_BUDGET_PCT = "cache/budget_pct"
     SLATE_THUMBNAIL_FRAME = "slate/thumbnail_frame"
+    # Invisible TrustMark watermark for EXR → Video (template may use tokens).
+    INVISIBLE_WM_TEMPLATE = "watermark/invisible_template"
+    INVISIBLE_WM_STRENGTH = "watermark/invisible_strength"
     # macOS Quick Look toggles: quicklook/format/<key> (src/core/quicklook_formats.py).
+    # Whether the Quick Look / thumbnail extensions are elected on (pluginkit).
+    QUICKLOOK_INSTALLED = "quicklook/installed"
 
     # OCIO
     OCIO_SOURCE = "ocio/source"
