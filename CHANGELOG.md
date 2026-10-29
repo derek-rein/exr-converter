@@ -21,6 +21,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
+- Software and VideoToolbox codec labels say ProRes 422 / 4444 (`.mov`) without a vendor name. Docs and the About dialog use the same wording.
+- Docs describe `.crm` as camera RAW plugin support and no longer list unsupported camera RAW extensions.
 - On a Display P3 screen, Quick Look now opens in the config's Display P3 view (`ACES 2.0 - SDR 100 nits (P3 D65)` on the bundled config) and tags the picture as Display P3. Other screens keep sRGB.
 
 ### Fixed
@@ -111,7 +113,7 @@ Published release. v0.12.5 was tagged but not published. This build includes tha
 - Camera RAW plugin support for `.crm`. Release builds include the plugin and ship its runtime notices inside the app bundle. Without the plugin, Inspect and convert report `Camera RAW plugin not installed`, and the codec column shows `Camera RAW (plugin not installed)`. These files are never opened with PyAV. `proxy` and `transcode` do not accept them.
 - CinemaDNG frame sequences (`.dng`) open on EXR to Video and through `video2exr` / `exr2video`. Uncompressed and lossless JPEG Bayer frames are supported. DJI Inspire 3 and Zenmuse X9 frames are scene-linear P3-D60 with the recommended +1.4 stops already applied. Other CinemaDNG sequences use the file color matrices into ACES2065-1.
 - Linux releases are built on Rocky Linux 8 and run on RHEL, Rocky, and Alma 8 and newer (glibc 2.28). The same build publishes the AppImage, a relocatable tarball (`exr_converter-linux-x86_64.tar.gz`) for `/opt`, `/software`, and Rez, and an RPM (`exr_converter-linux-x86_64.rpm`) that installs to `/opt/exr-converter`. Settings and caches stay in the XDG directories, so the install folder can be read-only.
-- macOS Quick Look previews scene-linear OpenEXR and DPX through the app's default OCIO display view (a baked 3D LUT, exposure 0 and gamma 1). Numbered frames play in the Spacebar preview when the folder can be read (home, `/Volumes`, and `/tmp`). Notarization accepts those read-only exceptions. **File → Preferences… → Quick Look** still chooses the formats. Movies, BRAW, R3D, and ARRIRAW are unchanged. See [Quick Look on macOS](docs/quicklook.md).
+- macOS Quick Look previews scene-linear OpenEXR and DPX through the app's default OCIO display view (a baked 3D LUT, exposure 0 and gamma 1). Numbered frames play in the Spacebar preview when the folder can be read (home, `/Volumes`, and `/tmp`). Notarization accepts those read-only exceptions. **File → Preferences… → Quick Look** still chooses the formats. Movies, BRAW, and R3D are unchanged. See [Quick Look on macOS](docs/quicklook.md).
 - New **Transcode** tab for batch video to video transcodes: ProRes 422 Proxy / LT / 422 / HQ / 4444 / 4444 XQ (plus VideoToolbox ProRes on macOS), DNxHR LB / SQ / HQ / HQX / 444, H.264, HEVC 8 / 10 / 12-bit, and AV1 when the FFmpeg build has SVT-AV1. The container follows the codec (`.mov`, `.mxf` for DNxHR, `.mp4`, `.mkv` for AV1). Options for size (keep, 75 / 50 / 25%, fit 2160p / 1080p / 720p, or custom), frame rate (keep or conform), audio (copy, AAC, 24-bit PCM, or none), CRF or target bitrate and speed preset for long-GOP codecs, output folder, a `<name>_<codec>` style file name pattern, and skip / overwrite / add-a-number when the file exists. No color change by default; an optional OCIO transform uses the window's config. The invisible TrustMark watermark from Video → Proxy is available too. Each clip in the list shows its progress, then a check mark or the error. Settings are remembered between sessions.
 - `transcode` CLI subcommand with the same options as the tab, and `--mode transcode` to open the GUI on that tab.
 - The sequence browser has a **Find sequence** field for typo-tolerant search by sequence name. Folders you open are indexed with their subfolders in the background without freezing the dialog. Click a result or press Enter to jump to that folder with the sequence selected. The index lives only while the browser is open and never downloads cloud online-only files. Adds the `rapidfuzz` dependency.
@@ -137,7 +139,7 @@ Published release. v0.12.5 was tagged but not published. This build includes tha
 - EXR sequences without an EXR Converter tag or `colorInteropID` are matched to a source colour space from their `chromaticities` header (Rec.709, ACES AP1, ACES AP0, P3-D65, Rec.2020). When there is no usable metadata, `exr2video` prints a warning that names the colour space it assumes (the OCIO `scene_linear` role, ACEScg on the bundled config) and suggests `--src`.
 - Software ProRes 4444 and XQ had a small colour offset after decode (about +2.5 12-bit codes on luma and different offsets on each chroma channel on near-grey content, much larger on saturated colours) because of the BT.601 default above. Decoded values now match the source within normal rounding.
 - Software ProRes 4444 and XQ wrote an alpha plane (`yuva444p10le`) even when the source had no alpha. The alpha plane is now written only when the source frames have an alpha channel, and the source alpha is carried through.
-- oxideav ProRes files named their compressor "Apple ProRes" in the MOV sample description. They now say `RDD 36 ProRes-compatible`, matching the docs.
+- oxideav ProRes files named their compressor with a vendor codec label in the MOV sample description. They now say `RDD 36 ProRes-compatible`, matching the docs.
 
 ---
 
@@ -263,9 +265,8 @@ Published release. v0.12.5 was tagged but not published. This build includes tha
 
 - Bundled ACES Studio config adds **Nikon N-Log** (N-Gamut / Rec.2020),
   **Fujifilm F-Log**, **F-Log2**, and **F-Log2 C**, **Leica L-Log** (Rec.2020,
-  and Rec.709 for the SL Typ 601), **Sony S-Log** and **S-Log2** (S-Gamut),
-  **Canon Log** (Cinema Gamut, Rec.2020, Rec.709), **Canon Log 2 / Log 3** in
-  Rec.2020 and Rec.709, **KineLOG3**, **GoPro Protune / GP-Log / GP-Log2**, and
+  and Rec.709 for the SL Typ 601),   **Sony S-Log** and **S-Log2** (S-Gamut),
+  **KineLOG3**, **GoPro Protune / GP-Log / GP-Log2**, and
   **Blackmagic Film Gen 4** (Broadcast, Pocket 4K, Pocket 6K). Existing
   colorspace names are unchanged. N-Log is the published curve (a generated
   1D LUT), not Nikon's downloadable cube. Sources, licenses, and measured
@@ -299,10 +300,6 @@ Published release. v0.12.5 was tagged but not published. This build includes tha
   the file to PyAV. FFmpeg cannot demux those containers and SIGSEGV’d in
   `stream.so`. Inspect and thumbs use the SDK bridges; without a bridge the
   clip still lists and Inspect reports SDK missing.
-- **ARRIRAW (`.ari` / `.arx`) in the video browser:** those extensions are
-  listed/searchable but are not FFmpeg-safe. Inspect, thumbs, preview, and
-  convert no longer hand them to PyAV (native crash). Inspect reports
-  unsupported; convert raises a clear error.
 - **BRAW bridge compiles on macOS and Windows:** the C ABI wrapper now uses
   SDK-accurate types per platform (Mac `CFUUIDBytes` / `CFStringRef`, Windows
   `VARIANT` / `BSTR` / `BOOL`, and the Win dispatch factory entry point).
@@ -398,7 +395,7 @@ Published release. v0.12.5 was tagged but not published. This build includes tha
 
 ### Added
 
-- **Docs:** [ProRes and VideoToolbox](docs/prores.md) explains Apple’s
+- **Docs:** [ProRes and VideoToolbox](docs/prores.md) explains the
   hardware encoder (`prores_vt_*`, macOS only), why software 4444/XQ stay
   10-bit, and the experimental oxideav 12-bit ladder.
 
@@ -457,7 +454,7 @@ Published release. v0.12.5 was tagged but not published. This build includes tha
 - **Experimental true 12-bit ProRes** (`prores_ox_4444` / `prores_ox_xq`):
   cross-platform RDD-36 ProRes-compatible encode via in-process
   **oxideav-prores** PyO3 bindings (``exr_prores``), packaged with Nuitka.
-  Not Apple-certified; hidden when the extension is not built
+  Hidden when the extension is not built
   (`make oxideav-prores`). Software FFmpeg ProRes remains honest 10-bit.
 
 ### Changed
