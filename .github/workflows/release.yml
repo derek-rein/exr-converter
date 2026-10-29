@@ -428,6 +428,14 @@ jobs:
           uv run python scripts/build_cinemadng.py
           ls -la build/cinemadng/
 
+      # Optional camera RAW plugin. The read secret is mapped to a generic
+      # variable. Logs from the fetch stay redacted. No token means skip.
+      - name: Build optional camera RAW plugin
+        shell: bash
+        env:
+          CAMERA_RAW_READ_TOKEN: ${{ secrets.CANON_SDK_READ_TOKEN }}
+        run: uv run python scripts/camera_raw_plugin.py prepare
+
       - name: Compile Qt resources
         run: uv run pyside6-rcc resources.qrc -o src/rc_resources.py
 
@@ -482,6 +490,11 @@ jobs:
           # (scripts/macos_codesign.py), so the dylib is signed and notarized
           # with the rest of the bundle.
           uv run python scripts/prepare_macos_onnxruntime.py
+          RAW_FLAGS=()
+          while IFS= read -r flag || [ -n "$flag" ]; do
+            [ -n "$flag" ] || continue
+            RAW_FLAGS+=("$flag")
+          done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags)
           uv run python -m nuitka \
             $MODE \
             --output-dir=dist \
@@ -517,6 +530,7 @@ jobs:
             --include-module=exr_prores \
             --quiet \
             "${EXTRA_FLAGS[@]}" \
+            ${RAW_FLAGS[@]+"${RAW_FLAGS[@]}"} \
             main.py
 
       - name: Rename macOS app bundle
@@ -614,6 +628,16 @@ jobs:
           echo "OK: BRAW runtime in $BRAW_DIR"
           ls -la "$BRAW_DIR" | head -20
 
+      - name: Install camera RAW plugin into bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            uv run python scripts/camera_raw_plugin.py install "dist/EXR Converter.app"
+          else
+            uv run python scripts/camera_raw_plugin.py install dist/main.dist
+          fi
+
       - name: Slim macOS bundle
         if: runner.os == 'macOS'
         shell: bash
@@ -634,10 +658,19 @@ jobs:
           fi
 
           # Strip debug symbols (never strip private RED / Blackmagic
-          # redistributables under r3d/ or braw/, or the oxideav PyO3
-          # extension — strip can break extension load).
+          # redistributables under r3d/ or braw/, the camera RAW plugin
+          # runtime, or the oxideav PyO3 extension. Strip can break those loads).
+          STRIP_EX=()
+          if [ -f build/camera-raw-strip-paths.txt ]; then
+            while IFS= read -r pat || [ -n "$pat" ]; do
+              [ -n "$pat" ] || continue
+              STRIP_EX+=(! -path "$pat")
+            done < build/camera-raw-strip-paths.txt
+          fi
           find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) \
-            ! -path '*/r3d/*' ! -path '*/braw/*' ! -path '*exr_prores*' -exec strip -x {} +
+            ! -path '*/r3d/*' ! -path '*/braw/*' ! -path '*exr_prores*' \
+            ${STRIP_EX[@]+"${STRIP_EX[@]}"} \
+            -exec strip -x {} +
 
           echo "Bundle size after slimming:"
           du -sh "$APP"
@@ -1372,6 +1405,7 @@ jobs:
         env:
           R3D_SDK_READ_TOKEN: ${{ secrets.R3D_SDK_READ_TOKEN }}
           BRAW_SDK_READ_TOKEN: ${{ secrets.BRAW_SDK_READ_TOKEN }}
+          CAMERA_RAW_READ_TOKEN: ${{ secrets.CANON_SDK_READ_TOKEN }}
           R3D_BRIDGE_REF: bridge-v1
           BRAW_BRIDGE_REF: bridge-v1
         run: |
@@ -1386,6 +1420,7 @@ jobs:
             -e HOST_GID="$(id -g)" \
             -e R3D_SDK_READ_TOKEN \
             -e BRAW_SDK_READ_TOKEN \
+            -e CAMERA_RAW_READ_TOKEN \
             -e R3D_BRIDGE_REF \
             -e BRAW_BRIDGE_REF \
             rockylinux:8 \

@@ -149,6 +149,8 @@ bundle: resources
 	-@$(PYTHON) scripts/build_oxideav_prores.py
 	# CinemaDNG reader (uncompressed / lossless JPEG). libc only.
 	$(PYTHON) scripts/build_cinemadng.py
+	# Optional camera RAW plugin (skipped when its read token is unset).
+	$(PYTHON) scripts/camera_raw_plugin.py prepare
 	# macOS: align libonnxruntime's install id with its filename before Nuitka.
 	$(PYTHON) scripts/prepare_macos_onnxruntime.py
 	$(PYTHON) -m nuitka \
@@ -189,6 +191,7 @@ bundle: resources
 		--include-data-files=pyproject.toml=pyproject.toml \
 		--include-module=ssl \
 		--include-module=exr_prores \
+		$$( $(PYTHON) scripts/camera_raw_plugin.py nuitka-flags ) \
 		$(ENTRY)
 	mv dist/main.app "dist/$(MACOS_BUNDLE_NAME).app"
 	# Nuitka can rewrite PyOpenColorIO away from the 2.5 library; put 2.5 back.
@@ -197,6 +200,8 @@ bundle: resources
 	-$(PYTHON) scripts/install_r3d_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
 	# Optional BRAW runtime (bridge + Blackmagic Libraries only) into private app dir.
 	-$(PYTHON) scripts/install_braw_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
+	# Optional camera RAW plugin runtime and notices (no-op without a build).
+	$(PYTHON) scripts/camera_raw_plugin.py install "dist/$(MACOS_BUNDLE_NAME).app"
 	# CinemaDNG reader sits next to the executable so macOS codesign sees it.
 	$(PYTHON) scripts/install_cinemadng_into_bundle.py "dist/$(MACOS_BUNDLE_NAME).app"
 	# Quick Look + Finder thumbnail appexes (macOS). Release re-signs them.

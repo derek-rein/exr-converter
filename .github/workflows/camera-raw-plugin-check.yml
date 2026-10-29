@@ -1,0 +1,125 @@
+name: Camera RAW plugin bundle check
+
+# Same-repo pull requests that touch the plugin wiring prove the private feed
+# builds and installs on Linux (Rocky 8), macOS, and Windows. Forks skip when
+# the read token is absent. This does not publish a release.
+on:
+  pull_request:
+    paths:
+      - scripts/camera_raw_plugin.py
+      - .github/workflows/camera-raw-plugin-check.yml
+      - .github/workflows/release.yml
+      - packaging/linux/build-on-rocky.sh
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: bundle (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and install on Rocky 8
+        env:
+          CAMERA_RAW_READ_TOKEN: ${{ secrets.CANON_SDK_READ_TOKEN }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            -e CAMERA_RAW_READ_TOKEN \
+            -e SAME_REPO \
+            rockylinux:8 \
+            bash -lc '
+              set -euo pipefail
+              dnf -y install git gcc-c++ make cmake python39 ocl-icd curl ca-certificates tar findutils
+              if ! command -v git-lfs >/dev/null 2>&1; then
+                curl -fsSL -o /tmp/git-lfs.tar.gz \
+                  https://github.com/git-lfs/git-lfs/releases/download/v3.6.1/git-lfs-linux-amd64-v3.6.1.tar.gz
+                rm -rf /tmp/git-lfs-extract
+                mkdir -p /tmp/git-lfs-extract
+                tar -C /tmp/git-lfs-extract -xzf /tmp/git-lfs.tar.gz
+                install -m 755 /tmp/git-lfs-extract/*/git-lfs /usr/local/bin/git-lfs
+              fi
+              python3.9 scripts/camera_raw_plugin.py prepare | tee /tmp/prepare.txt
+              if grep -q "token is not set" /tmp/prepare.txt; then
+                if [ "$SAME_REPO" = "true" ]; then
+                  echo "same-repo build requires the camera RAW read token" >&2
+                  exit 1
+                fi
+                echo "camera RAW plugin not included"
+                exit 0
+              fi
+              mkdir -p /tmp/bundle
+              python3.9 scripts/camera_raw_plugin.py install /tmp/bundle | tee /tmp/install.txt
+              grep -q "camera RAW plugin bundled" /tmp/install.txt
+              find /tmp/bundle -type f -name "*_bridge.so" | grep -q .
+            '
+
+  macos:
+    name: bundle (macos)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Build and install
+        env:
+          CAMERA_RAW_READ_TOKEN: ${{ secrets.CANON_SDK_READ_TOKEN }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          set -euo pipefail
+          git lfs version
+          cmake --version
+          python3 scripts/camera_raw_plugin.py prepare | tee /tmp/prepare.txt
+          if grep -q "token is not set" /tmp/prepare.txt; then
+            if [ "$SAME_REPO" = "true" ]; then
+              echo "same-repo build requires the camera RAW read token" >&2
+              exit 1
+            fi
+            echo "camera RAW plugin not included"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/bundle"
+          python3 scripts/camera_raw_plugin.py install "$RUNNER_TEMP/bundle" | tee /tmp/install.txt
+          grep -q "camera RAW plugin bundled" /tmp/install.txt
+          find "$RUNNER_TEMP/bundle" -type f -name "*_bridge.dylib" | grep -q .
+
+  windows:
+    name: bundle (windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Enable MSVC environment
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+      - name: Build and install
+        shell: bash
+        env:
+          CAMERA_RAW_READ_TOKEN: ${{ secrets.CANON_SDK_READ_TOKEN }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          set -euo pipefail
+          git lfs version
+          cmake --version
+          python scripts/camera_raw_plugin.py prepare | tee /tmp/prepare.txt
+          if grep -q "token is not set" /tmp/prepare.txt; then
+            if [ "$SAME_REPO" = "true" ]; then
+              echo "same-repo build requires the camera RAW read token" >&2
+              exit 1
+            fi
+            echo "camera RAW plugin not included"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/bundle"
+          python scripts/camera_raw_plugin.py install "$RUNNER_TEMP/bundle" | tee /tmp/install.txt
+          grep -q "camera RAW plugin bundled" /tmp/install.txt
+          find "$RUNNER_TEMP/bundle" -type f -name "*_bridge.dll" | grep -q .
