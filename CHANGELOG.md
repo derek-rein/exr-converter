@@ -15,6 +15,16 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ---
 
+## [0.12.8] - 2026-10-29
+
+Published release. v0.12.5, v0.12.6, and v0.12.7 were tagged but not published. This build includes those sections: camera RAW plugin support for `.crm`, CinemaDNG frame sequences, the Transcode tab, fuzzy sequence search, and a Microsoft Store package that does not request `unvirtualizedResources`.
+
+### Fixed
+
+- Windows release packages pass the camera RAW plugin to the packager with normal line endings, so the plugin is included in the app.
+
+---
+
 ## [0.12.7] - 2026-10-29
 
 Published release. v0.12.5 and v0.12.6 were tagged but not published. This build includes those sections: camera RAW plugin support for `.crm`, CinemaDNG frame sequences, the Transcode tab, fuzzy sequence search, and a Microsoft Store package that does not request `unvirtualizedResources`.
@@ -1020,7 +1030,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.7...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.8...HEAD
+[0.12.8]: https://github.com/derek-rein/exr-converter/compare/v0.12.7...v0.12.8
 [0.12.7]: https://github.com/derek-rein/exr-converter/compare/v0.12.6...v0.12.7
 [0.12.6]: https://github.com/derek-rein/exr-converter/compare/v0.12.5...v0.12.6
 [0.12.5]: https://github.com/derek-rein/exr-converter/compare/v0.12.4...v0.12.5
