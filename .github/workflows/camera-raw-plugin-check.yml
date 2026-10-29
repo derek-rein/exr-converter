@@ -35,7 +35,7 @@ jobs:
             rockylinux:8 \
             bash -lc '
               set -euo pipefail
-              dnf -y install git gcc-c++ make cmake python39 ocl-icd curl ca-certificates tar
+              dnf -y install git gcc-c++ make cmake python39 ocl-icd curl ca-certificates tar findutils
               if ! command -v git-lfs >/dev/null 2>&1; then
                 curl -fsSL -o /tmp/git-lfs.tar.gz \
                   https://github.com/git-lfs/git-lfs/releases/download/v3.6.1/git-lfs-linux-amd64-v3.6.1.tar.gz
