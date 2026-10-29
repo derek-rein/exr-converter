@@ -166,3 +166,17 @@ class TestInOutPoints:
         finally:
             dlg.deleteLater()
             qapp.processEvents()
+
+
+def test_folder_search_enters_folders_with_no_allocated_blocks(tmp_path: Path, monkeypatch) -> None:
+    """APFS folders report 0 blocks; the file-only cloud check skipped them on macOS."""
+    from src.core import dir_search, local_fs
+
+    (tmp_path / "a" / "shot_010").mkdir(parents=True)
+    monkeypatch.setattr(local_fs, "_looks_dataless_stat", lambda st: True)
+    hits = [
+        m[0]
+        for batch in dir_search.iter_search(str(tmp_path), "shot", dirs_only=True)
+        for m in batch
+    ]
+    assert hits == ["shot_010"]
