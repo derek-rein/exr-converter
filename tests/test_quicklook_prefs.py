@@ -19,9 +19,12 @@ from src.core.quicklook_formats import (
     supported_content_types,
 )
 from src.core.quicklook_prefs import (
+    EXTENSION_BUNDLE_IDS,
     format_enabled,
     publish_quicklook_preferences,
+    quicklook_installed,
     set_format_enabled,
+    set_quicklook_installed,
 )
 from src.gui.preferences import PreferencesDialog
 
@@ -154,17 +157,44 @@ def test_preview_info_plist_is_view_based():
     assert "QLIsDataBasedPreview" not in thumb_attrs
 
 
-def test_preferences_dialog_quicklook_section(qapp, settings):
+def test_preferences_dialog_has_no_quicklook_section(qapp, settings):
     dlg = PreferencesDialog(settings)
     titles = [box.title() for box in dlg.findChildren(QGroupBox)]
-    if sys.platform == "darwin":
-        assert "Quick Look" in titles
-        exr = dlg.findChild(QCheckBox, "ql_exr")
-        png = dlg.findChild(QCheckBox, "ql_png")
-        assert exr is not None and exr.isChecked()
-        assert png is not None and not png.isChecked()
-    else:
-        assert "Quick Look" not in titles
+    assert "Quick Look" not in titles
+    assert dlg.findChild(QCheckBox, "ql_exr") is None
+
+
+def test_quicklook_dialog_defaults_off(qapp, settings):
+    from src.gui.quicklook_dialog import QuickLookDialog
+
+    assert quicklook_installed(settings) is False
+    dlg = QuickLookDialog(settings)
+    enable = dlg.findChild(QCheckBox, "ql_enable")
+    exr = dlg.findChild(QCheckBox, "ql_exr")
+    png = dlg.findChild(QCheckBox, "ql_png")
+    assert enable is not None and not enable.isChecked()
+    assert exr is not None and exr.isChecked() and not exr.isEnabled()
+    assert png is not None and not png.isChecked()
+    enable.setChecked(True)
+    assert exr.isEnabled()
+
+
+def test_set_quicklook_installed_saves_choice(settings):
+    # pluginkit is skipped under pytest; the saved choice still changes.
+    assert set_quicklook_installed(settings, True) is False
+    assert quicklook_installed(settings) is True
+    set_quicklook_installed(settings, False)
+    assert quicklook_installed(settings) is False
+
+
+def test_extension_ids_match_build_script():
+    assert EXTENSION_BUNDLE_IDS == (ql_build.PREVIEW_ID, ql_build.THUMB_ID)
+
+
+def test_quicklook_menu_is_macos_only():
+    window = (ROOT / "src/gui/window.py").read_text(encoding="utf-8")
+    block = window[window.index("ql_action = QAction") - 200 : window.index("ql_action = QAction")]
+    assert 'sys.platform == "darwin"' in block
 
 
 def test_app_group_container_lookup_does_not_abort():

@@ -129,7 +129,7 @@ test-unit: cinemadng
 resources: src/rc_resources.py
 
 src/rc_resources.py: resources.qrc resources/icons/icon.png resources/style.qss
-	$(RCC) resources.qrc -o src/rc_resources.py
+	$(RCC) --compress-algo zlib resources.qrc -o src/rc_resources.py
 
 # ── Bundle with Nuitka ───────────────────────────────────────────────────────
 # macOS: dist/"EXR Converter.app"   Linux: dist/exr_converter   Windows: dist/exr_converter.exe

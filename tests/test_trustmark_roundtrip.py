@@ -87,3 +87,37 @@ def test_mark_survives_proxy_encode(tmp_path: Path, codec_key: str) -> None:
     assert found.detected is True
     assert found.text == _PAYLOAD
     assert found.frames == 4
+
+
+@pytest.mark.parametrize("codec_key", ["h264", "prores_proxy"])
+def test_mark_survives_exr_to_video(tmp_path: Path, codec_key: str) -> None:
+    from src.core.constants import video_codec_by_key
+    from src.core.convert import run_exr_to_video
+    from src.core.exr_io import write_exr
+
+    seq = tmp_path / "plate"
+    seq.mkdir()
+    for index in range(3):
+        # Display-ish values stored raw; src == dst keeps OCIO a no-op.
+        rgb = (_pattern(360, 640, seed=index + 7) / 255.0).astype(np.float32)
+        write_exr(str(seq / f"plate.{1001 + index}.exr"), rgb, compression="zip")
+    spec = video_codec_by_key(codec_key)
+    assert spec is not None
+    output = tmp_path / ("out.mp4" if codec_key == "h264" else "out.mov")
+    run_exr_to_video(
+        str(seq),
+        output,
+        None,
+        "Raw",
+        "Raw",
+        24.0,
+        workers=1,
+        video_codec=spec.libav_codec,
+        pix_fmt_out=spec.pix_fmt,
+        codec_key=codec_key,
+        watermark_text=_PAYLOAD,
+        watermark_strength=1.0,
+    )
+    found = detect_video(output, samples=3)
+    assert found.detected is True
+    assert found.text == _PAYLOAD

@@ -8,6 +8,12 @@ The official TrustMark decoder reads this layout back as text.
 
 from __future__ import annotations
 
+import datetime as _dt
+import getpass
+import re
+import socket
+from dataclasses import dataclass
+
 import numpy as np
 
 from .bch import PACKET_BITS, decode_packet, encode_data_bits
@@ -30,6 +36,66 @@ def normalize_watermark_text(text: str) -> str:
     if any(ord(ch) < 32 or ord(ch) > 126 for ch in cleaned):
         raise ValueError("Invisible watermark payload must be printable ASCII.")
     return cleaned
+
+
+# Tokens a payload template may use. Values are cut to printable ASCII.
+PAYLOAD_TOKENS: tuple[tuple[str, str], ...] = (
+    ("{user}", "Login name"),
+    ("{host}", "Computer name (before the first dot)"),
+    ("{date}", "Render date as YYMMDD"),
+    ("{time}", "Render time as HHMM"),
+    ("{src}", "Source name (sequence or file stem)"),
+)
+_TOKEN_RE = re.compile(r"\{(user|host|date|time|src)\}")
+
+
+@dataclass(frozen=True)
+class ExpandedPayload:
+    """A template after token expansion. ``truncated`` means it was over 8 characters."""
+
+    text: str
+    truncated: bool
+
+
+def _ascii(value: str) -> str:
+    return "".join(ch for ch in value if 32 <= ord(ch) <= 126)
+
+
+def _token_values(source_name: str, now: _dt.datetime) -> dict[str, str]:
+    try:
+        user = getpass.getuser()
+    except Exception:
+        user = ""
+    try:
+        host = socket.gethostname().split(".", 1)[0]
+    except Exception:
+        host = ""
+    return {
+        "user": user,
+        "host": host,
+        "date": now.strftime("%y%m%d"),
+        "time": now.strftime("%H%M"),
+        "src": source_name,
+    }
+
+
+def expand_payload_template(
+    template: str,
+    *,
+    source_name: str = "",
+    now: _dt.datetime | None = None,
+) -> ExpandedPayload:
+    """Fill ``{user}``, ``{host}``, ``{date}``, ``{time}``, ``{src}`` in *template*.
+
+    The result keeps printable ASCII only and is cut to 8 characters, the
+    TrustMark text-mode limit. An empty result means no watermark.
+    """
+    values = _token_values(source_name, now or _dt.datetime.now())
+    filled = _TOKEN_RE.sub(lambda m: values.get(m.group(1), ""), template or "")
+    cleaned = _ascii(filled).strip()
+    if len(cleaned) <= MAX_TEXT_CHARS:
+        return ExpandedPayload(cleaned, False)
+    return ExpandedPayload(cleaned[:MAX_TEXT_CHARS].strip(), True)
 
 
 def normalize_strength(strength: float) -> float:

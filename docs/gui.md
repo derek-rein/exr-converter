@@ -236,8 +236,9 @@ cover **Video → EXR** and **EXR → Video**. The **Video → Proxy** and
 ## Slate / burn-in / watermark
 
 Available on **EXR → Video** only (checkboxes on that tab). Proxies never get
-a slate, burn-in, or visible watermark. Video → Proxy has a separate
-[invisible watermark](#invisible-watermark).
+a slate, burn-in, or visible watermark. EXR → Video, Video → Proxy, and
+Transcode can also add an [invisible watermark](#invisible-watermark)
+(**Invisible WM** on EXR → Video).
 
 | Feature | Behavior |
 |---------|----------|
@@ -363,11 +364,30 @@ watch folder (a render box or ingest station), use
 
 ### Invisible watermark
 
-Optional, and off by default. When it is on, every frame of every proxy gets
+Optional, and off by default. When it is on, every frame of the output gets
 an invisible [Adobe TrustMark](https://github.com/adobe/trustmark) mark
 (variant Q) that carries a short text payload, such as a vendor code or a
 reviewer ID. The picture looks the same to the eye. This is a separate
 feature from the visible text watermark on **EXR → Video**.
+
+**EXR → Video.** Tick **Invisible WM** next to Slate / Burn-in / Watermark.
+The payload and strength come from **File → Preferences… → Invisible
+watermark**, not from the tab. The payload there is a template:
+
+| Token | Becomes |
+|-------|---------|
+| `{user}` | Login name (the default payload) |
+| `{host}` | Computer name, up to the first dot |
+| `{date}` | Render date as `YYMMDD` |
+| `{time}` | Render time as `HHMM` |
+| `{src}` | Sequence name (`shot` for `shot.1001.exr`) |
+
+Tokens are filled when the render starts. Non-ASCII characters are dropped,
+and a result longer than 8 characters is cut to 8 (the log says so).
+Preferences shows what the current template embeds. An empty result renders
+without a mark. On EXR → Video the mark is added after the OCIO display
+transform and the resize, on every frame including the slate. CLI:
+`exr2video --watermark` (a literal payload, no tokens).
 
 | Setting | Range | Notes |
 |---------|-------|-------|
@@ -423,8 +443,7 @@ payload.
   or a screen recording) are not tested and may remove the mark.
 - The payload is plain text, not encrypted or signed. Anyone with a
   TrustMark decoder can read it. It is not a C2PA manifest.
-- Only Video → Proxy and Transcode outputs are marked. EXR → Video and
-  Video → EXR never add an invisible watermark.
+- Video → EXR never adds an invisible watermark.
 
 ---
 
@@ -500,10 +519,17 @@ hidden on the **Video → Proxy** and **Transcode** tabs, which run batches:
 | **Video player** | **Built-in player** (default), **System default**, or a **custom** app/CLI path (IINA, VLC, mpv, …). Used by **Open result** after EXR → Video. Built-in uses the same `SequencePlayer` as sequence Preview (GPU OCIO + cache strip). |
 | **Slate thumbnail frame** | First / middle / last frame of the EXR sequence for the slate still |
 | **Playback cache budget** | % of system RAM for decoded frames (slate, browser Preview, post-convert built-in player) |
-| **Quick Look** (macOS) | Checkboxes for which still formats the embedded Quick Look / thumbnail extensions handle. OpenEXR and DPX start on. TIFF, PNG, JPEG, WebP, and DNG start off because macOS already previews them. The preview uses the current OCIO config’s default display view. **Login Items & Extensions…** opens the system pane that enables the extensions. **Clear Quick Look cache** drops Finder’s cached thumbnails. See [Quick Look on macOS](./quicklook.md). |
+| **Invisible watermark** | Payload template (default `{user}`) and strength for **Invisible WM** on EXR → Video. See [Invisible watermark](#invisible-watermark). |
 
-Settings org/app: `QSettings("VFXTools", "EXRConverter")`. The Quick Look
-section is macOS only.
+Settings org/app: `QSettings("VFXTools", "EXRConverter")`.
+
+### Quick Look (`File → Quick Look…`, macOS only)
+
+Off by default. Tick **Use EXR Converter for Quick Look and Finder
+thumbnails** to turn the embedded extensions on, then pick formats. OpenEXR
+and DPX start on. TIFF, PNG, JPEG, WebP, and DNG start off because macOS
+already previews them. OK saves, switches the extensions on or off, and
+clears Finder’s preview cache. See [Quick Look on macOS](./quicklook.md).
 
 ---
 
@@ -556,9 +582,9 @@ Site links stay in **About** only (not on the Help menu).
   "downloaded from the internet" prompt.
 - The running Dock icon uses the bundle `.icns`. The bundle identifier is
   `com.vfxtools.exrconverter`. The name on disk stays **EXR Converter**.
-- Release builds embed Quick Look and thumbnail extensions. Enable them under
-  **System Settings → General → Login Items & Extensions**. Format toggles are
-  in Preferences. Details: [Quick Look on macOS](./quicklook.md).
+- Release builds embed Quick Look and thumbnail extensions. They stay off
+  until you turn them on in **File → Quick Look…**. Details:
+  [Quick Look on macOS](./quicklook.md).
 
 ---
 
