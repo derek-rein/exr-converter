@@ -134,11 +134,88 @@ struct ViewLUT {
     }
 }
 
+/// A view the preview can show: one baked cube and the Core Graphics color
+/// space its 8-bit output is encoded in.
+struct ViewChoice {
+    let lut: ViewLUT
+    /// ``displayP3`` or ``sRGB``.
+    let cgSpace: String
+
+    var isDisplayP3: Bool { cgSpace == "displayP3" }
+
+    var title: String { "\(lut.displayName)  ·  \(lut.viewName)" }
+
+    var colorSpace: CGColorSpace {
+        if isDisplayP3, let p3 = CGColorSpace(name: CGColorSpace.displayP3) {
+            return p3
+        }
+        return CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    }
+}
+
+/// ``views.lut``: every SDR view of the sRGB and Display P3 displays.
+///
+/// ``EXQB``, u16 version, u16 count, u16 Display P3 default, u16 sRGB default
+/// (0xFFFF when absent), then per entry a u16-prefixed CG space tag and a
+/// u32-prefixed ``view.lut`` blob.
+struct ViewLUTBundle {
+    let choices: [ViewChoice]
+    let p3Default: Int?
+    let srgbDefault: Int?
+
+    /// Display P3 on a P3 screen (every recent Mac), sRGB otherwise.
+    func defaultIndex(preferP3: Bool) -> Int {
+        if preferP3, let p3Default { return p3Default }
+        if let srgbDefault { return srgbDefault }
+        if let p3Default { return p3Default }
+        return 0
+    }
+
+    static func parse(_ data: Data) -> ViewLUTBundle? {
+        if data.count < 12 || data.subdata(in: 0..<4) != Data("EXQB".utf8) {
+            return nil
+        }
+        let version = readU16(data, 4)
+        let count = Int(readU16(data, 6))
+        let p3 = Int(readU16(data, 8))
+        let srgb = Int(readU16(data, 10))
+        if version != 1 || count == 0 {
+            return nil
+        }
+        var offset = 12
+        var choices: [ViewChoice] = []
+        for _ in 0..<count {
+            guard offset + 2 <= data.count else { return nil }
+            let tagLen = Int(readU16(data, offset))
+            offset += 2
+            guard offset + tagLen + 4 <= data.count else { return nil }
+            let tag = String(decoding: data.subdata(in: offset..<(offset + tagLen)), as: UTF8.self)
+            offset += tagLen
+            let blobLen = Int(readU32(data, offset))
+            offset += 4
+            guard offset + blobLen <= data.count,
+                let lut = ViewLUT.parse(data.subdata(in: offset..<(offset + blobLen)))
+            else {
+                return nil
+            }
+            offset += blobLen
+            choices.append(ViewChoice(lut: lut, cgSpace: tag))
+        }
+        return ViewLUTBundle(
+            choices: choices,
+            p3Default: p3 < count ? p3 : nil,
+            srgbDefault: srgb < count ? srgb : nil
+        )
+    }
+}
+
 /// Resolved once per process. Quick Look's lifetime is one preview.
 enum ViewLUTStore {
     private static let lock = NSLock()
     private static var resolved = false
     private static var cached: ViewLUT?
+    private static var bundleResolved = false
+    private static var cachedBundle: ViewLUTBundle?
 
     static func preferred() -> ViewLUT? {
         lock.lock()
@@ -147,40 +224,54 @@ enum ViewLUTStore {
             return cached
         }
         resolved = true
-        cached = load()
+        if let data = SharedFile.data(named: "view.lut") {
+            cached = ViewLUT.parse(data)
+        }
         return cached
     }
 
-    private static func load() -> ViewLUT? {
-        if let data = readGroup(), let lut = ViewLUT.parse(data) {
-            return lut
+    /// The view menu. Falls back to the single default cube, tagged sRGB.
+    static func bundle() -> ViewLUTBundle? {
+        lock.lock()
+        if !bundleResolved {
+            bundleResolved = true
+            if let data = SharedFile.data(named: "views.lut") {
+                cachedBundle = ViewLUTBundle.parse(data)
+            }
         }
-        if let data = readFallback(), let lut = ViewLUT.parse(data) {
-            return lut
+        let found = cachedBundle
+        lock.unlock()
+        if let found {
+            return found
         }
-        if let url = Bundle.main.url(forResource: "view", withExtension: "lut"),
-            let data = try? Data(contentsOf: url),
-            let lut = ViewLUT.parse(data)
+        guard let single = preferred() else { return nil }
+        return ViewLUTBundle(
+            choices: [ViewChoice(lut: single, cgSpace: "sRGB")], p3Default: nil, srgbDefault: 0)
+    }
+}
+
+/// Files the app bakes for the extension: the App Group container first, then
+/// ``~/Library/Application Support/EXR Converter``, then the copy baked into
+/// the appex at build time.
+enum SharedFile {
+    static func data(named name: String) -> Data? {
+        if let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: QuickLookPreferences.appGroupID),
+            let data = try? Data(contentsOf: container.appendingPathComponent(name))
         {
-            return lut
+            return data
+        }
+        if let home = RealHome.url(),
+            let data = try? Data(
+                contentsOf: home.appendingPathComponent("Library/Application Support/EXR Converter/\(name)"))
+        {
+            return data
+        }
+        let url = Bundle.main.resourceURL?.appendingPathComponent(name)
+        if let url, let data = try? Data(contentsOf: url) {
+            return data
         }
         return nil
-    }
-
-    private static func readGroup() -> Data? {
-        guard
-            let container = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: QuickLookPreferences.appGroupID)
-        else {
-            return nil
-        }
-        return try? Data(contentsOf: container.appendingPathComponent("view.lut"))
-    }
-
-    private static func readFallback() -> Data? {
-        guard let home = RealHome.url() else { return nil }
-        let url = home.appendingPathComponent("Library/Application Support/EXR Converter/view.lut")
-        return try? Data(contentsOf: url)
     }
 }
 
@@ -197,6 +288,13 @@ enum RealHome {
 
 private func readU16(_ data: Data, _ offset: Int) -> UInt16 {
     UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+}
+
+private func readU32(_ data: Data, _ offset: Int) -> UInt32 {
+    UInt32(data[offset])
+        | (UInt32(data[offset + 1]) << 8)
+        | (UInt32(data[offset + 2]) << 16)
+        | (UInt32(data[offset + 3]) << 24)
 }
 
 private func readF32(_ data: Data, _ offset: Int) -> Float {

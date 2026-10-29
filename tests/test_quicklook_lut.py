@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -19,8 +20,11 @@ from src.core.quicklook_lut import (
     LUT_CUBE_SIZE,
     LUT_MAX_EXP,
     LUT_MIN_EXP,
+    bake_input_table,
     bake_view_lut,
+    bake_view_lut_bundle,
     parse_view_lut,
+    parse_view_lut_bundle,
     sample_view_lut,
     shaper,
     write_view_lut,
@@ -117,3 +121,65 @@ def test_notarization_probe_is_dispatch_only() -> None:
     assert "appex.entitlements" in text
     assert "gh release create" not in text
     assert "build_quicklook_appex.py" in text
+
+
+def test_view_bundle_has_p3_and_srgb_views() -> None:
+    path = get_bundled_aces_studio_path()
+    assert path is not None
+    config = OCIO.Config.CreateFromFile(str(path))
+    bundle = parse_view_lut_bundle(bake_view_lut_bundle(config, cube_size=5))
+    assert bundle is not None
+    pairs = [(e.cg_space, e.lut.display, e.lut.view) for e in bundle.entries]
+    assert bundle.p3_default is not None and bundle.srgb_default is not None
+    assert pairs[bundle.p3_default] == (
+        "displayP3",
+        "Display P3 - Display",
+        "ACES 2.0 - SDR 100 nits (P3 D65)",
+    )
+    assert pairs[bundle.srgb_default] == (
+        "sRGB",
+        "sRGB - Display",
+        "ACES 2.0 - SDR 100 nits (Rec.709)",
+    )
+    assert ("sRGB", "sRGB - Display", "Video (colorimetric)") in pairs
+    assert all("HDR" not in view for _tag, _display, view in pairs)
+    assert parse_view_lut_bundle(b"nope") is None
+
+
+def test_input_table_matches_ocio() -> None:
+    path = get_bundled_aces_studio_path()
+    assert path is not None
+    config = OCIO.Config.CreateFromFile(str(path))
+    table = json.loads(bake_input_table(config))
+    assert table["target"] == "ACEScg"
+    spaces = {entry["name"]: entry for entry in table["spaces"]}
+    assert "curve" not in spaces["ACEScg"]
+    assert "curve" in spaces["ARRI LogC4"]
+    assert "lin_rec709" in spaces["Linear Rec.709 (sRGB)"]["aliases"]
+
+    codes = np.linspace(table["curve_min"], table["curve_max"], len(spaces["ARRI LogC4"]["curve"]))
+    for name, rgb in (
+        ("ACES2065-1", [0.18, 0.05, 0.4]),
+        ("Linear Rec.709 (sRGB)", [0.5, 0.2, 0.02]),
+        ("ARRI LogC4", [0.45, 0.30, 0.55]),
+        ("sRGB Encoded Rec.709 (sRGB)", [0.7, 0.4, 0.1]),
+    ):
+        entry = spaces[name]
+        values = np.array(rgb, dtype=np.float64)
+        if "curve" in entry:
+            values = np.interp(values, codes, np.array(entry["curve"]))
+        matrix = np.array(entry["matrix"]).reshape(3, 3)
+        predicted = matrix @ values
+        expected = _apply(make_cpu_processor(config, name, "ACEScg"), rgb)
+        for channel in range(3):
+            assert abs(predicted[channel] - expected[channel]) <= 0.01 * max(
+                abs(expected[channel]), 0.05
+            )
+
+
+def test_swift_reads_the_bundle_and_inputs() -> None:
+    core = ROOT / "packaging/macos/quicklook/Sources/EXRQLCore"
+    assert 'Data("EXQB".utf8)' in (core / "ViewLUT.swift").read_text(encoding="utf-8")
+    assert '"views.lut"' in (core / "ViewLUT.swift").read_text(encoding="utf-8")
+    assert '"inputs.json"' in (core / "InputSpaces.swift").read_text(encoding="utf-8")
+    assert "exrconverter:dstColorSpace" in (core / "InputSpaces.swift").read_text(encoding="utf-8")

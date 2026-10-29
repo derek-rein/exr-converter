@@ -250,6 +250,8 @@ class OcioGpuImagePlane(QOpenGLWidget):
         self._tex_h = 0
         self._pending_upload = False
         self._fitted_once = False
+        # True once the user pans / zooms; a later size change then keeps their view.
+        self._user_navigated = False
 
         self._overlay: np.ndarray | None = None
         self._overlay_tex_w = 0  # allocated GL texture size (not content)
@@ -320,7 +322,7 @@ class OcioGpuImagePlane(QOpenGLWidget):
         self._image = arr
         self._image_h, self._image_w = int(arr.shape[0]), int(arr.shape[1])
         self._pending_upload = True
-        if size_changed or not self._fitted_once:
+        if not self._fitted_once or (size_changed and not self._user_navigated):
             self._fitted_once = True
             self.fit_in_view()
         else:
@@ -411,6 +413,11 @@ class OcioGpuImagePlane(QOpenGLWidget):
         self._pan_x = 0.0
         self._pan_y = 0.0
         self.update()
+
+    def reset_view_fit(self) -> None:
+        """Fit the next uploaded image (new clip) instead of keeping the old zoom."""
+        self._fitted_once = False
+        self._user_navigated = False
 
     def is_alive(self) -> bool:
         return not self._gpu_dead
@@ -654,12 +661,14 @@ class OcioGpuImagePlane(QOpenGLWidget):
         btn = event.button()
         if btn in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton):
             self._panning = True
+            self._user_navigated = True
             self._last_pos = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         if btn == Qt.MouseButton.RightButton:
             self._zooming = True
+            self._user_navigated = True
             self._last_pos = event.position()
             self._zoom_anchor = event.position()
             event.accept()
@@ -704,6 +713,7 @@ class OcioGpuImagePlane(QOpenGLWidget):
         delta = event.angleDelta().y()
         if delta == 0:
             return
+        self._user_navigated = True
         self._zoom_at(1.02 ** (delta / 4.0), event.position())
         event.accept()
 

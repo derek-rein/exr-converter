@@ -24,8 +24,27 @@ enum DPXError: Error, CustomStringConvertible {
 /// preview curve, then the same Rec.709 approximation as OpenEXR. Video
 /// transfer values are treated as already display-encoded. User-defined and
 /// linear headers are tone-mapped from full-range code values.
+/// A DPX frame: scene-linear (log, printing density, linear headers) or
+/// already display-encoded (video transfer).
+enum DPXFrame {
+    case linear(LinearRGBA)
+    case display(CGImage)
+}
+
 enum DPXDecoder {
     static func decode(url: URL, maxPixel: Int) throws -> CGImage {
+        switch try decodeFrame(url: url, maxPixel: maxPixel) {
+        case .display(let image):
+            return image
+        case .linear(let linear):
+            if let mapped = PreviewRenderer.toneMap(linear: linear) {
+                return mapped
+            }
+            return try imageFromLinear(linear.channels, width: linear.width, height: linear.height)
+        }
+    }
+
+    static func decodeFrame(url: URL, maxPixel: Int) throws -> DPXFrame {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let header = try read(handle, offset: 0, count: 832)
@@ -109,8 +128,7 @@ enum DPXDecoder {
                     linear[i + 3] = 1
                 }
             }
-            let image = try imageFromLinear(linear, width: outW, height: outH)
-            return PreviewRenderer.toneMap(image) ?? image
+            return .linear(LinearRGBA(width: outW, height: outH, channels: linear))
         }
 
         var pixels = [UInt8](repeating: 0, count: outW * outH * 4)
@@ -137,7 +155,21 @@ enum DPXDecoder {
                 pixels[i + 3] = 255
             }
         }
-        return try imageFromRGBA(pixels, width: outW, height: outH)
+        let image = try imageFromRGBA(pixels, width: outW, height: outH)
+        return .display(image)
+    }
+
+    /// Pixel size from the header, for the preview's resolution label.
+    static func size(url: URL) -> (width: Int, height: Int)? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let header = try? read(handle, offset: 0, count: 832), header.count >= 832 else {
+            return nil
+        }
+        let littleEndian = header[0] == UInt8(ascii: "X")
+        let width = Int(readU32(header, 772, littleEndian))
+        let height = Int(readU32(header, 776, littleEndian))
+        return width > 0 && height > 0 ? (width, height) : nil
     }
 
     static func isVideoTransfer(_ transfer: UInt8) -> Bool {
@@ -266,8 +298,10 @@ func imageFromLinear(_ pixels: [Float], width: Int, height: Int) throws -> CGIma
     return image
 }
 
-func imageFromRGBA(_ pixels: [UInt8], width: Int, height: Int) throws -> CGImage {
-    let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+func imageFromRGBA(
+    _ pixels: [UInt8], width: Int, height: Int, colorSpace space: CGColorSpace? = nil
+) throws -> CGImage {
+    let colorSpace = space ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
     let bitmapInfo = CGBitmapInfo(
         rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
     )

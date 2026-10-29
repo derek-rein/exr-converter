@@ -254,6 +254,8 @@ def _open_dialog(qapp, start: Path) -> SequenceBrowserDialog:
     dlg._view_seg.setCurrentData("list")
     dlg._view_seg.blockSignals(False)
     dlg._view_stack.setCurrentIndex(0)
+    # The folder is read in the background.
+    _wait(qapp, lambda: not dlg.is_scanning())
     return dlg
 
 
@@ -271,6 +273,7 @@ class TestSequenceBrowserSearch:
         try:
             dlg._navigate_to(str(a))
             _wait(qapp, lambda: dlg._index_count == 3 and not dlg._index_busy)
+            _wait(qapp, lambda: not dlg.is_scanning())
             assert dlg._selected_dir == str(a)
 
             dlg._seq_search_edit.setText("shto_010_comp")
@@ -286,11 +289,18 @@ class TestSequenceBrowserSearch:
             assert dlg._seq_search_edit.text() == ""
             assert dlg._view_stack.currentIndex() == 0
             assert dlg._selected_dir == str(a / "shot_010")
+            _wait(qapp, lambda: not dlg.is_scanning())
             assert dlg._selected_name == "shot_010_comp"
             assert dlg.selected_path() == str(a / "shot_010" / "shot_010_comp.1001.exr")
             assert dlg._path_edit.text() == str(a / "shot_010")
-            tree_path = dlg._fs_model.filePath(dlg._tree.currentIndex())
-            assert os.path.normpath(tree_path) == str(a / "shot_010")
+            # The tree lists each level in the background, then selects the folder.
+            _wait(
+                qapp,
+                lambda: (
+                    os.path.normpath(dlg._fs_model.filePath(dlg._tree.currentIndex()))
+                    == str(a / "shot_010")
+                ),
+            )
             assert dlg._table.selectionModel().selectedRows()[0].row() == 0
         finally:
             _close(qapp, dlg)
@@ -350,6 +360,7 @@ class TestSequenceBrowserSearch:
         dlg = _open_dialog(qapp, a)
         index = dlg._seq_index
         assert index.is_running()
+        assert index.uses_process()  # indexing never shares the GUI process's GIL
         dlg.reject()
         assert not index.is_running()
         index.ensure_indexed(str(a))  # closed: no restart

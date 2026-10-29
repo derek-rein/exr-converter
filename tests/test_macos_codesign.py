@@ -158,6 +158,8 @@ def test_appex_entitlements_are_sandboxed_without_jit() -> None:
     assert home == [
         "/Library/Application Support/EXR Converter/quicklook.json",
         "/Library/Application Support/EXR Converter/view.lut",
+        "/Library/Application Support/EXR Converter/views.lut",
+        "/Library/Application Support/EXR Converter/inputs.json",
         "/",
     ]
     absolute = data["com.apple.security.temporary-exception.files.absolute-path.read-only"]

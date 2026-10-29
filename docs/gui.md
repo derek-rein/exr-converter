@@ -65,27 +65,51 @@ opens **Preview** so you can hit **Open** immediately.
 Display-encoded stills (PNG/JPEG/WebP) auto-suggest an **sRGB** source color
 space; EXR, CinemaDNG, and DPX default toward scene-linear / metadata.
 
-**Views:** the top bar has **List | Grid | Preview** plus **Inspect** (always
-available). **List** is the metadata table; **Grid** shows first-frame
+**Views:** the top bar has **List | Grid | Preview** plus **Metadata** (always
+available; it shows the image header of the selected sequence). **List** is the metadata table; **Grid** shows first-frame
 thumbnails (async OIIO downscale; EXR/DPX get a cheap display curve).
 **Preview** plays the **currently selected** sequence (or the first listed row
-if nothing is selected). To preview another sequence, return to List/Grid,
-select it, then enter Preview again. Folder tree and path stay visible.
+if nothing is selected). To preview another sequence, click it in the folder
+tree, or return to List/Grid, select it, then enter Preview again. Folder tree
+and path stay visible.
 Browser Preview uses the same GPU OCIO `SequencePlayer` as the slate editor
 (the GL widget is created with the dialog before show). **Space** toggles
 Preview ↔ last list/grid mode; **Esc** leaves Preview; **Left/Right** step
-frames. Double-click or **Open** commits the **selected** sequence via its
+frames.
+
+**In / out points:** Preview has **In** and **Out** buttons next to the
+timeline (keys **I** and **O** set them at the current frame; **✕** clears
+both). The timeline dims the frames outside the range and playback loops
+inside it. When you press **Open**, the in-out range goes into the convert
+tab's **Frames** field instead of the full source range (**↺** next to the
+field still resets to the full range). The video browser works the same way,
+with 1-based frame numbers like Video → EXR. In/out belongs to the clip it was
+set on: selecting another clip clears it.
+
+Double-click or **Open** commits the **selected** sequence via its
 **first-frame path** (not the folder alone), so multi-sequence directories keep
 the chosen basename through convert, restore, and slate. Typing only a
 directory still resolves a default sequence on disk (EXR first, then DPX;
 prefers a basename matching the folder name when several sequences share the
 folder). The slate editor reuses the player with live burn-in/watermark overlays.
 
+**Folder tree:** the tree shows folders and, under each folder, its media:
+image sequences collapsed to one row each (``plate.####.exr  1001-1100``) in
+the sequence browser, and video files in the video browser. Click a sequence
+or clip to select it in the list (and play it when Preview is on);
+double-click it to open it. Each folder is listed in the background the first
+time you expand it and kept while the dialog is open, so slow, network, or
+cloud folders never freeze the dialog; a folder you click again is re-listed
+in the background after a few seconds and new or removed items are merged in.
+The list's resolution, type, compression, codec, and duration columns, the
+Metadata pane, and Preview loading are read in the background too, so rows
+appear first and those details fill in.
+
 **Find sequence (fuzzy search):** the field above the sequence list searches
 image sequences by name, tolerating typos and partial names (``shto_010_comp``
 or ``010_comp`` finds ``shot_010_comp``). Each folder you open in the browser
-is indexed with its subfolders in the background, so the dialog stays
-responsive and results fill in while indexing runs. Results replace the list
+is indexed with its subfolders in a separate background process, so indexing
+never slows down the dialog, and results fill in while indexing runs. Results replace the list
 while the field has text: up to 50 sequences, best match first, each showing
 its pattern, frame count, range, and folder. Click a result, or press **Enter**
 for the highlighted one (**Up/Down** move the highlight), to jump to its folder
@@ -102,11 +126,11 @@ hidden folders, and system folders are skipped.
 volumes are hidden. They share the media extension but are resource-fork
 metadata, not video. RED **`.RMD`** metadata files are never listed (not a
 video extension). Selecting **`.r3d` / `.nev` / `.braw`** uses the optional
-SDK bridges for listing, **Inspect**, Preview, and grid thumbs. Never
+SDK bridges for listing, **Metadata**, Preview, and grid thumbs. Never
 PyAV/FFmpeg (those containers are not libav-safe). Without the SDK, the clip
-still appears; Inspect shows SDK missing. **`.crm`** is camera RAW plugin
+still appears; Metadata shows SDK missing. **`.crm`** is camera RAW plugin
 support for `.crm` and is never opened with PyAV. Without a source plugin, the codec column shows
-**Camera RAW (plugin not installed)**, and Inspect and convert report
+**Camera RAW (plugin not installed)**, and Metadata and convert report
 **Camera RAW plugin not installed**. Release builds can include the optional
 plugin; its runtime notices stay inside the app bundle.
 
@@ -116,7 +140,7 @@ files, Windows recall-on-open attributes, ``*.partial`` downloads). The
 browsers **list those names** but do **not** open them for sequence headers,
 video probes, or grid thumbnails. That would hang the UI while the client
 downloads. Online-only videos show **Online-only** in the Codec column.
-Inspect / Preview / convert of a stub still needs the client to hydrate the
+Metadata / Preview / convert of a stub still needs the client to hydrate the
 file (open it once in Finder, or pin it locally). Search skips ``.dropbox``
 cache directories and does not recurse into dataless folders.
 
@@ -139,23 +163,24 @@ in the folder tree and under a **Volumes** heading in the places sidebar
 
 | Platform | What you see |
 |----------|----------------|
-| **macOS** | Boot volume (e.g. Macintosh HD) plus each entry under `/Volumes` (USB, network, disk images). macOS hides `/Volumes` from a plain “root `/`” file model, so sticks would otherwise be invisible. |
+| **macOS** | Boot volume (e.g. Macintosh HD) plus each entry under `/Volumes` (USB, network, disk images). The `/Volumes` folder itself is not listed under the boot volume, so each drive appears once. |
 | **Windows** | Each drive letter (`C:\`, `D:\`, …), not only the system drive. |
 | **Linux** | `/` plus user-facing mounts (typically `/media/…`, `/mnt/…`, `/run/media/…`); pseudo filesystems (`proc`, `sysfs`, …) are omitted. |
 
-The list refreshes every few seconds while Browse is open so plug-in / eject
-updates without restarting the dialog.
+Mounts are checked in the background every few seconds while Browse is open,
+so plug-in / eject updates without restarting the dialog; the sidebar and tree
+only change when a drive actually appears or goes away.
 
 **Browser layout memory** (both input browsers):
 
 | What | Shared or separate? | Keys |
 |------|---------------------|------|
 | Window size + position | **Shared** (Video ↔ Sequence) | `ui/browser_geometry` |
-| List \| Grid \| Preview, Inspect on/off, outer/content splitters, list column widths | **Per mode** | `ui/sequence_browser_*` / `ui/video_browser_*` |
+| List \| Grid \| Preview, Metadata on/off, outer/content splitters, list column widths | **Per mode** | `ui/sequence_browser_*` / `ui/video_browser_*` |
 | Folder tree expansion, tree scroll, last folder + selection | **Per mode**, restored when Browse reopens the **same** start directory as last time | `…_tree_expanded`, `…_tree_vscroll`, `…_last_dir`, `…_selected` |
 
 If the convert tab’s current path maps to a **different** folder than the last
-browse session, layout prefs (size, splitters, view, Inspect, columns) still
+browse session, layout prefs (size, splitters, view, Metadata, columns) still
 restore, but the tree focuses that new folder instead of replaying the previous
 expansion set.
 
