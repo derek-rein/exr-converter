@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.12.11] - 2026-10-29
+
 ### Added
 
 - **Invisible WM** checkbox on EXR → Video embeds an invisible TrustMark watermark in every frame, slate included. The CLI has `exr2video --watermark` and `--watermark-strength`.
@@ -1067,7 +1071,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.10...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.11...HEAD
+[0.12.11]: https://github.com/derek-rein/exr-converter/compare/v0.12.10...v0.12.11
 [0.12.10]: https://github.com/derek-rein/exr-converter/compare/v0.12.9...v0.12.10
 [0.12.9]: https://github.com/derek-rein/exr-converter/compare/v0.12.8...v0.12.9
 [0.12.8]: https://github.com/derek-rein/exr-converter/compare/v0.12.7...v0.12.8
