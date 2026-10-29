@@ -22,6 +22,7 @@ Published release. v0.12.5, v0.12.6, and v0.12.7 were tagged but not published. 
 ### Fixed
 
 - Windows release packages pass the camera RAW plugin to the packager with normal line endings, so the plugin is included in the app.
+- macOS no longer quits at launch while publishing Quick Look preferences. The App Group folder lookup passed a null string into Foundation and aborted the app before the window opened.
 
 ---
 
