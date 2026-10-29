@@ -56,10 +56,10 @@ label on numbered frames.
 
 - Movies the system already handles: ProRes, H.264, HEVC, and containers such
   as `.mov`, `.mp4`, `.mkv`, `.mxf`. Claiming them would fight QuickTime.
-- **BRAW, RED R3D / N-RAW, and ARRIRAW.** Those need the proprietary SDKs, which
+- **BRAW and RED R3D / N-RAW.** Those need the proprietary SDKs, which
   are large, license-restricted, and are not linked into this extension. The
-  app can still convert BRAW and R3D when that bridge is built. ARRIRAW is not
-  a convert input. CinemaDNG is the one camera-RAW still ImageIO can open
+  app can still convert BRAW and R3D when that bridge is built.
+  CinemaDNG is the one camera-RAW still ImageIO can open
   without those SDKs, and it is optional above. The RAW develop is the system
   default, not the app’s camera pipeline, so the look can differ.
 
@@ -176,7 +176,7 @@ DPX decode supports uncompressed RGB (and RGBA, ignoring alpha) at 8-bit,
 write). Other bit depths, YCbCr, and run-length compression get a short error
 in the preview instead of a blank window.
 
-DNG uses the system RAW filter. It is not a Blackmagic or ARRI develop.
+DNG uses the system RAW filter. It is not this app's camera pipeline.
 
 ## What you will not get
 
@@ -186,5 +186,5 @@ DNG uses the system RAW filter. It is not a Blackmagic or ARRI develop.
   for channels other than the default RGB.
 - Playback of a folder the sandbox cannot list. That preview is the selected
   frame.
-- ProRes, H.264, HEVC, BRAW, R3D, or ARRIRAW in this extension.
+- ProRes, H.264, HEVC, BRAW, or R3D in this extension.
 - The app opening from Spacebar. Quick Look stays inside the extension.

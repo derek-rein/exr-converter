@@ -278,21 +278,21 @@ def _dnxhr(
 # - libx264: max 10-bit (High 10); no 12-bit.
 VIDEO_CODECS: list[VideoCodecSpec] = [
     # ── ProRes (software, cross-platform) — all 10-bit encode ─────────────
-    _prores_ks("prores_proxy", "Apple ProRes 422 Proxy", "0", "yuv422p10le", 10, "4:2:2"),
-    _prores_ks("prores_lt", "Apple ProRes 422 LT", "1", "yuv422p10le", 10, "4:2:2"),
-    _prores_ks("prores_422", "Apple ProRes 422", "2", "yuv422p10le", 10, "4:2:2"),
+    _prores_ks("prores_proxy", "ProRes 422 Proxy", "0", "yuv422p10le", 10, "4:2:2"),
+    _prores_ks("prores_lt", "ProRes 422 LT", "1", "yuv422p10le", 10, "4:2:2"),
+    _prores_ks("prores_422", "ProRes 422", "2", "yuv422p10le", 10, "4:2:2"),
     # Legacy key ``prores`` = HQ (presets / CLI compatibility).
-    _prores_ks("prores", "Apple ProRes 422 HQ", "3", "yuv422p10le", 10, "4:2:2"),
-    _prores_ks("prores_4444", "Apple ProRes 4444", "4", "yuva444p10le", 10, "4:4:4:4"),
-    _prores_ks("prores_xq", "Apple ProRes 4444 XQ", "5", "yuva444p10le", 10, "4:4:4:4"),
+    _prores_ks("prores", "ProRes 422 HQ", "3", "yuv422p10le", 10, "4:2:2"),
+    _prores_ks("prores_4444", "ProRes 4444", "4", "yuva444p10le", 10, "4:4:4:4"),
+    _prores_ks("prores_xq", "ProRes 4444 XQ", "5", "yuva444p10le", 10, "4:4:4:4"),
     # ── ProRes VideoToolbox (macOS only) ──────────────────────────────────
-    _prores_vt("prores_vt_proxy", "Apple ProRes 422 Proxy", "p210le", 10, "4:2:2"),
-    _prores_vt("prores_vt_lt", "Apple ProRes 422 LT", "p210le", 10, "4:2:2"),
-    _prores_vt("prores_vt_422", "Apple ProRes 422", "p210le", 10, "4:2:2"),
-    _prores_vt("prores_vt_hq", "Apple ProRes 422 HQ", "p210le", 10, "4:2:2"),
+    _prores_vt("prores_vt_proxy", "ProRes 422 Proxy", "p210le", 10, "4:2:2"),
+    _prores_vt("prores_vt_lt", "ProRes 422 LT", "p210le", 10, "4:2:2"),
+    _prores_vt("prores_vt_422", "ProRes 422", "p210le", 10, "4:2:2"),
+    _prores_vt("prores_vt_hq", "ProRes 422 HQ", "p210le", 10, "4:2:2"),
     # VT 4444/XQ: ayuv64le intermediate; HW keeps ~12-bit mid-bin (unlike prores_ks).
-    _prores_vt("prores_vt_4444", "Apple ProRes 4444", "ayuv64le", 12, "4:4:4:4"),
-    _prores_vt("prores_vt_xq", "Apple ProRes 4444 XQ", "ayuv64le", 12, "4:4:4:4"),
+    _prores_vt("prores_vt_4444", "ProRes 4444", "ayuv64le", 12, "4:4:4:4"),
+    _prores_vt("prores_vt_xq", "ProRes 4444 XQ", "ayuv64le", 12, "4:4:4:4"),
     # ── ProRes oxideav (experimental RDD-36 4444 / XQ, not FFmpeg) ───────
     # Pure-Rust 12-bit 4:4:4 via PyO3 ``exr_prores``. Hidden when the
     # extension is not built — see available_video_codecs(). 422 is not
