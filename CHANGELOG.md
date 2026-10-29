@@ -15,6 +15,16 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ---
 
+## [0.12.7] - 2026-10-29
+
+Published release. v0.12.5 and v0.12.6 were tagged but not published. This build includes those sections: camera RAW plugin support for `.crm`, CinemaDNG frame sequences, the Transcode tab, fuzzy sequence search, and a Microsoft Store package that does not request `unvirtualizedResources`.
+
+### Fixed
+
+- The Rocky Linux 8 release build no longer stops while printing the glibc version.
+
+---
+
 ## [0.12.6] - 2026-10-29
 
 Published release. v0.12.5 was tagged but not published. This build includes that section: camera RAW plugin support for `.crm`, CinemaDNG frame sequences, the Transcode tab, and fuzzy sequence search.
@@ -1010,7 +1020,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.6...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.7...HEAD
+[0.12.7]: https://github.com/derek-rein/exr-converter/compare/v0.12.6...v0.12.7
 [0.12.6]: https://github.com/derek-rein/exr-converter/compare/v0.12.5...v0.12.6
 [0.12.5]: https://github.com/derek-rein/exr-converter/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/derek-rein/exr-converter/compare/v0.12.3...v0.12.4
