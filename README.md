@@ -47,7 +47,7 @@
     </td>
     <td width="50%" valign="top">
       <strong>ProRes out of the box</strong><br>
-      Full software ladder (Proxy through XQ, default <strong>422 HQ</strong>). <strong>Apple VideoToolbox</strong> on macOS (fast hardware encode; 4444 and XQ are ~12-bit class). Experimental cross-platform RDD-36 presets (<code>prores_ox_*</code>) ship in release builds: 4444 and XQ are true 12-bit; 422 is 12-bit internally and 10-bit to other apps.
+      Full software ladder (Proxy through XQ, default <strong>422 HQ</strong>, 10-bit 4:2:2). <strong>Apple VideoToolbox</strong> on macOS uses the same profiles (4444 and XQ are ~12-bit class). Experimental oxideav <code>prores_ox_4444</code> / <code>prores_ox_xq</code> are true 12-bit 4:4:4.
     </td>
   </tr>
   <tr>
@@ -227,7 +227,7 @@ Packaged apps use the same flags. Per-platform launch commands are in [Install b
 | **Language and tooling** | Python 3.13, [uv](https://docs.astral.sh/uv/) for deps and runs, [Ruff](https://docs.astral.sh/ruff/) in CI, [Nuitka](https://nuitka.net/) for standalone bundles |
 | **UI** | [PySide6](https://doc.qt.io/qtforpython/) (Qt 6.9.2 on every platform), Nuke-inspired dark theme |
 | **Imaging and color** | [OpenImageIO](https://openimageio.org/) (`OpenImageIO` 3.1+), [OpenColorIO 2.5](https://opencolorio.org/). Bundles **ACES Studio Config v4**. Overlay compositing is described below. |
-| **Video and sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences and ranges. Optional **RED R3D SDK** bridge for `.r3d` / `.nev`. Optional **Blackmagic RAW SDK** bridge for `.braw`. A small **CinemaDNG** reader for `.dng` sequences (not the Adobe DNG SDK). Optional **oxideav-prores** PyO3 extension (`exr_prores`) for experimental cross-platform RDD-36 ProRes in release builds (4444 and XQ are 12-bit; 422 is 12-bit internal and 10-bit to other apps) |
+| **Video and sequences** | [PyAV](https://github.com/PyAV-Org/PyAV) (FFmpeg bindings) for video I/O, [fileseq](https://github.com/justinfx/fileseq) for frame sequences and ranges. Optional **RED R3D SDK** bridge for `.r3d` / `.nev`. Optional **Blackmagic RAW SDK** bridge for `.braw`. A small **CinemaDNG** reader for `.dng` sequences (not the Adobe DNG SDK). Optional **oxideav-prores** PyO3 extension (`exr_prores`) for experimental cross-platform 12-bit ProRes 4444 and 4444 XQ in release builds |
 | **Slate, burn-in, watermark** | Native **QPainter** preview and offscreen capture. Burn-in and watermark are linearised into the working space and alpha-composited per frame, then OCIO-transformed to display before encode |
 
 CI runs on **GitHub Actions** ([`ci.yml`](.github/workflows/ci.yml)). Releases publish binaries for Linux, macOS (Apple Silicon and Intel), and Windows ([`release.yml`](.github/workflows/release.yml)).
@@ -272,7 +272,7 @@ Guides live under [`docs/`](docs/) (Markdown source of truth). They are publishe
 | [ProRes and VideoToolbox](docs/prores.md) | Software vs Apple VideoToolbox vs oxideav; honest bit depths |
 | [R3D / N-RAW](docs/r3d.md) | Optional RED SDK (license, build, CI, preview) |
 | [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship when `BRAW_SDK_READ_TOKEN` is set) |
-| [12-bit ProRes (oxideav)](docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 ProRes; 4444 and XQ are 12-bit, 422 decodes as 10-bit |
+| [12-bit ProRes (oxideav)](docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 ProRes 4444 and XQ (12-bit). 422 stays 10-bit |
 | [Nuke](docs/nuke.md) | Menu: open selected Read + session OCIO |
 
 ## CLI
@@ -291,7 +291,7 @@ Default **`prores`** is software **ProRes 422 HQ** (cross-platform, **10-bit** e
 | --- | --- | --- |
 | **ProRes (software)** | `prores_proxy` … `prores_xq` | FFmpeg `prores_ks`; all profiles encode **10-bit** |
 | **ProRes (VideoToolbox)** | `prores_vt_proxy` … `prores_vt_xq` | **macOS only.** Apple hardware encoder. Faster. 4444 and XQ are ~12-bit class |
-| **ProRes (oxideav)** | `prores_ox_proxy` … `prores_ox_xq` | Experimental RDD-36 in release builds. **4444 and XQ are true 12-bit.** 422 profiles are 12-bit internal and **10-bit** to FFmpeg, Resolve, and QuickTime |
+| **ProRes (oxideav)** | `prores_ox_4444`, `prores_ox_xq` | Experimental RDD-36 in release builds. **4444 and XQ only, true 12-bit 4:4:4.** 422 is the software or VideoToolbox 10-bit profiles |
 | **Also** | DNxHR, CineForm, H.264/HEVC, FFV1 | Delivery and lossless options. See [docs/cli.md](docs/cli.md#codecs-honest-bit-depths) |
 
 **Quick picks:** macOS dailies use **`prores_vt_hq`** or **`prores_vt_4444`**. Cross-platform ProRes uses **`prores`**. Cross-platform 12-bit 4:4:4 uses **`prores_ox_4444`** (experimental). Software 4444 and XQ encode **10-bit**.

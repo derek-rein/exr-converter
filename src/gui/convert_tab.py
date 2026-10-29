@@ -262,31 +262,6 @@ _CODEC_HELP: dict[str, str] = {
         "Hardware ProRes 4444 XQ via VideoToolbox (macOS only). ~12-bit class "
         "precision; preferred over software XQ when bit depth matters."
     ),
-    "prores_ox_proxy": (
-        "Experimental ProRes 422 Proxy (SMPTE RDD 36 / apco via oxideav). "
-        "12-bit internal precision; FFmpeg, Resolve, and QuickTime decode apco "
-        "as 10-bit 4:2:2. For 12-bit those apps actually read, use "
-        "prores_ox_4444 or prores_ox_xq. Not Apple-certified. Requires exr_prores "
-        "(make oxideav-prores)."
-    ),
-    "prores_ox_lt": (
-        "Experimental ProRes 422 LT (RDD 36 / apcs via oxideav). 12-bit internal "
-        "precision; third-party tools decode apcs as 10-bit 4:2:2. Use "
-        "prores_ox_4444 or prores_ox_xq when another app must see 12-bit. "
-        "Not Apple-certified. Requires exr_prores."
-    ),
-    "prores_ox_422": (
-        "Experimental ProRes 422 (RDD 36 / apcn via oxideav). 12-bit internal "
-        "precision; third-party tools decode apcn as 10-bit 4:2:2. Use "
-        "prores_ox_4444 or prores_ox_xq when another app must see 12-bit. "
-        "Not Apple-certified. Requires exr_prores."
-    ),
-    "prores_ox_hq": (
-        "Experimental ProRes 422 HQ (RDD 36 / apch via oxideav). 12-bit internal "
-        "precision; third-party tools decode apch as 10-bit 4:2:2. Use "
-        "prores_ox_4444 or prores_ox_xq when another app must see 12-bit. "
-        "Not Apple-certified. Requires exr_prores."
-    ),
     "prores_ox_4444": (
         "Experimental cross-platform true 12-bit ProRes 4444-compatible encode "
         "(SMPTE RDD 36 / ap4h via oxideav-prores PyO3 bindings). Not Apple-certified. "

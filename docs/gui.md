@@ -270,12 +270,11 @@ XQ** are **~12-bit class** (unlike software 4444/XQ, which encode 10-bit).
 See [ProRes and VideoToolbox](./prores.md) for why the three ProRes families
 exist and which key to pick.
 
-Experimental **oxideav** keys (`prores_ox_proxy` / `lt` / `422` / `hq` /
-`4444` / `xq`) appear when the `exr_prores` extension is built
-(`make oxideav-prores`; included in release binaries). **4444 / XQ** are
-12-bit to other applications. The **422** profiles say **12-bit internal,
-10-bit on decode**: RDD 36 422 fourccs are read as 10-bit by FFmpeg, Resolve,
-and QuickTime. Full key list:
+Experimental **oxideav** keys (`prores_ox_4444` / `prores_ox_xq`) appear when
+the `exr_prores` extension is built (`make oxideav-prores`; included in
+release binaries). They are 12-bit 4:4:4 to other applications. 422 Proxy,
+LT, 422, and HQ are only the software and VideoToolbox presets, at 10-bit
+4:2:2. Full key list:
 [CLI codecs](./cli.md#codecs-honest-bit-depths) and
 [ProRes: oxideav](./prores.md#experimental-oxideav-cross-platform-rdd-36).
 

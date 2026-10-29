@@ -107,37 +107,24 @@ class TestVideoCodecSpecs:
             assert not any(s.key.startswith("prores_vt_") for s in available_video_codecs())
 
     def test_oxideav_prores_twelve_bit_gated(self):
-        """oxideav presets stay 12-bit internally and hide when the extension is missing.
+        """oxideav is 12-bit 4444 / XQ only, and hides when the extension is missing.
 
-        422-family labels must say third-party decoders return 10-bit. 4444 / XQ
-        stay labeled as 12-bit end to end.
+        422 Proxy / LT / 422 / HQ are the software and VideoToolbox presets
+        (10-bit 4:2:2). A 12-bit 422 fourcc is not offered.
         """
-        assert OXIDEAV_PRORES_KEYS == frozenset(
-            {
-                "prores_ox_proxy",
-                "prores_ox_lt",
-                "prores_ox_422",
-                "prores_ox_hq",
-                "prores_ox_4444",
-                "prores_ox_xq",
-            }
-        )
+        assert OXIDEAV_PRORES_KEYS == frozenset({"prores_ox_4444", "prores_ox_xq"})
+        for key in ("prores_ox_proxy", "prores_ox_lt", "prores_ox_422", "prores_ox_hq"):
+            assert video_codec_by_key(key) is None
         for key in OXIDEAV_PRORES_KEYS:
             s = video_codec_by_key(key)
             assert s is not None
             assert s.libav_codec == "oxideav_prores"
             assert s.bit_depth == 12
-            if key in ("prores_ox_4444", "prores_ox_xq"):
-                assert s.pix_fmt == "yuv444p12le"
-                assert s.chroma == "4:4:4"
-                assert "12-bit 4:4:4" in s.display_name
-                assert "10-bit on decode" not in s.display_name
-                assert s.format_label.startswith("12-bit ·")
-            else:
-                assert s.pix_fmt == "yuv422p12le"
-                assert s.chroma == "4:2:2"
-                assert "12-bit internal, 10-bit on decode" in s.display_name
-                assert "12-bit internal, 10-bit on decode" in s.format_label
+            assert s.pix_fmt == "yuv444p12le"
+            assert s.chroma == "4:4:4"
+            assert "12-bit 4:4:4" in s.display_name
+            assert "10-bit on decode" not in s.display_name
+            assert s.format_label.startswith("12-bit ·")
         avail_keys = {c.key for c in available_video_codecs()}
         if oxideav_prores_available():
             assert OXIDEAV_PRORES_KEYS <= avail_keys

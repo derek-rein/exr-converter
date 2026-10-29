@@ -1,10 +1,11 @@
 """Optional oxideav-prores PyO3 bindings for RDD-36 ProRes-compatible MOV.
 
 The native extension (``exr_prores``) links pure-Rust oxideav-prores and writes
-``.mov`` in-process — no subprocess sidecar. 4444 / XQ are 12-bit to standard
-decoders. 422-family profiles code 12-bit coefficients and present as 10-bit
-(``apco`` / ``apcs`` / ``apcn`` / ``apch``). When the extension is not built
-(dev without Rust / maturin), presets are hidden and CLI reports unavailable.
+``.mov`` in-process — no subprocess sidecar. Only 4444 and 4444 XQ are
+offered: those fourccs are 12-bit to standard decoders. 422 stays on
+``prores_ks`` and VideoToolbox at 10-bit 4:2:2. When the extension is not
+built (dev without Rust / maturin), presets are hidden and the CLI reports
+unavailable.
 """
 
 from __future__ import annotations
@@ -48,22 +49,9 @@ def extension_version() -> str:
 
 
 def profile_for_codec_key(codec_key: str) -> str:
-    """Map preset key → oxideav profile (proxy / lt / 422 / hq / 4444 / xq)."""
+    """Map preset key → oxideav profile (``4444`` or ``xq``)."""
     key = codec_key.strip().lower()
     mapping = {
-        "prores_ox_proxy": "proxy",
-        "proxy": "proxy",
-        "apco": "proxy",
-        "prores_ox_lt": "lt",
-        "lt": "lt",
-        "apcs": "lt",
-        "prores_ox_422": "422",
-        "422": "422",
-        "standard": "422",
-        "apcn": "422",
-        "prores_ox_hq": "hq",
-        "hq": "hq",
-        "apch": "hq",
         "prores_ox_4444": "4444",
         "4444": "4444",
         "ap4h": "4444",

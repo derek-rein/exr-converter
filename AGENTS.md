@@ -169,16 +169,15 @@ Pull requests that change that script dispatch the Release workflow with
    wheel. **PyAV does not ship `ffplay`.** Do not assume system FFmpeg/ffplay
    exists on user machines. Playback after convert uses the user’s preferred
    player from Preferences (system default or custom path).
-3. **Software ProRes is 10-bit** in FFmpeg/`prores_ks`. Cross-platform
-   12-bit ProRes-compatible output is experimental via oxideav PyO3
-   (`prores_ox_*`, `make oxideav-prores`); see
-   `docs/plan-12bit-prores-oxideav.md`. **4444 / XQ** (`prores_ox_4444`,
-   `prores_ox_xq`) are 12-bit to standard decoders. **422-family** oxideav
-   presets (`prores_ox_proxy` / `lt` / `422` / `hq`) code a 12-bit lattice and
-   **present as 10-bit** (`apco` / `apcs` / `apcn` / `apch`) to FFmpeg,
-   Resolve, and QuickTime — labels must say “12-bit internal, 10-bit on
-   decode”, not unqualified 12-bit 4:2:2. VideoToolbox ProRes (`prores_vt_*`)
-   is **macOS-only**; UI must keep honest bit-depth labels.
+3. **Software ProRes is 10-bit** in FFmpeg/`prores_ks`. Profiles match Apple,
+   Resolve, Premiere, and Nuke: 422 Proxy / LT / 422 / HQ are 10-bit 4:2:2;
+   4444 / 4444 XQ are up to 12-bit 4:4:4:4 with optional alpha, in `.mov`.
+   Cross-platform 12-bit is experimental oxideav PyO3 **4444 / XQ only**
+   (`prores_ox_4444`, `prores_ox_xq`, `make oxideav-prores`); see
+   `docs/plan-12bit-prores-oxideav.md`. Do not offer a 12-bit 422 preset.
+   VideoToolbox ProRes (`prores_vt_*`) is **macOS-only** and uses the same
+   six profiles (422 at 10-bit, 4444 / XQ ~12-bit). UI must keep honest
+   bit-depth labels.
 4. **Slate is QPainter** — no Qt WebEngine. Do not reintroduce browser-based slate.
    **Preview display** prefers **GPU OCIO** (`src/gui/ocio_gpu_plane.py`,
    `QOpenGLWidget` + PyOpenGL + OCIO `getDefaultGPUProcessor`). Do not put
@@ -610,9 +609,9 @@ Public docs: https://vfx.systems/docs/exr-converter (loads `docs/` from this rep
 - Do not assume system `ffmpeg` / `ffplay` / `mpv` are installed for core features.
 - Do not publish Snap or Flatpak packages. Linux releases are the AppImage, the relocatable tarball, and the RPM.
 - Do not claim software ProRes is 12-bit.
-- Do not claim oxideav 422 profiles (`prores_ox_proxy` / `lt` / `422` / `hq`)
-  are 12-bit to third-party decoders. They are 12-bit internal, 10-bit on
-  decode. True 12-bit delivery other apps read is 4444 / XQ.
+- Do not add oxideav 422 profiles (`prores_ox_proxy` / `lt` / `422` / `hq`)
+  or any other 12-bit 4:2:2 ProRes preset. 422 is 10-bit. True 12-bit
+  delivery other apps read is 4444 / XQ.
 - Do not commit the proprietary RED R3D SDK (headers, static libs, docs, samples)
   or claim the SDK is open-source; only Redistributable dylibs/so/dll may ship,
   in a private app directory, with required EULA terms — see [docs/r3d.md](./docs/r3d.md).

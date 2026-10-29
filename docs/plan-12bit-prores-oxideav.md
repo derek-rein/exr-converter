@@ -1,7 +1,7 @@
 ---
 title: 12-bit ProRes (oxideav)
 weight: 90
-description: Experimental RDD-36 ProRes via PyO3. 4444 and XQ are 12-bit. 422 decodes as 10-bit
+description: Experimental RDD-36 ProRes 4444 and XQ via PyO3. 12-bit 4:4:4. 422 stays 10-bit
 ---
 
 **Status:** Phase 0–2 landed (PyO3 bindings + app wiring + CI/Nuitka include)  
@@ -12,8 +12,9 @@ description: Experimental RDD-36 ProRes via PyO3. 4444 and XQ are 12-bit. 422 de
 **12-bit** ProRes-compatible encode on Windows / Linux / macOS using the
 pure-Rust **oxideav-prores** stack, linked **in-process** through a PyO3
 extension (`exr_prores`) and included in **Nuitka** releases. No subprocess
-sidecar. **4444 / XQ** are 12-bit to standard decoders. **422** profiles code
-a 12-bit lattice and present as 10-bit (see [Labeling](#5-labeling)).
+sidecar. **4444 / XQ** are 12-bit to standard decoders. **422** is not
+written here: Apple, Resolve, Premiere, Nuke, and `prores_ks` treat 422
+Proxy, LT, 422, and HQ as 10-bit 4:2:2 (see [Labeling](#5-labeling)).
 
 User-facing encoder comparison (software vs **Apple VideoToolbox** vs this
 path): [ProRes and VideoToolbox](./prores.md).
@@ -24,7 +25,7 @@ path): [ProRes and VideoToolbox](./prores.md).
 
 | Goal | Notes |
 |------|--------|
-| True **12-bit** encode precision on 4444 / XQ | Mid-bin proof in YUV domain (see tests). 422 codes 12-bit and decodes as 10-bit in other apps |
+| True **12-bit** encode precision on 4444 / XQ | Mid-bin proof in YUV domain (see tests). 422 is 10-bit via `prores_ks` and VideoToolbox |
 | **Cross-platform** | Win / Linux / macOS in release CI |
 | **Nuitka standalone** | `--include-module=exr_prores` (normal extension module) |
 | Honest UI | Experimental · RDD-36 · not Apple-certified |
@@ -65,21 +66,20 @@ EXR Converter (Python / Nuitka)
         │
         ▼  in-process PyO3
   exr_prores.ProResMovWriter
-    RGB48 → BT.709 limited YUV422P12 (422) or YUV444P12 (4444/XQ)
+    RGB48 → BT.709 limited YUV444P12 (4444 / XQ only)
     oxideav-prores encode (signature matrices)
     minimal MOV mux (ftyp + mdat + moov, colr/nclc: BT.709 matrix,
     primaries / transfer from the destination space)
         │
         ▼
-  out.mov  (4444/XQ: ap4h / ap4x, probed 12-bit)
-           (422 family: apco / apcs / apcn / apch, probed 10-bit)
+  out.mov  (4444/XQ: ap4h / ap4x, probed 12-bit 4:4:4)
 ```
 
 | Piece | Location |
 |-------|----------|
 | Rust crate | `native/exr_prores/` (maturin) |
 | Python façade | `src/core/oxideav_prores.py` |
-| Presets | `prores_ox_proxy` / `lt` / `422` / `hq` / `4444` / `xq` in `VIDEO_CODECS` |
+| Presets | `prores_ox_4444` / `prores_ox_xq` in `VIDEO_CODECS` |
 | Convert branch | `run_exr_to_video` → `_e2v_oxideav` when key ∈ `OXIDEAV_PRORES_KEYS` |
 | Build | `make oxideav-prores` → `scripts/build_oxideav_prores.py` |
 | Release | Rust toolchain + `scripts/build_oxideav_prores.py` before Nuitka (all OS, including the Rocky Linux 8 build) |
@@ -111,28 +111,23 @@ BT.709 limited conversion to 12-bit Y (~2 codes). Prefer the YUV-domain test.
 | Software FFmpeg ProRes | **10-bit** (`prores_ks`) |
 | VideoToolbox 4444/XQ | **12-bit class** (macOS) |
 | oxideav 4444 / XQ | **12-bit · experimental · RDD-36 ProRes-compatible** |
-| oxideav 422 Proxy / LT / 422 / HQ | **12-bit internal, 10-bit on decode · experimental · RDD-36** |
+| 422 Proxy / LT / 422 / HQ | **10-bit 4:2:2** (`prores_ks` or VideoToolbox). Not an oxideav preset |
 
 Do not say “Apple ProRes certified.”
 
-### Why 422 still says 10-bit on decode
+### Why 422 is not 12-bit
 
-SMPTE RDD 36 does not store a bit depth for 422 profiles. Depth is the fourcc:
-`apco` / `apcs` / `apcn` / `apch` mean 10-bit. Apple defines 12-bit only for
-4444 and 4444 XQ. The oxideav writer still requests `Yuv422P12Le` and codes
-DCT coefficients at 12-bit. ProRes level-shift math is `v = s / 2^(b-9) - 256`,
-so a 12-bit encode read with a 10-bit assumption is exactly the top 10 bits.
-FFmpeg, Resolve, and QuickTime therefore show a valid 10-bit 422 picture.
-The extra two bits are in the file and unreachable to those decoders. GUI and
-CLI labels say **12-bit internal, 10-bit on decode** so a 422 preset is not
-mistaken for a 12-bit delivery to another application. Finer internal
-quantization can still improve the 10-bit result slightly; it does not make
-`ffprobe` report 12-bit.
+Apple, Resolve, Premiere, Nuke, and FFmpeg `prores_ks` encode 422 Proxy, LT,
+422, and HQ as 10-bit 4:2:2. The fourcc (`apco` / `apcs` / `apcn` / `apch`)
+is the bit depth. 12-bit is 4444 (`ap4h`) and 4444 XQ (`ap4x`) only, with
+alpha only on those two profiles. An earlier oxideav writer put 12-bit
+coefficients in a 422 fourcc. That is inside RDD 36, and decoders still
+returned the top 10 bits. The app no longer offers that path.
 
 ```bash
-exr_converter exr2video -i seq/frame.0001.exr -o out.mov --codec prores_ox_422
+exr_converter exr2video -i seq/frame.0001.exr -o out.mov --codec prores_ox_4444
 ffprobe -show_entries stream=pix_fmt,bits_per_raw_sample,codec_tag_string out.mov
-# yuv422p10le, 10, apcn
+# yuv444p12le, 12, ap4h
 ```
 
 ---
@@ -155,6 +150,7 @@ ffprobe -show_entries stream=pix_fmt,bits_per_raw_sample,codec_tag_string out.mo
 | 2026-08-06 | Chose oxideav for experimental cross-platform 12-bit ProRes-compatible output |
 | 2026-08-21 | **Revised:** PyO3 bindings + in-process MOV writer (not subprocess sidecar); Nuitka `--include-module=exr_prores` |
 | 2026-09-28 | **422 labels:** keep 12-bit coefficient coding; UI/docs say third-party decode is 10-bit (`apco`/`apcs`/`apcn`/`apch`). 12-bit delivery other apps read remains 4444/XQ |
+| 2026-10-29 | **Drop 12-bit 422.** oxideav writes 4444 / XQ only. 422 Proxy / LT / 422 / HQ are 10-bit via `prores_ks` and VideoToolbox |
 
 ---
 

@@ -25,7 +25,7 @@ and DPX can be sequence inputs on EXR → Video. They are not outputs.
 | **Transcode** | Batch video → video (ProRes, DNxHR, H.264, HEVC, AV1). No color change by default; set a source and destination space for an OCIO transform. |
 | **Invisible watermark** | Optional, off by default, on Video → Proxy, Transcode, and EXR → Video. Writes an [Adobe TrustMark](https://github.com/adobe/trustmark) mark of up to 8 ASCII characters into every frame. On EXR → Video the payload is a Preferences template (`{user}`, `{date}`, …). The encoder model downloads once on first use. It is not encryption, and heavy re-encoding, scaling, or cropping can remove it. [Details and limits](./gui.md#invisible-watermark). |
 | **Color** | Bundled **ACES Studio Config v4** plus extra camera logs (Nikon N-Log, Fujifilm F-Log family, Leica L-Log, Sony S-Log / S-Log2, Canon Log, GoPro, Blackmagic Film Gen 4, OPPO O-Log, Apple Log 2, and more). Also `$OCIO`, a custom config, or a local Nuke config. |
-| **ProRes** | Software ProRes is 10-bit on every profile (default **422 HQ**). macOS VideoToolbox is the hardware encoder. Experimental oxideav **4444 and XQ are 12-bit**; its 422 profiles decode as **10-bit**. [Details](./prores.md). |
+| **ProRes** | 422 Proxy, LT, 422, and HQ are 10-bit 4:2:2 (software, and VideoToolbox on macOS). 4444 and 4444 XQ are the 12-bit profiles. Experimental oxideav is 4444 and XQ only. [Details](./prores.md). |
 | **Browsers and player** | Sequence and video browsers with list, grid, and preview. GPU OCIO on the playback path. Built-in player with a RAM cache and frame-accurate scrub. |
 | **Quick Look (macOS)** | Spacebar previews and Finder thumbnails for EXR and DPX. Off by default; turn them on in **File → Quick Look…**. [Details](./quicklook.md). |
 
@@ -80,4 +80,4 @@ as the code (and [CHANGELOG.md](https://github.com/derek-rein/exr-converter/blob
 | [CinemaDNG](./cinemadng.md) | `.dng` frame sequences, DJI Inspire 3 as Linear P3-D60 + 1.4 stops |
 | [Releasing](./releasing.md) | Pointer to maintainer release process |
 | [Microsoft Store](./msix.md) | Partner Center .msixupload and self-distribution .msix |
-| [12-bit ProRes (oxideav)](./plan-12bit-prores-oxideav.md) | Experimental RDD-36 ProRes. 4444 and XQ are 12-bit. 422 decodes as 10-bit |
+| [12-bit ProRes (oxideav)](./plan-12bit-prores-oxideav.md) | Experimental RDD-36 ProRes 4444 and XQ (12-bit). 422 stays 10-bit |
