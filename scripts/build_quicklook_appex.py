@@ -30,7 +30,11 @@ from src.core.quicklook_formats import (  # noqa: E402
     merge_type_declarations,
     supported_content_types,
 )
-from src.core.quicklook_lut import bake_bundled_view_lut  # noqa: E402
+from src.core.quicklook_lut import (  # noqa: E402
+    bake_bundled_input_table,
+    bake_bundled_view_lut,
+    bake_bundled_view_lut_bundle,
+)
 
 QL_ROOT = ROOT / "packaging" / "macos" / "quicklook"
 CORE_SOURCES = sorted((QL_ROOT / "Sources" / "EXRQLCore").glob("*.swift"))
@@ -202,6 +206,7 @@ def write_appex(
     arch: str,
     version: str,
     lut: bytes,
+    resources_extra: dict[str, bytes] | None = None,
 ) -> Path:
     if dest.exists():
         shutil.rmtree(dest)
@@ -230,6 +235,8 @@ def write_appex(
     resources = dest / "Contents" / "Resources"
     resources.mkdir(parents=True, exist_ok=True)
     (resources / "view.lut").write_bytes(lut)
+    for name, data in (resources_extra or {}).items():
+        (resources / name).write_bytes(data)
     ad_hoc_sign(dest)
     return dest
 
@@ -261,6 +268,11 @@ def build_pair(staging: Path, arch: str) -> tuple[Path, Path]:
     if len(lut) > 2_000_000:
         raise SystemExit(f"view.lut is {len(lut)} bytes; keep the cube at 33³")
     print(f"view.lut: {len(lut)} bytes", flush=True)
+    bundle = bake_bundled_view_lut_bundle()
+    if len(bundle) > 12_000_000:
+        raise SystemExit(f"views.lut is {len(bundle)} bytes; too many views baked")
+    inputs = bake_bundled_input_table().encode("utf-8")
+    print(f"views.lut: {len(bundle)} bytes, inputs.json: {len(inputs)} bytes", flush=True)
     preview_sources = sorted((QL_ROOT / "Sources" / "EXRQLPreview").glob("*.swift"))
     if not preview_sources:
         raise SystemExit(f"no Swift sources in {QL_ROOT / 'Sources' / 'EXRQLPreview'}")
@@ -278,6 +290,7 @@ def build_pair(staging: Path, arch: str) -> tuple[Path, Path]:
         arch=arch,
         version=version,
         lut=lut,
+        resources_extra={"views.lut": bundle, "inputs.json": inputs},
     )
     thumb = write_appex(
         dest=staging / "EXRConverterThumbnail.appex",

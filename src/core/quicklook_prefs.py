@@ -43,7 +43,15 @@ from .quicklook_formats import (
     encode_preferences,
     format_by_key,
 )
-from .quicklook_lut import LUT_FILENAME, bake_view_lut, write_view_lut
+from .quicklook_lut import (
+    INPUTS_FILENAME,
+    LUT_BUNDLE_FILENAME,
+    LUT_FILENAME,
+    bake_input_table,
+    bake_view_lut,
+    bake_view_lut_bundle,
+    write_view_lut,
+)
 
 _log = logging.getLogger(__name__)
 _lut_lock = threading.Lock()
@@ -146,8 +154,16 @@ def view_lut_destinations() -> list[Path]:
     return paths
 
 
+def _sibling_paths(name: str) -> list[Path]:
+    return [path.with_name(name) for path in view_lut_destinations()]
+
+
 def schedule_quicklook_view_lut(config: object) -> None:
-    """Bake the active config's default display view on a background thread.
+    """Bake the active config's views for Quick Look on a background thread.
+
+    Writes ``view.lut`` (default view, used by Finder thumbnails), ``views.lut``
+    (every SDR view of the sRGB and Display P3 displays, for the preview's view
+    menu) and ``inputs.json`` (input color spaces the preview can detect).
 
     No-op off macOS and while pytest is running, so a GUI test does not write
     the runner's Application Support folder. A newer OCIO reload supersedes an
@@ -168,10 +184,24 @@ def schedule_quicklook_view_lut(config: object) -> None:
         except Exception:
             _log.warning("Could not bake the Quick Look view LUT", exc_info=True)
             return
+        try:
+            bundle: bytes | None = bake_view_lut_bundle(config)
+        except Exception:
+            _log.warning("Could not bake the Quick Look view menu", exc_info=True)
+            bundle = None
+        try:
+            inputs: bytes | None = bake_input_table(config).encode("utf-8")
+        except Exception:
+            _log.warning("Could not bake the Quick Look input table", exc_info=True)
+            inputs = None
         with _lut_lock:
             if token != _lut_generation:
                 return
         write_view_lut(data, view_lut_destinations())
+        if bundle is not None:
+            write_view_lut(bundle, _sibling_paths(LUT_BUNDLE_FILENAME))
+        if inputs is not None:
+            write_view_lut(inputs, _sibling_paths(INPUTS_FILENAME))
 
     threading.Thread(target=run, name="quicklook-view-lut", daemon=True).start()
 

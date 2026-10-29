@@ -5,6 +5,22 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
+/// A decoded picture before the view transform.
+enum DecodedContent {
+    /// Scene-linear, already in the view cube's source space.
+    case scene(LinearRGBA)
+    /// Display-encoded (8-bit EXR from ImageIO, video DPX, PNG, JPEG, DNG).
+    case display(CGImage)
+}
+
+struct DecodedPicture {
+    let content: DecodedContent
+    /// Full-resolution size of the file, for the resolution label.
+    let sourceSize: CGSize
+    /// What the stored pixels were taken to be. Nil for display pictures.
+    let input: InputDetection?
+}
+
 enum PreviewOutcome {
     case decline
     case image(CGImage, label: String?)
@@ -46,8 +62,17 @@ enum PreviewRenderer {
             return .decline
         }
         do {
-            let image = try render(url: url, format: format, maxPixel: max(maxPixel, 1))
-            return .image(image, label: nil)
+            let picture = try decodePicture(url: url, format: format, maxPixel: max(maxPixel, 1))
+            switch picture.content {
+            case .display(let image):
+                return .image(image, label: nil)
+            case .scene(let linear):
+                if let image = toneMap(linear: linear) {
+                    return .image(image, label: nil)
+                }
+                let fallback = try imageFromLinear(linear.channels, width: linear.width, height: linear.height)
+                return .image(fallback, label: nil)
+            }
         } catch {
             let message = String(describing: error)
             if let fallback = errorImage(message: message) {
@@ -87,18 +112,46 @@ enum PreviewRenderer {
         }
     }
 
-    private static func render(url: URL, format: QuickLookFormat, maxPixel: Int) throws -> CGImage {
+    /// Decode without the view transform. ``inputOverride`` names an
+    /// ``inputs.json`` color space to use instead of the one the EXR header
+    /// suggests.
+    static func decodePicture(
+        url: URL,
+        format: QuickLookFormat,
+        maxPixel: Int,
+        inputOverride: String? = nil
+    ) throws -> DecodedPicture {
         switch format.key {
         case "dpx":
-            return try DPXDecoder.decode(url: url, maxPixel: maxPixel)
+            let size = DPXDecoder.size(url: url).map { CGSize(width: $0.width, height: $0.height) }
+            switch try DPXDecoder.decodeFrame(url: url, maxPixel: maxPixel) {
+            case .display(let image):
+                return DecodedPicture(
+                    content: .display(image),
+                    sourceSize: size ?? CGSize(width: image.width, height: image.height),
+                    input: nil)
+            case .linear(let linear):
+                return DecodedPicture(
+                    content: .scene(linear),
+                    sourceSize: size ?? CGSize(width: linear.width, height: linear.height),
+                    input: InputDetection(space: nil, name: "DPX log / linear", source: "DPX header"))
+            }
         case "dng":
-            return try dngImage(url: url, maxPixel: maxPixel)
+            let image = try dngImage(url: url, maxPixel: maxPixel)
+            return DecodedPicture(
+                content: .display(image), sourceSize: CGSize(width: image.width, height: image.height),
+                input: nil)
         default:
-            return try imageIOImage(url: url, format: format, maxPixel: maxPixel)
+            return try imageIOPicture(url: url, format: format, maxPixel: maxPixel, inputOverride: inputOverride)
         }
     }
 
-    private static func imageIOImage(url: URL, format: QuickLookFormat, maxPixel: Int) throws -> CGImage {
+    private static func imageIOPicture(
+        url: URL,
+        format: QuickLookFormat,
+        maxPixel: Int,
+        inputOverride: String?
+    ) throws -> DecodedPicture {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             throw PreviewError.unreadable("ImageIO could not open \(url.lastPathComponent).")
         }
@@ -115,10 +168,60 @@ enum PreviewRenderer {
         else {
             throw PreviewError.unreadable("ImageIO could not decode \(url.lastPathComponent).")
         }
-        guard format.toneMapLinear, shouldToneMap(image) else {
-            return image
+        let header = format.key == "exr" ? EXRHeader.read(url: url) : nil
+        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        var sourceSize = CGSize(
+            width: (props?[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? image.width,
+            height: (props?[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? image.height
+        )
+        if let data = header?.dataSize {
+            sourceSize = CGSize(width: data.width, height: data.height)
         }
-        return toneMap(image) ?? image
+        guard format.toneMapLinear, shouldToneMap(image) else {
+            return DecodedPicture(content: .display(image), sourceSize: sourceSize, input: nil)
+        }
+        let catalog = InputCatalogStore.shared()
+        let override = inputOverride.flatMap { catalog?.lookup($0) }
+        let tagged = !LinearRGBA.keepsStoredValues(image)
+        // An EXR without chromaticities has no color tag of its own, so its
+        // stored values are read as they are, whatever ImageIO labelled them.
+        // A tagged image is converted to linear Rec.709 unless the input is
+        // overridden, which always means the stored values.
+        let raw = override != nil
+            || (format.key == "exr" && (!tagged || header?.chromaticities == nil))
+        let detection: InputDetection
+        let decoded: LinearRGBA?
+        if raw {
+            if tagged, let own = image.colorSpace {
+                decoded = LinearRGBA.read(image, in: own) ?? LinearRGBA.read(image)
+            } else {
+                decoded = LinearRGBA.read(image)
+            }
+            if let override {
+                detection = InputDetection(space: override, name: override.name, source: "override")
+            } else {
+                detection = InputDetector.detect(header: header, catalog: catalog)
+            }
+        } else {
+            decoded = LinearRGBA.read(image)
+            let space = catalog?.lookup("lin_rec709")
+            detection = InputDetection(
+                space: space,
+                name: space?.name ?? "Linear Rec.709 (sRGB)",
+                source: format.key == "exr" ? "chromaticities" : "embedded profile")
+        }
+        guard let linear = decoded else {
+            return DecodedPicture(content: .display(image), sourceSize: sourceSize, input: nil)
+        }
+        guard let space = detection.space, !space.isIdentity else {
+            return DecodedPicture(content: .scene(linear), sourceSize: sourceSize, input: detection)
+        }
+        var channels = linear.channels
+        space.apply(to: &channels)
+        return DecodedPicture(
+            content: .scene(LinearRGBA(width: linear.width, height: linear.height, channels: channels)),
+            sourceSize: sourceSize,
+            input: detection)
     }
 
     /// ImageIO sometimes hands back an 8-bit sRGB EXR that it already mapped.
@@ -136,6 +239,10 @@ enum PreviewRenderer {
     /// that cube is missing. The result is 8-bit sRGB.
     static func toneMap(_ image: CGImage) -> CGImage? {
         guard let linear = LinearRGBA.read(image) else { return nil }
+        return toneMap(linear: linear)
+    }
+
+    static func toneMap(linear: LinearRGBA) -> CGImage? {
         if let lut = ViewLUTStore.preferred() {
             if let cubed = ColorCube.apply(linear: linear, lut: lut) {
                 return cubed
