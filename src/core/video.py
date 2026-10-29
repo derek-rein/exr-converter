@@ -301,8 +301,8 @@ def decode_video_frames(container, stream, deinterlace: str = "auto", log=None):
 # Camera RAW containers decoded only by optional plugins / native bridges.
 # suffix -> (format label, short codec label, message when no decoder is installed)
 _OPTIONAL_RAW_FORMATS: dict[str, tuple[str, str, str]] = {
-    ".ari": ("ARRIRAW", "ARI", "ARRIRAW (.ari) is not supported"),
-    ".arx": ("ARRIRAW", "ARX", "ARRIRAW (.arx) is not supported"),
+    ".ari": ("Camera RAW", "RAW", "Camera RAW is not supported"),
+    ".arx": ("Camera RAW", "RAW", "Camera RAW is not supported"),
     ".crm": ("Camera RAW", "CRM", "Camera RAW plugin not installed"),
 }
 
@@ -333,12 +333,12 @@ def _unsupported_raw_message(path: str) -> str:
     return f"Camera RAW ({suffix}) is not supported"
 
 
-# Backwards-compatible name (callers predate non-ARRI optional formats).
+# Backwards-compatible name for callers that predate other optional RAW formats.
 _arriraw_unsupported_message = _unsupported_raw_message
 
 
 _UNSUPPORTED_ROW_CODEC: dict[str, str] = {
-    ".ari": "ARRIRAW (unsupported)",
+    ".ari": "Camera RAW (unsupported)",
     ".arx": "ARX (unsupported)",
     ".crm": "Camera RAW (plugin not installed)",
 }

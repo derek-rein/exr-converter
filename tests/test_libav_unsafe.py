@@ -58,7 +58,7 @@ def test_probe_video_metadata_skips_ari(tmp_path: Path, monkeypatch, name: str) 
     _patch_av_open(monkeypatch)
     meta = probe_video_metadata(str(clip))
     blob = " ".join(meta.values()).lower()
-    assert "arri" in blob or "ari" in blob or "unsupported" in blob or "not installed" in blob
+    assert "not supported" in blob or "not installed" in blob
 
 
 @pytest.mark.parametrize("name", ["shot.ari", "shot.arx", "shot.CRM"])
@@ -114,4 +114,4 @@ def test_optional_raw_messages_without_plugin(tmp_path: Path, monkeypatch) -> No
     assert [r["codec"] for r in rows] == ["Camera RAW (plugin not installed)"]
     ari = tmp_path / "x.ari"
     ari.write_bytes(b"not-real")
-    assert probe_video_metadata(str(ari))["error"] == "ARRIRAW (.ari) is not supported"
+    assert probe_video_metadata(str(ari))["error"] == "Camera RAW is not supported"
