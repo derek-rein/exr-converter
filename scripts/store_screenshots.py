@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (  # noqa: E402
 
 import src.rc_resources  # noqa: E402, F401  # register :/style.qss and icons
 from src.core.constants import APP_NAME, APP_ORG, APP_VERSION  # noqa: E402
+from src.gui import style as style_mod  # noqa: E402
 from src.gui.color_widgets import ColorSpaceButton  # noqa: E402
 from src.gui.ocio_gpu_plane import configure_default_gl_format  # noqa: E402
 from src.gui.style import load_stylesheet  # noqa: E402
@@ -250,6 +251,25 @@ def _set_display_1920x1080() -> None:
     print(f"Display now: {TARGET_W}x{TARGET_H}", flush=True)
 
 
+def _app_stylesheet() -> str:
+    """The same dark theme ``main.py`` applies, loaded after the Qt app exists."""
+    src.rc_resources.qInitResources()
+    style_mod._cache = None
+    text = load_stylesheet()
+    if len(text) < 500 or "282828" not in text:
+        raw = (ROOT / "resources" / "style.qss").read_text(encoding="utf-8")
+        text = style_mod._VAR_RE.sub(
+            lambda match: style_mod._PALETTE.get(match.group(1), match.group(0)),
+            raw,
+        )
+    if len(text) < 500 or "282828" not in text:
+        raise RuntimeError(
+            "Could not load the app stylesheet. Screenshots would not match the app."
+        )
+    print(f"stylesheet chars: {len(text)}", flush=True)
+    return text
+
+
 def _apply_windows_style(app: QApplication) -> str:
     available = {name.lower(): name for name in QStyleFactory.keys()}
     chosen = ""
@@ -297,6 +317,12 @@ def _select_space(button: ColorSpaceButton, *names: str) -> str:
 
 def _fit_window(win: QMainWindow) -> None:
     """Size the visible frame to 1920x1080 and give the form most of the height."""
+    page = win._tabs.currentWidget()
+    if page is not None:
+        bar_h = win._tabs.tabBar().sizeHint().height()
+        # Keep the blank stretch inside the form from eating the window.
+        # The log pane takes the leftover height.
+        win._tabs.setMaximumHeight(max(page.sizeHint().height() + bar_h + 12, 420))
     win.show()
     _pump(200)
     frame = win.frameGeometry()
@@ -314,7 +340,8 @@ def _fit_window(win: QMainWindow) -> None:
     win.move(0, 0)
     splitter = win.findChild(QSplitter, "logSplitter")
     if splitter is not None:
-        splitter.setSizes([860, 160])
+        top_h = min(760, win._tabs.maximumHeight() + 200)
+        splitter.setSizes([top_h, max(220, TARGET_H - top_h)])
     win.repaint()
     _pump(100)
 
@@ -417,9 +444,21 @@ def _to_store_png(image: QImage) -> QImage:
 
 def _assert_looks_like_windows_ui(image: QImage) -> None:
     buckets: set[tuple[int, int, int]] = set()
+    dark = 0
+    samples = 0
     reds = yellows = greens = 0
     step_x = max(1, image.width() // 48)
     step_y = max(1, image.height() // 48)
+    for y in range(60, image.height() - 20, step_y):
+        for x in range(12, image.width() - 12, step_x):
+            color = image.pixelColor(x, y)
+            samples += 1
+            if color.red() < 80 and color.green() < 80 and color.blue() < 80:
+                dark += 1
+    if samples == 0 or dark * 4 < samples:
+        raise RuntimeError(
+            f"Screenshot is missing the app's dark theme ({dark}/{samples} dark samples)."
+        )
     for y in range(0, image.height(), step_y):
         for x in range(0, image.width(), step_x):
             color = image.pixelColor(x, y)
@@ -510,9 +549,12 @@ def capture(output: Path) -> None:
     QSettings.setDefaultFormat(QSettings.Format.IniFormat)
     QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(settings_dir))
     _apply_windows_style(app)
-    app.setStyleSheet(load_stylesheet())
+    sheet = _app_stylesheet()
+    app.setStyleSheet(sheet)
 
     win = MainWindow()
+    win.setStyleSheet(sheet)
+    print(f"applied stylesheet chars: {len(app.styleSheet())}", flush=True)
     screen = win.screen()
     if screen is not None:
         size = screen.size()
@@ -526,9 +568,15 @@ def capture(output: Path) -> None:
     win._tabs.setCurrentIndex(1)
     _save(win, output / "02-exr-to-video.png")
 
-    _fill_queues(win, videos, videos[0].parent / "delivery")
+    names = [str(path) for path in videos]
+    delivery = videos[0].parent / "delivery"
+    proxy_added = win._proxy_tab.add_paths(names)
+    if proxy_added < 4 and win._proxy_tab.clip_list.count() < 4:
+        raise RuntimeError(f"Proxy queue has {win._proxy_tab.clip_list.count()} clips.")
     win._tabs.setCurrentIndex(PROXY_TAB_INDEX)
     _save(win, output / "03-video-proxy.png")
+
+    _fill_queues(win, videos, delivery)
     win._tabs.setCurrentIndex(TRANSCODE_TAB_INDEX)
     _save(win, output / "04-transcode-queue.png")
 
