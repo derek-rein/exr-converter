@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+---
+
+## [0.12.12] - 2026-10-29
+
 ### Added
 
 - The macOS Quick Look preview has the player's controls: exposure gain, gamma, an input color space menu, and an OCIO display / view menu with every SDR view of the sRGB and Display P3 displays. It remembers the view you pick.
@@ -1101,7 +1105,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.11...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.12...HEAD
+[0.12.12]: https://github.com/derek-rein/exr-converter/compare/v0.12.11...v0.12.12
 [0.12.11]: https://github.com/derek-rein/exr-converter/compare/v0.12.10...v0.12.11
 [0.12.10]: https://github.com/derek-rein/exr-converter/compare/v0.12.9...v0.12.10
 [0.12.9]: https://github.com/derek-rein/exr-converter/compare/v0.12.8...v0.12.9
