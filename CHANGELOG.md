@@ -13,6 +13,11 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Changed
+
+- Preferences → Invisible watermark: the payload defaults to `exrcnvrt` and the field only accepts up to 8 printable ASCII characters. Strength is held to 0.10–2.00.
+- Preferences: sections no longer stretch to fill the window, so the Slate box has no empty space below **Thumbnail frame**.
+
 ---
 
 ## [0.12.11] - 2026-10-29

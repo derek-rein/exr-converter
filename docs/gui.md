@@ -371,11 +371,13 @@ feature from the visible text watermark on **EXR → Video**.
 
 **EXR → Video.** Tick **Invisible WM** next to Slate / Burn-in / Watermark.
 The payload and strength come from **File → Preferences… → Invisible
-watermark**, not from the tab. The payload there is a template:
+watermark**, not from the tab. The payload there defaults to `exrcnvrt`.
+The field accepts only printable ASCII, up to 8 characters, and can use
+these tokens:
 
 | Token | Becomes |
 |-------|---------|
-| `{user}` | Login name (the default payload) |
+| `{user}` | Login name |
 | `{host}` | Computer name, up to the first dot |
 | `{date}` | Render date as `YYMMDD` |
 | `{time}` | Render time as `HHMM` |
