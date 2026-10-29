@@ -24,6 +24,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 - The browsers no longer read the disk on the UI thread. Folders in the tree are listed in the background the first time they open, folder contents show before their resolution, codec, and other columns fill in, and the Metadata pane, Preview loading, and mounted-drive checks run in the background. Slow, network, and Dropbox folders no longer beachball the dialog.
 - **Find sequence** indexing and **Search folders** run in a separate background process, so a large search no longer slows down the dialog.
 - Re-entering Preview on the same clip keeps its cache and in/out points instead of loading it again.
+- **Transcode** always converts color with OCIO. The clip list has an **Input color space** column filled in from each clip's metadata. Set a space on a folder row to apply it to every clip inside, or expand the folder and set clips one by one. One **Output space** applies to every clip.
+- **Transcode** shows the output space and invisible watermark in a plain **Color and watermark** section instead of a collapsed one.
 - Preferences → Invisible watermark: the payload defaults to `exrcnvrt` and the field only accepts up to 8 printable ASCII characters. Strength is held to 0.10–2.00.
 - Preferences: sections no longer stretch to fill the window, so the Slate box has no empty space below **Thumbnail frame**.
 - The Video → Proxy watch folder is no longer a collapsed section. Its folder, options, and **Start Watching** are always shown in one row, and the status is in the group title.
