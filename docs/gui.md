@@ -108,7 +108,8 @@ still appears; Inspect shows SDK missing. **`.ari` / `.arx`** are listed as
 unsupported camera RAW and are never opened with PyAV. **`.crm`** is listed
 the same way. Without a source plugin, the codec column shows
 **Camera RAW (plugin not installed)**, and Inspect and convert report
-**Camera RAW plugin not installed**.
+**Camera RAW plugin not installed**. Release builds can include the optional
+plugin; its runtime notices stay inside the app bundle.
 
 **Cloud placeholders (Dropbox / iCloud / OneDrive):** folders managed by a
 cloud client often contain “online-only” stubs (macOS File Provider dataless

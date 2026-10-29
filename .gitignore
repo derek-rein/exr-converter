@@ -57,3 +57,4 @@ slim/
 src/plugins/*
 !src/plugins/__init__.py
 .source-plugins/
+.camera-raw-feed/
