@@ -232,8 +232,8 @@ if ldd dist/main.dist/exr_converter | grep -F 'not found'; then
 fi
 
 # Rocky 8 GCC 8 libstdc++ tops out at GLIBCXX_3.4.25 / CXXABI_1.3.11.
-# RED's OpenCL redistributable needs glibc 2.29. Drop that optional GPU
-# library so the RHEL 8 package still ships. CUDA and CPU decode stay.
+# RED's Linux decoder and GPU libraries need glibc 2.29. Drop optional GPU
+# libraries first. If the decoder itself still exceeds the floor, omit r3d/.
 uv run python scripts/check_glibc_floor.py dist/main.dist \
   --max-glibc 2.28 \
   --max-glibcxx 3.4.25 \

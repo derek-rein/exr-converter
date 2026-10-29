@@ -94,13 +94,13 @@ AppStream repositories (`libglvnd`, `mesa`, `xkbcommon`, and so on).
 
 ## Optional camera RAW
 
-When the release is built with the private RED or Blackmagic runtime, those
-libraries sit inside the same prefix (`r3d/` or `braw/`). They are not a
-separate download. A build without those secrets still runs; `.r3d` and
-`.braw` inputs are unavailable until the bridge is present. The RHEL 8
-package leaves out RED's OpenCL library (`REDOpenCL-x64.so`), which needs
-glibc 2.29. Linux R3D decode uses CUDA when an NVIDIA driver is present,
-and the CPU otherwise. See
+When the release is built with the private Blackmagic runtime, those
+libraries sit inside the same prefix (`braw/`). They are not a separate
+download. A build without that secret still runs; `.braw` inputs are
+unavailable until the bridge is present. The RHEL 8 package does not include
+the RED runtime. `REDDecoder-x64.so` and RED's GPU libraries need glibc 2.29,
+so `.r3d` and `.nev` are unavailable in this package. macOS and Windows
+packages still include them. See
 [R3D / N-RAW](./r3d.md) and [Blackmagic RAW](./braw.md).
 
 ## From a source checkout
