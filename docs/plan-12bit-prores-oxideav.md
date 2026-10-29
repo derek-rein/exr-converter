@@ -16,7 +16,7 @@ sidecar. **4444 / XQ** are 12-bit to standard decoders. **422** is not
 written here: Apple, Resolve, Premiere, Nuke, and `prores_ks` treat 422
 Proxy, LT, 422, and HQ as 10-bit 4:2:2 (see [Labeling](#5-labeling)).
 
-User-facing encoder comparison (software vs **Apple VideoToolbox** vs this
+User-facing encoder comparison (software vs **VideoToolbox** vs this
 path): [ProRes and VideoToolbox](./prores.md).
 
 ---
@@ -28,13 +28,13 @@ path): [ProRes and VideoToolbox](./prores.md).
 | True **12-bit** encode precision on 4444 / XQ | Mid-bin proof in YUV domain (see tests). 422 is 10-bit via `prores_ks` and VideoToolbox |
 | **Cross-platform** | Win / Linux / macOS in release CI |
 | **Nuitka standalone** | `--include-module=exr_prores` (normal extension module) |
-| Honest UI | Experimental · RDD-36 · not Apple-certified |
+| Honest UI | Experimental. RDD-36. Not described as a certified encode |
 | Keep FFmpeg for everything else | PyAV remains default for 10-bit ProRes, DNxHR, HEVC, … |
 
 **Non-goals (v1):**
 
 - Replacing all ProRes with oxideav  
-- Apple-licensed / certified ProRes branding  
+- Certified or licensed codec branding  
 - ProRes RAW / alpha on oxideav presets  
 
 ---
@@ -113,7 +113,7 @@ BT.709 limited conversion to 12-bit Y (~2 codes). Prefer the YUV-domain test.
 | oxideav 4444 / XQ | **12-bit · experimental · RDD-36 ProRes-compatible** |
 | 422 Proxy / LT / 422 / HQ | **10-bit 4:2:2** (`prores_ks` or VideoToolbox). Not an oxideav preset |
 
-Do not say “Apple ProRes certified.”
+Do not claim a certified or licensed encode.
 
 ### Why 422 is not 12-bit
 

@@ -11,7 +11,7 @@ rust-version = "1.80"
 license = "MIT"
 repository = "https://github.com/OxideAV/oxideav-prores"
 authors = ["Mark Karpeles"]
-description = "Pure-Rust Apple ProRes codec (vendored for EXR Converter with a 4:4:4 chroma block order fix)"
+description = "Pure-Rust ProRes-compatible codec (vendored for EXR Converter with a 4:4:4 chroma block order fix)"
 readme = "README.md"
 publish = false
 

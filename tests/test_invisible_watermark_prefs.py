@@ -50,11 +50,11 @@ def test_sequence_display_name(path, name):
 def test_defaults_and_resolve(settings):
     assert invisible_wm_template(settings) == DEFAULT_INVISIBLE_WM_TEMPLATE
     assert invisible_wm_strength(settings) == pytest.approx(1.0)
-    settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, "ACME{src}")
+    settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, "AC{src}X")
     settings.setValue(Keys.INVISIBLE_WM_STRENGTH, 0.8)
     logs: list[str] = []
-    text, strength = resolve_invisible_watermark(settings, source_name="sh010", log=logs.append)
-    assert text == "ACMEsh01"
+    text, strength = resolve_invisible_watermark(settings, source_name="sh0101", log=logs.append)
+    assert text == "ACsh0101"
     assert strength == pytest.approx(0.8)
     assert any("cut to 8" in line for line in logs)
     settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, "")
@@ -83,3 +83,40 @@ def test_exr2video_tab_has_invisible_checkbox(qapp, settings):
     assert settings.value("exr2video/invisible_watermark", False, type=bool)
     other = ConvertTab("video2exr", settings)
     assert not other.invisible_watermark_enabled()
+
+
+def test_payload_field_defaults_and_rejects_bad_text(qapp, settings):
+    from PySide6.QtGui import QValidator
+
+    dlg = PreferencesDialog(settings)
+    edit = dlg._wm_template
+    assert edit.text() == "exrcnvrt"
+    assert edit.placeholderText() == ""
+    assert edit.maxLength() == 8
+    validator = edit.validator()
+    assert validator.validate("ACME{date}", 0)[0] == QValidator.State.Invalid
+    assert validator.validate("café", 0)[0] == QValidator.State.Invalid
+    assert validator.validate("ACME 01!", 0)[0] == QValidator.State.Acceptable
+    assert validator.validate("{user}", 0)[0] == QValidator.State.Acceptable
+
+
+def test_stored_payload_and_strength_are_cleaned(settings):
+    settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, "héllo-world-long")
+    assert invisible_wm_template(settings) == "hllo-wor"
+    settings.setValue(Keys.INVISIBLE_WM_STRENGTH, 9.0)
+    assert invisible_wm_strength(settings) == pytest.approx(2.0)
+    settings.setValue(Keys.INVISIBLE_WM_STRENGTH, -1)
+    assert invisible_wm_strength(settings) == pytest.approx(0.1)
+    settings.setValue(Keys.INVISIBLE_WM_STRENGTH, "nan")
+    assert invisible_wm_strength(settings) == pytest.approx(1.0)
+
+
+def test_strength_spinbox_limits(qapp, settings):
+    dlg = PreferencesDialog(settings)
+    spin = dlg._wm_strength
+    assert spin.minimum() == pytest.approx(0.1)
+    assert spin.maximum() == pytest.approx(2.0)
+    spin.setValue(5.0)
+    assert spin.value() == pytest.approx(2.0)
+    spin.setValue(0.0)
+    assert spin.value() == pytest.approx(0.1)

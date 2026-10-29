@@ -239,8 +239,8 @@ _CODEC_HELP: dict[str, str] = {
     "prores": "ProRes 422 HQ — default finishing intermediate; 10-bit 4:2:2 (prores_ks).",
     "prores_4444": (
         "ProRes 4444 — 4:4:4:4 with alpha (prores_ks). FFmpeg software encodes at "
-        "10-bit only (yuva444p10le); Apple's format can be 12-bit, but prores_ks "
-        "does not. Prefer VideoToolbox 4444 on macOS for ~12-bit precision."
+        "10-bit only (yuva444p10le). Other encoders can write 4444 at 12-bit, but "
+        "prores_ks does not. Prefer VideoToolbox 4444 on macOS for ~12-bit precision."
     ),
     "prores_xq": (
         "ProRes 4444 XQ — highest ProRes tier, 4:4:4:4 with alpha (prores_ks). "
@@ -248,7 +248,7 @@ _CODEC_HELP: dict[str, str] = {
         "true 12-bit-class precision."
     ),
     "prores_vt_proxy": (
-        "Hardware ProRes Proxy via Apple VideoToolbox. macOS only; faster, "
+        "Hardware ProRes Proxy via VideoToolbox. macOS only; faster, "
         "quality/controls differ slightly from software prores_ks. 10-bit 4:2:2."
     ),
     "prores_vt_lt": "Hardware ProRes LT via VideoToolbox (macOS only); 10-bit 4:2:2.",
@@ -264,12 +264,12 @@ _CODEC_HELP: dict[str, str] = {
     ),
     "prores_ox_4444": (
         "Experimental cross-platform true 12-bit ProRes 4444-compatible encode "
-        "(SMPTE RDD 36 / ap4h via oxideav-prores PyO3 bindings). Not Apple-certified. "
+        "(SMPTE RDD 36 / ap4h via oxideav-prores PyO3 bindings). "
         "Requires the built-in exr_prores extension (make oxideav-prores)."
     ),
     "prores_ox_xq": (
         "Experimental cross-platform true 12-bit ProRes 4444 XQ-compatible encode "
-        "(SMPTE RDD 36 / ap4x via oxideav-prores). Not Apple-certified. Requires exr_prores."
+        "(SMPTE RDD 36 / ap4x via oxideav-prores). Requires exr_prores."
     ),
     "cineform": (
         "GoPro CineForm (cfhd) — 10-bit 4:2:2 wavelet intermediate. "

@@ -9,8 +9,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QRegularExpression, QSettings, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QSizePolicy,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -131,14 +132,23 @@ def pick_thumbnail_index(count: int, which: int) -> int:
     return n // 2
 
 
-DEFAULT_INVISIBLE_WM_TEMPLATE = "{user}"
+DEFAULT_INVISIBLE_WM_TEMPLATE = "exrcnvrt"
+# What the Preferences payload field accepts: up to 8 printable ASCII characters.
+INVISIBLE_WM_TEMPLATE_RE = rf"[\x20-\x7E]{{0,{MAX_TEXT_CHARS}}}"
+STRENGTH_STEP = 0.05
+STRENGTH_DECIMALS = 2
+
+
+def clean_invisible_wm_template(text: str) -> str:
+    """Keep printable ASCII only and cut to the TrustMark text limit."""
+    return "".join(ch for ch in text if 32 <= ord(ch) <= 126)[:MAX_TEXT_CHARS]
 
 
 def invisible_wm_template(settings: QSettings) -> str:
     """Payload template for the EXR → Video invisible watermark."""
     if not settings.contains(Keys.INVISIBLE_WM_TEMPLATE):
         return DEFAULT_INVISIBLE_WM_TEMPLATE
-    return str(settings.value(Keys.INVISIBLE_WM_TEMPLATE, "") or "")
+    return clean_invisible_wm_template(str(settings.value(Keys.INVISIBLE_WM_TEMPLATE, "") or ""))
 
 
 def invisible_wm_strength(settings: QSettings) -> float:
@@ -146,7 +156,9 @@ def invisible_wm_strength(settings: QSettings) -> float:
         value = float(settings.value(Keys.INVISIBLE_WM_STRENGTH, DEFAULT_STRENGTH))
     except (TypeError, ValueError):
         return DEFAULT_STRENGTH
-    return min(max(value, STRENGTH_MIN), STRENGTH_MAX)
+    if value != value:  # NaN
+        return DEFAULT_STRENGTH
+    return round(min(max(value, STRENGTH_MIN), STRENGTH_MAX), STRENGTH_DECIMALS)
 
 
 def sequence_display_name(path: str | Path) -> str:
@@ -525,6 +537,11 @@ class PreferencesDialog(QDialog):
 
         root.addWidget(self._build_invisible_wm_box(settings))
 
+        # Boxes keep their natural height; spare space goes below them, not inside.
+        for box in (player_box, slate_box, cache_box):
+            box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        root.addStretch(1)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -614,8 +631,13 @@ class PreferencesDialog(QDialog):
             int(thumb_data) if thumb_data is not None else THUMBNAIL_FRAME_MID,
         )
         save_cache_budget_pct(self._settings, int(self._cache_slider.value()))
-        self._settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, self._wm_template.text())
-        self._settings.setValue(Keys.INVISIBLE_WM_STRENGTH, float(self._wm_strength.value()))
+        self._settings.setValue(
+            Keys.INVISIBLE_WM_TEMPLATE, clean_invisible_wm_template(self._wm_template.text())
+        )
+        self._settings.setValue(
+            Keys.INVISIBLE_WM_STRENGTH,
+            round(float(self._wm_strength.value()), STRENGTH_DECIMALS),
+        )
         self.accept()
 
     def _build_invisible_wm_box(self, settings: QSettings) -> QGroupBox:
@@ -624,7 +646,8 @@ class PreferencesDialog(QDialog):
         layout = QVBoxLayout(box)
         hint = QLabel(
             "Payload for <b>Invisible WM</b> on EXR → Video (Adobe TrustMark). "
-            f"Holds {MAX_TEXT_CHARS} ASCII characters; longer results are cut. "
+            f"Up to {MAX_TEXT_CHARS} printable ASCII characters; token results longer "
+            f"than {MAX_TEXT_CHARS} are cut. "
             "Tokens: {user} {host} {date} {time} {src}."
         )
         hint.setWordWrap(True)
@@ -635,7 +658,12 @@ class PreferencesDialog(QDialog):
         form = QFormLayout()
         self._wm_template = QLineEdit(invisible_wm_template(settings))
         self._wm_template.setObjectName("invisible_wm_template")
-        self._wm_template.setPlaceholderText("e.g. {user}  or  ACME{date}")
+        self._wm_template.setMaxLength(MAX_TEXT_CHARS)
+        self._wm_template.setValidator(
+            QRegularExpressionValidator(
+                QRegularExpression(INVISIBLE_WM_TEMPLATE_RE), self._wm_template
+            )
+        )
         self._wm_template.setToolTip(
             "\n".join(f"{tok}  {desc}" for tok, desc in PAYLOAD_TOKENS)
             + "\n\nFilled in when the render starts."
@@ -645,14 +673,19 @@ class PreferencesDialog(QDialog):
         self._wm_preview.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._wm_strength = QDoubleSpinBox()
         self._wm_strength.setRange(STRENGTH_MIN, STRENGTH_MAX)
-        self._wm_strength.setSingleStep(0.05)
-        self._wm_strength.setDecimals(2)
+        self._wm_strength.setSingleStep(STRENGTH_STEP)
+        self._wm_strength.setDecimals(STRENGTH_DECIMALS)
+        self._wm_strength.setCorrectionMode(QDoubleSpinBox.CorrectionMode.CorrectToNearestValue)
         self._wm_strength.setValue(invisible_wm_strength(settings))
-        self._wm_strength.setToolTip("TrustMark strength. 1.00 is the normal strength.")
+        self._wm_strength.setToolTip(
+            f"TrustMark strength, {STRENGTH_MIN:.2f} to {STRENGTH_MAX:.2f}. "
+            f"{DEFAULT_STRENGTH:.2f} is the normal strength."
+        )
         form.addRow("Payload:", self._wm_template)
         form.addRow("Embeds now:", self._wm_preview)
         form.addRow("Strength:", self._wm_strength)
         layout.addLayout(form)
+        box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._wm_template.textChanged.connect(self._update_wm_preview)
         self._update_wm_preview(self._wm_template.text())
         return box

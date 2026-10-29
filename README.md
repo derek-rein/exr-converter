@@ -47,7 +47,7 @@
     </td>
     <td width="50%" valign="top">
       <strong>ProRes out of the box</strong><br>
-      Full software ladder (Proxy through XQ, default <strong>422 HQ</strong>, 10-bit 4:2:2). <strong>Apple VideoToolbox</strong> on macOS uses the same profiles (4444 and XQ are ~12-bit class). Experimental oxideav <code>prores_ox_4444</code> / <code>prores_ox_xq</code> are true 12-bit 4:4:4.
+      Full software ladder (Proxy through XQ, default <strong>422 HQ</strong>, 10-bit 4:2:2). <strong>VideoToolbox</strong> on macOS uses the same profiles (4444 and XQ are ~12-bit class). Experimental oxideav <code>prores_ox_4444</code> / <code>prores_ox_xq</code> are true 12-bit 4:4:4.
     </td>
   </tr>
   <tr>
@@ -239,7 +239,7 @@ CI runs on **GitHub Actions** ([`ci.yml`](.github/workflows/ci.yml)). Releases p
 
 Display and render transforms use OpenColorIO 2.5, with a wide-gamut scene-linear **compositing space** for all overlay (slate, burn-in, watermark) compositing. The app prefers **ACES2065-1 (AP0)** via the `aces_interchange` role so sRGB-authored overlays are linearised and alpha-over'd without clipping or shifting the user's footage. It falls back to the `scene_linear` role (for example ACEScg) on non-ACES configs.
 
-The bundled config is **ACES Studio Config v4** from [ASWF OpenColorIO-Config-ACES](https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES) (BSD-3-Clause), with extra camera logs documented in [resources/ocio/CAMERAS.md](resources/ocio/CAMERAS.md). That config includes dozens of camera IDTs, including **Apple Log** (iPhone 15/16 Pro cinematic / ProRes Log), ARRI LogC3/4, RED Log3G10, Sony S-Log3/Venice, Canon Log 2/3 Cinema Gamut, DJI, plus **Nikon N-Log**, **Fujifilm F-Log / F-Log2 / F-Log2 C**, **Leica L-Log**, **Sony S-Log / S-Log2**, Canon Log in Rec.709 and Rec.2020, **KineLOG3**, **GoPro Protune / GP-Log / GP-Log2**, **Blackmagic Film Gen 4**, **OPPO O-Log**, and **Apple Log 2**. Measured error against the published equations and official LUTs is in [resources/ocio/CAMERAS.md](resources/ocio/CAMERAS.md).
+The bundled config is **ACES Studio Config v4** from [ASWF OpenColorIO-Config-ACES](https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES) (BSD-3-Clause), with extra camera logs documented in [resources/ocio/CAMERAS.md](resources/ocio/CAMERAS.md). That config includes dozens of camera IDTs, including **Apple Log** (iPhone 15/16 Pro cinematic / ProRes Log), RED Log3G10, Sony S-Log3/Venice, DJI, plus **Nikon N-Log**, **Fujifilm F-Log / F-Log2 / F-Log2 C**, **Leica L-Log**, **Sony S-Log / S-Log2**, **KineLOG3**, **GoPro Protune / GP-Log / GP-Log2**, **Blackmagic Film Gen 4**, **OPPO O-Log**, and **Apple Log 2**. Measured error against the published equations and official LUTs is in [resources/ocio/CAMERAS.md](resources/ocio/CAMERAS.md).
 
 </details>
 
@@ -255,7 +255,7 @@ No subcommand opens the main window. Packaged builds use `exr_converter`, or on 
 "/Applications/EXR Converter.app/Contents/MacOS/exr_converter"
 ```
 
-**OCIO config picker:** bundled **ACES Studio v4** with the extra camera logs (recommended default), `$OCIO`, custom file, other built-ins, or a **Nuke install config** (your local Foundry OCIO, as a path reference). Source and destination spaces are grouped by family (Input/ARRI, Input/Nikon, Input/Fujifilm, and so on). Override from the CLI with `--ocio PATH` or `--src` / `--dst`.
+**OCIO config picker:** bundled **ACES Studio v4** with the extra camera logs (recommended default), `$OCIO`, custom file, other built-ins, or a **Nuke install config** (your local Foundry OCIO, as a path reference). Source and destination spaces are grouped by family (Input/RED, Input/Nikon, Input/Fujifilm, and so on). Override from the CLI with `--ocio PATH` or `--src` / `--dst`.
 
 Camera names on the bundled config are listed under [Cameras and formats](#cameras-and-formats).
 
@@ -269,7 +269,7 @@ Guides live under [`docs/`](docs/) (Markdown source of truth). They are publishe
 | [GUI](docs/gui.md) | Tabs, Video → Proxy and watch folder, Transcode, overlays, preferences, post-convert, codec picker |
 | [Linux](docs/linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
 | [Quick Look on macOS](docs/quicklook.md) | Spacebar previews and Finder icons for EXR, DPX, and optional stills |
-| [ProRes and VideoToolbox](docs/prores.md) | Software vs Apple VideoToolbox vs oxideav; honest bit depths |
+| [ProRes and VideoToolbox](docs/prores.md) | Software vs VideoToolbox vs oxideav; honest bit depths |
 | [R3D / N-RAW](docs/r3d.md) | Optional RED SDK (license, build, CI, preview) |
 | [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship when `BRAW_SDK_READ_TOKEN` is set) |
 | [12-bit ProRes (oxideav)](docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 ProRes 4444 and XQ (12-bit). 422 stays 10-bit |
@@ -285,12 +285,12 @@ Use the `video2exr`, `exr2video`, `proxy`, or `transcode` subcommand to convert,
 
 Default **`prores`** is software **ProRes 422 HQ** (cross-platform, **10-bit** encode). The GUI codec picker is nested by family.
 
-**VideoToolbox** is Apple's **hardware ProRes encoder** on **macOS only** (`prores_videotoolbox` via PyAV). It is faster than software. 422 profiles stay 10-bit. **4444 and XQ keep ~12-bit class** precision that FFmpeg `prores_ks` does not. Full write-up: [docs/prores.md](docs/prores.md).
+**VideoToolbox** is the hardware encoder on **macOS only** (`prores_videotoolbox` via PyAV). It is faster than software. 422 profiles stay 10-bit. **4444 and XQ keep ~12-bit class** precision that FFmpeg `prores_ks` does not. Full write-up: [docs/prores.md](docs/prores.md).
 
 | Family | Keys | Notes |
 | --- | --- | --- |
 | **ProRes (software)** | `prores_proxy` … `prores_xq` | FFmpeg `prores_ks`; all profiles encode **10-bit** |
-| **ProRes (VideoToolbox)** | `prores_vt_proxy` … `prores_vt_xq` | **macOS only.** Apple hardware encoder. Faster. 4444 and XQ are ~12-bit class |
+| **ProRes (VideoToolbox)** | `prores_vt_proxy` … `prores_vt_xq` | **macOS only.** Hardware encoder. Faster. 4444 and XQ are ~12-bit class |
 | **ProRes (oxideav)** | `prores_ox_4444`, `prores_ox_xq` | Experimental RDD-36 in release builds. **4444 and XQ only, true 12-bit 4:4:4.** 422 is the software or VideoToolbox 10-bit profiles |
 | **Also** | DNxHR, CineForm, H.264/HEVC, FFV1 | Delivery and lossless options. See [docs/cli.md](docs/cli.md#codecs-honest-bit-depths) |
 
@@ -370,10 +370,8 @@ Still sequences on the EXR to video path are **OpenEXR** first, then **CinemaDNG
 Common sources on the bundled ACES Studio v4 config:
 
 - **Apple Log** and **Apple Log 2** (Apple Log covers iPhone 15/16 Pro cinematic / ProRes Log)
-- **ARRI LogC3** and **LogC4**
 - **Log3G10 REDWideGamutRGB**
 - Sony **S-Log3** / **S-Log2** / **S-Log** (including Venice)
-- Canon Log 2/3 (Cinema Gamut, Rec.2020, Rec.709) and Canon Log in Rec.709 and Rec.2020
 - **Nikon N-Log**
 - **Fujifilm F-Log / F-Log2 / F-Log2 C**
 - **Leica L-Log**
