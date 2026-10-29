@@ -33,7 +33,10 @@ trap fix_owner EXIT
 
 echo "---- Rocky Linux base ----"
 cat /etc/redhat-release
-ldd --version | head -1
+# ldd writes several lines. Piping to head exits early and, with pipefail,
+# that SIGPIPE aborts the whole build.
+ldd_ver=$(ldd --version 2>&1 || true)
+printf '%s\n' "${ldd_ver%%$'\n'*}"
 
 dnf -y install dnf-plugins-core
 dnf config-manager --set-enabled powertools
