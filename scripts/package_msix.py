@@ -261,18 +261,18 @@ def build_manifest(identity: MsixIdentity, version: str, background: str) -> str
     name = _xml(identity.name)
     publisher = _xml(identity.publisher)
     display = _xml(identity.publisher_display_name)
-    # Virtualization exclusions keep QSettings, presets, and the TrustMark cache
-    # in the real user profile (the same folders the Inno setup uses). They must
-    # sit inside <Properties> and need the unvirtualizedResources capability. The
-    # package directory itself stays read-only.
+    # Default MSIX write virtualization stays on. QSettings, presets, and the
+    # TrustMark cache are private to this package. Do not declare
+    # unvirtualizedResources or virtualization exclusions: Partner Center
+    # denies that restricted capability (policy 10.6.3), and this app does not
+    # hand those paths to a process outside the package.
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  xmlns:virtualization="http://schemas.microsoft.com/appx/manifest/virtualization/windows10"
-  IgnorableNamespaces="uap uap5 rescap virtualization">
+  IgnorableNamespaces="uap uap5 rescap">
   <Identity
     Name="{name}"
     Publisher="{publisher}"
@@ -282,17 +282,6 @@ def build_manifest(identity: MsixIdentity, version: str, background: str) -> str
     <DisplayName>EXR Converter</DisplayName>
     <PublisherDisplayName>{display}</PublisherDisplayName>
     <Logo>Assets\\StoreLogo.png</Logo>
-    <virtualization:FileSystemWriteVirtualization>
-      <virtualization:ExcludedDirectories>
-        <virtualization:ExcludedDirectory>$(KnownFolder:RoamingAppData)\\VFXTools</virtualization:ExcludedDirectory>
-        <virtualization:ExcludedDirectory>$(KnownFolder:LocalAppData)\\VFXTools</virtualization:ExcludedDirectory>
-      </virtualization:ExcludedDirectories>
-    </virtualization:FileSystemWriteVirtualization>
-    <virtualization:RegistryWriteVirtualization>
-      <virtualization:ExcludedKeys>
-        <virtualization:ExcludedKey>HKEY_CURRENT_USER\\Software\\VFXTools</virtualization:ExcludedKey>
-      </virtualization:ExcludedKeys>
-    </virtualization:RegistryWriteVirtualization>
   </Properties>
   <Dependencies>
     <TargetDeviceFamily
@@ -327,7 +316,6 @@ def build_manifest(identity: MsixIdentity, version: str, background: str) -> str
   </Applications>
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
-    <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
 </Package>
 """

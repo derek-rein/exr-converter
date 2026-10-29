@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Changed
+
+- Microsoft Store installs keep settings, presets, and the TrustMark model cache in the package's own virtualized AppData and registry. The package no longer requests the `unvirtualizedResources` capability, and those files are not shared with a setup `.exe` install of the same app.
+
 ---
 
 ## [0.12.5] - 2026-10-29

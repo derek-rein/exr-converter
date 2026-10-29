@@ -104,14 +104,34 @@ def test_manifest_is_full_trust_desktop_without_associations() -> None:
     assert app is not None
     assert app.get("Executable") == _APP_EXECUTABLE
     assert app.get("EntryPoint") == "Windows.FullTrustApplication"
-    capability = root.find("m:Capabilities/rescap:Capability", _NS)
-    assert capability is not None
-    assert capability.get("Name") == "runFullTrust"
+    capabilities = root.findall("m:Capabilities/rescap:Capability", _NS)
+    assert [item.get("Name") for item in capabilities] == ["runFullTrust"]
+    props = root.find("m:Properties", _NS)
+    assert props is not None
+    # MakeAppx schema: Properties holds the listing fields only. Write
+    # virtualization stays at the platform default (no exclusion elements).
+    assert [child.tag.rsplit("}", 1)[-1] for child in list(props)] == [
+        "DisplayName",
+        "PublisherDisplayName",
+        "Logo",
+    ]
+    ignorable = root.get("IgnorableNamespaces", "")
+    assert ignorable.split() == ["uap", "uap5", "rescap"]
+    assert "xmlns:virtualization" not in text
     assert "fileTypeAssociation" not in text
     assert "windows.protocol" not in text
     assert "runFullTrust" in text
     assert "AppxSignature" not in text
-    assert "VFXTools" in text
+    for absent in (
+        "unvirtualizedResources",
+        "FileSystemWriteVirtualization",
+        "RegistryWriteVirtualization",
+        "ExcludedDirectory",
+        "ExcludedKey",
+        "virtualization:",
+        "VFXTools",
+    ):
+        assert absent not in text
 
 
 def test_layout_logos_and_app_files(tmp_path: Path) -> None:

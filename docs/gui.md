@@ -392,7 +392,7 @@ final name. The model runs on the CPU with ONNX Runtime.
 | OS | Model cache |
 |----|-------------|
 | macOS | `~/Library/Caches/VFXTools/EXRConverter/trustmark` |
-| Windows | `%LOCALAPPDATA%\VFXTools\EXRConverter\Cache\trustmark` |
+| Windows | `%LOCALAPPDATA%\VFXTools\EXRConverter\Cache\trustmark` (a Microsoft Store install keeps this in the package virtual store, not in the setup `.exe` cache; see [Microsoft Store](./msix.md)) |
 | Linux | `$XDG_CACHE_HOME/exr-converter/trustmark` (default `~/.cache/exr-converter/trustmark`) |
 
 Set `EXR_TRUSTMARK_CACHE` to an absolute folder to use a different cache. It

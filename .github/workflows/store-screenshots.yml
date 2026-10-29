@@ -1,0 +1,53 @@
+# Microsoft Store listing screenshots. Dispatch only. Does not publish a release.
+name: Store screenshots
+
+on:
+  workflow_dispatch:
+  # Also runs when the screenshot script changes, so a PR can produce the
+  # artifact before this file is on the default branch (workflow_dispatch
+  # alone is not listed until then). Unrelated PRs do not start this job.
+  pull_request:
+    paths:
+      - scripts/store_screenshots.py
+      - .github/workflows/store-screenshots.yml
+      - tests/test_store_screenshots.py
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows Store screenshots
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.12.3"
+          enable-cache: true
+          cache-suffix: store-screenshots
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Ensure OpenColorIO 2.5+ linkage
+        run: uv run python scripts/ensure_ocio.py
+
+      - name: Render screenshots with the Windows Qt platform
+        env:
+          QT_QPA_PLATFORM: windows
+          QT_ENABLE_HIGHDPI_SCALING: "0"
+          QT_SCALE_FACTOR: "1"
+        run: uv run python scripts/store_screenshots.py --output store-screenshots
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: store-screenshots
+          path: store-screenshots/*.png
+          if-no-files-found: error

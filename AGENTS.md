@@ -441,8 +441,13 @@ Repository **variables** (not secrets):
 
 If the required variables are empty, the step warns and skips. The setup
 `.exe` still ships. Manifest version is `pyproject.toml` `a.b.c` → `a.b.c.0`.
-Full-trust desktop (`runFullTrust`, `Windows.FullTrustApplication`,
-`Windows.Desktop`). No file associations or protocol handlers. Submission
+Full-trust desktop (`runFullTrust` only, `Windows.FullTrustApplication`,
+`Windows.Desktop`). No file associations or protocol handlers. Do not declare
+`unvirtualizedResources` or file/registry virtualization exclusions. Store
+installs use the normal per-package virtualized AppData and registry for
+QSettings, presets, and the TrustMark cache. That state is not shared with
+the setup `.exe`. Add the capability back only if a future feature must hand
+a settings or cache file to a process outside the package. Submission
 steps: [docs/msix.md](./docs/msix.md).
 
 ### Apple Developer ID (macOS notarization)
