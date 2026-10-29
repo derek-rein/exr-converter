@@ -15,6 +15,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Added
 
+- The video browser lists `.crm` camera RAW. Without a source plugin, Inspect and convert report `Camera RAW plugin not installed`, and the codec column shows `Camera RAW (plugin not installed)`. These files are never opened with PyAV. `proxy` and `transcode` do not accept them.
 - CinemaDNG frame sequences (`.dng`) open on EXR to Video and through `video2exr` / `exr2video`. Uncompressed and lossless JPEG Bayer frames are supported. DJI Inspire 3 and Zenmuse X9 frames are scene-linear P3-D60 with the recommended +1.4 stops already applied. Other CinemaDNG sequences use the file color matrices into ACES2065-1.
 - Linux releases are built on Rocky Linux 8 and run on RHEL, Rocky, and Alma 8 and newer (glibc 2.28). The same build publishes the AppImage, a relocatable tarball (`exr_converter-linux-x86_64.tar.gz`) for `/opt`, `/software`, and Rez, and an RPM (`exr_converter-linux-x86_64.rpm`) that installs to `/opt/exr-converter`. Settings and caches stay in the XDG directories, so the install folder can be read-only.
 - macOS Quick Look previews scene-linear OpenEXR and DPX through the app's default OCIO display view (a baked 3D LUT, exposure 0 and gamma 1). Numbered frames play in the Spacebar preview when the folder can be read (home, `/Volumes`, and `/tmp`). Notarization accepts those read-only exceptions. **File → Preferences… → Quick Look** still chooses the formats. Movies, BRAW, R3D, and ARRIRAW are unchanged. See [Quick Look on macOS](docs/quicklook.md).
