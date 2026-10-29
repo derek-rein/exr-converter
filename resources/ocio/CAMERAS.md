@@ -19,7 +19,7 @@ the matrix includes the published +1.8 stop, so the sensor value that meters
 as 18% grey (`0.18 / 2^1.8`) lands on 0.18.
 
 Code values are full-range floats: 0 is code 0 and 1 is code 1023. Where a
-maker's formula is legal-range inside that word (S-Log, S-Log2, Canon Log),
+maker's formula is legal-range inside that word (S-Log, S-Log2),
 the legal offset is part of the curve.
 
 `scripts/measure_camera_lut_error.py` prints max and mean absolute error for
@@ -46,15 +46,10 @@ share a row. Status is against this file:
 
 | Family | Curve | Gamut | Status | Source |
 | --- | --- | --- | --- | --- |
-| ARRI Alexa Mini, LF, Mini LF, Amira, and other LogC3 bodies | LogC3, normalized at EI 800 | ALEXA Wide Gamut 3 | already in config | `ARRI LogC3 (EI800)`. Other EIs are exposure offsets of that curve, not extra spaces. |
-| ARRI Alexa 35 and other LogC4 bodies | LogC4 | ALEXA Wide Gamut 4 | already in config | `ARRI LogC4`. |
 | RED Weapon, Helium, Monstro, Gemini, Komodo, V-Raptor, Raptor (IPP2) | Log3G10 | REDWideGamutRGB | already in config | `Log3G10 REDWideGamutRGB`. Older REDlogFilm is display-referred and is not used as an input transform. |
 | Sony Venice, Venice 2, Burano | S-Log3 | S-Gamut3 and S-Gamut3.Cine | already in config | `S-Log3 Venice S-Gamut3` and `S-Log3 Venice S-Gamut3.Cine`. |
 | Sony FX9, FX6, FX3, FX30, and Alpha bodies that record S-Log3 | S-Log3 | S-Gamut3 and S-Gamut3.Cine | already in config | `S-Log3 S-Gamut3` and `S-Log3 S-Gamut3.Cine`. Sony publishes the same chromaticities for the original S-Gamut and for S-Gamut3. |
 | Older Sony S-Log and S-Log2 bodies | S-Log, S-Log2 | S-Gamut | added in #59 | Sony *S-Log White Paper* and *S-Log2 Technical Paper*. |
-| Canon C300 III, C500 II, C70, C400, C80, C200, EOS R5, R5 C, R6, R3 | Canon Log 2 and Canon Log 3 | Cinema Gamut | already in config | `CanonLog2 CinemaGamut D55` and `CanonLog3 CinemaGamut D55`. |
-| Those Canon bodies, Rec.2020 or Rec.709 record setting | Canon Log 2 and Canon Log 3 | Rec.2020, Rec.709 | added in #59 | Same OCIO curves plus this config's Rec.2020 or Rec.709 matrix. DCI-P3 on these cameras is a monitor gamut, not a published record IDT. |
-| Canon C100, C300, C500, and Canon Log on later bodies | Canon Log | Cinema Gamut, Rec.2020, Rec.709 | added in #59 | Canon, *Canon-Log Transfer Characteristic* (2012). |
 | Panasonic VariCam 35, VariCam LT, EVA1, S1H, S5, S5 II, GH5S, GH6, GH7, BS1H | V-Log | V-Gamut | already in config | `V-Log V-Gamut`. Panasonic V-Log / V-Gamut document. |
 | Panasonic GH4 and other V-Log L bodies | V-Log L | V-Gamut | already in config | Same published V-Log curve (18% grey at code 433/1023). V-Log L reaches fewer highlight stops; it is not a second equation. |
 | Nikon Z 6, Z 7, Z 8, Z 9, Zf, and later N-Log bodies | N-Log | N-Gamut (Rec.2020 primaries) | added in #59 | Nikon *N-Log Specification Document* v1.0.0. |
@@ -98,10 +93,6 @@ share a row. Status is against this file:
 | `L-Log Rec.709` | Published equation | Same curve. The manual assigns Rec.709 to the SL (Typ 601) only. | Same. |
 | `S-Log S-Gamut` | Published equation | Sony *S-Log White Paper*. Legal-range scaling of `0.432699·log10(t + 0.037584) + 0.646596`, `t` = reflection / 0.9. The log is used through code 0 (the log offset stays positive). 18% grey is code 394/1023. S-Gamut uses the stock S-Gamut3 matrix (Sony publishes the same chromaticities). | Published formula and chromaticities. |
 | `S-Log2 S-Gamut` | Published equation | Sony *S-Log2 Technical Paper*. S-Log of `(155/219)·sensor`, same legal-range scaling. 18% grey is code 347/1023. | Published formula and chromaticities. |
-| `CanonLog CinemaGamut D55` | Published equation | Canon Log as in Larry Thorpe, *Canon-Log Transfer Characteristic* (2012). 0% → 128/1023, 18% → 351/1023. The log is used below black as well. Cinema Gamut uses the stock matrix. | Curve constants from the public paper. |
-| `CanonLog Rec.2020`, `CanonLog Rec.709` | Published equation | Same Canon Log curve, this config's Rec.2020 or Rec.709 matrix. | Same. |
-| `CanonLog2 Rec.2020`, `CanonLog2 Rec.709` | OCIO builtin | `CURVE - CANON_CLOG2_to_LINEAR` (Canon Input Transform v1.2) plus the Rec.2020 or Rec.709 matrix. Stock `CanonLog2 CinemaGamut D55` is unchanged. | OCIO builtin, BSD-3-Clause. |
-| `CanonLog3 Rec.2020`, `CanonLog3 Rec.709` | OCIO builtin | `CURVE - CANON_CLOG3_to_LINEAR` plus the same matrices. Stock `CanonLog3 CinemaGamut D55` is unchanged. | OCIO builtin, BSD-3-Clause. |
 | `KineLOG3 Wide Gamut` | Published equation | Kinefinity, [KineLOG3 technical specifications](https://kinefinity.com/kinelog3-technical-specifications). `a=66.64`, `b=0.296`, `c=0.907136`, `d=0.092864`, `cut=-0.008239`, `s=0.017178`. Matrix is their published 4-decimal Wide Gamut → BT.2020 composed with this config's Rec.2020 → ACES matrix. | Equations and the published 3×3. No official cube was shipped by Kinefinity for this page. The 4-decimal BT.2020 matrix is the source precision (~1e-4). |
 | `Protune Rec.709` | Published equation | GoPro, [GP-Log2 & Logarithmic Exposure](https://gopro.github.io/labs/log/). Protune is log base 113: `(113^v - 1) / 112`. Rec.709 primaries. No exposure gain (the +1.8 stop is documented for GP-Log2 metering, not Protune). | Published formula. GoPro has not published a wider Protune native gamut; Rec.709 is the documented encoding primaries. |
 | `GP-Log Rec.709` | Published equation | Same GoPro note. Log base 400 (HERO12). Rec.709, no +1.8 gain. | Same. |
@@ -115,7 +106,7 @@ share a row. Status is against this file:
 
 Curve-only named transforms (no gamut matrix): `N-Log - Curve`, `F-Log - Curve`,
 `F-Log2 - Curve`, `F-Log2C - Curve`, `L-Log - Curve`, `S-Log - Curve`,
-`S-Log2 - Curve`, `Canon Log - Curve`, `KineLOG3 - Curve`, `Protune - Curve`,
+`S-Log2 - Curve`, `KineLOG3 - Curve`, `Protune - Curve`,
 `GP-Log - Curve`, `GP-Log2 - Curve` (before the +1.8 stop), `O-Log - Curve`,
 `BMD Broadcast Film Gen4 - Curve`, `BMD Pocket 4K Film Gen4 - Curve`,
 `BMD Pocket 6K Film Gen4 - Curve`. Apple Log 2 uses the stock `Apple Log - Curve`.
@@ -141,9 +132,6 @@ of times mid-grey and a float32 ulp is about 1e-5 to 1e-4.
 | L-Log linear toe | 1.1e-4 | 1.1e-4 | The manual's two pieces miss each other by ~0.0009 code. OCIO joins them. The gap is constant across the toe. |
 | S-Log, full 0–1 | 2.3e-5 | 2.6e-6 | White-paper log, including below the old lin-break at 0. |
 | S-Log2, full 0–1 | 3.1e-5 | 3.6e-6 | Same. |
-| Canon Log, full 0–1 | 2.0e-5 | 2.5e-6 | Includes codes below 128/1023. |
-| Canon Log 2 builtin vs v1.2 highlight formula (code ≥ 0.2) | 3.8e-5 | 3.3e-6 | 18% grey is in this segment. The builtin toe is not that one-line formula. |
-| Canon Log 3 builtin vs v1.2 highlight formula (code ≥ 0.2) | 5.0e-6 | 5.0e-7 | Same. |
 | KineLOG3, codes 0–1 | 8.8e-5 | 6.7e-6 | Float32 near linear ~30. Code 0 matches the published cut to ~1e-8. |
 | Protune base 113 | 2.4e-6 | 3.4e-7 | Published log. No official 1D curve file was compared. |
 | GP-Log base 400 | 3.0e-6 | 2.8e-7 | Same. |

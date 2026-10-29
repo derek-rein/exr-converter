@@ -97,16 +97,15 @@ volumes changes. Symlinked folders are not followed, and online-only folders,
 hidden folders, and system folders are skipped.
 
 **Video browser filters:** only real media extensions are listed (``.r3d``,
-``.nev``, ``.braw``, ``.ari``, ``.arx``, ``.crm``, ``.mov``, ``.mp4``, …). macOS **AppleDouble** Finder sidecars
+``.nev``, ``.braw``, ``.crm``, ``.mov``, ``.mp4``, …). macOS **AppleDouble** Finder sidecars
 (``._clip.R3D``) that appear next to clips on network shares or non-HFS
 volumes are hidden. They share the media extension but are resource-fork
 metadata, not video. RED **`.RMD`** metadata files are never listed (not a
 video extension). Selecting **`.r3d` / `.nev` / `.braw`** uses the optional
 SDK bridges for listing, **Inspect**, Preview, and grid thumbs. Never
 PyAV/FFmpeg (those containers are not libav-safe). Without the SDK, the clip
-still appears; Inspect shows SDK missing. **`.ari` / `.arx`** are listed as
-unsupported camera RAW and are never opened with PyAV. **`.crm`** is listed
-the same way. Without a source plugin, the codec column shows
+still appears; Inspect shows SDK missing. **`.crm`** is camera RAW plugin
+support for `.crm` and is never opened with PyAV. Without a source plugin, the codec column shows
 **Camera RAW (plugin not installed)**, and Inspect and convert report
 **Camera RAW plugin not installed**. Release builds can include the optional
 plugin; its runtime notices stay inside the app bundle.
@@ -184,15 +183,13 @@ long (text elides; width follows the layout).
   - **Fujifilm F-Log**, **F-Log2**, and **F-Log2 C**
   - **Leica L-Log** (Rec.2020, and Rec.709 for the SL Typ 601)
   - **Sony S-Log** and **S-Log2** (S-Gamut)
-  - **Canon Log** (Cinema Gamut, Rec.2020, Rec.709) and **Canon Log 2 / Log 3**
-    in Rec.2020 and Rec.709
   - **KineLOG3**
   - **GoPro Protune**, **GP-Log**, and **GP-Log2**
   - **Blackmagic Film Gen 4** (Broadcast, Pocket 4K, Pocket 6K)
   - **OPPO O-Log** (Rec.2020; 18% reflectance stays on linear 0.18)
   - **Apple Log 2** (Apple Wide Gamut, same curve as Apple Log)
-- Stock ACES Studio v4 spaces already include Apple Log, ARRI LogC3 and LogC4,
-  RED Log3G10, Sony S-Log3 / Venice, Canon Log 2/3 Cinema Gamut, Panasonic
+- Stock ACES Studio v4 spaces already include Apple Log,
+  RED Log3G10, Sony S-Log3 / Venice, Panasonic
   V-Log, DJI D-Log, and Blackmagic Film Gen 5. DJI D-Log M, Samsung Log, and
   Z CAM Z-Log2 are not included: no scene-linear equation was available to
   check. Sources, measured error, and the full camera table (including logs
@@ -264,7 +261,7 @@ Same honest bit-depth ladder as the CLI. Default is software **ProRes 422 HQ**
 menu: open it, then pick a family (ProRes software, VideoToolbox, oxideav,
 CineForm, DNxHR, H.264/HEVC, FFV1) and a profile inside that submenu.
 
-**VideoToolbox** is Apple’s **hardware ProRes encoder**, **macOS only**. That
+**VideoToolbox** is the hardware encoder, **macOS only**. That
 submenu is omitted on Windows and Linux. 422 profiles stay 10-bit; **4444 /
 XQ** are **~12-bit class** (unlike software 4444/XQ, which encode 10-bit).
 See [ProRes and VideoToolbox](./prores.md) for why the three ProRes families
@@ -294,7 +291,7 @@ only overlay this tab can add is the optional
 [invisible watermark](#invisible-watermark).
 
 **Source formats:** `.mov`, `.mp4`, `.m4v`, `.mxf`, `.mkv`, `.avi`, `.webm`,
-`.ts`, `.mts`, and `.m2ts`. Camera RAW (`.r3d`, `.nev`, `.braw`, ARRIRAW, `.crm`) is
+`.ts`, `.mts`, and `.m2ts`. Camera RAW (`.r3d`, `.nev`, `.braw`, `.crm`) is
 not offered here. Hidden files and macOS `._` sidecars are skipped.
 
 | Section | Control | Default | Notes |
@@ -302,7 +299,7 @@ not offered here. Hidden files and macOS `._` sidecars are skipped.
 | **Source clips** | Add Clips… / Add Folder… / Remove / Clear | empty | Drop videos or folders on the window while this tab is open to add them. |
 | | Include subfolders | off | **Add Folder…** includes nested folders, and the watch folder follows them too. `Proxy` folders are skipped. |
 | **Output** | Location | **Proxy folder next to each clip** | Writes `<clip folder>/Proxy/<clip name>.<ext>`, the layout Resolve relinks. **Custom folder** reveals a folder field and puts every proxy in that one folder. |
-| | Codec | **Apple ProRes 422 Proxy** | See the codec table below. Shares a row with Resolution. |
+| | Codec | **ProRes 422 Proxy** | See the codec table below. Shares a row with Resolution. |
 | | Resolution | **Half** | Quarter, One-eighth, Original, or Fit 1080p / 720p / 540p (fit to that height). Never upscales. Width and height are rounded to even numbers. |
 | | Audio | on | On the resolution row. Carries the first audio track: PCM in `.mov`, AAC in `.mp4`. |
 | | Suffix | none | Added to the proxy filename before the extension. Leave empty to keep the source name, which relinks best. |
@@ -311,8 +308,8 @@ not offered here. Hidden files and macOS `._` sidecars are skipped.
 
 | Proxy codec | Key | Container | Bit depth |
 |-------------|-----|-----------|-----------|
-| Apple ProRes 422 Proxy (default) | `prores_proxy` | `.mov` | 10-bit 4:2:2 |
-| Apple ProRes 422 LT | `prores_lt` | `.mov` | 10-bit 4:2:2 |
+| ProRes 422 Proxy (default) | `prores_proxy` | `.mov` | 10-bit 4:2:2 |
+| ProRes 422 LT | `prores_lt` | `.mov` | 10-bit 4:2:2 |
 | VideoToolbox ProRes 422 Proxy / LT (macOS only) | `prores_vt_proxy` / `prores_vt_lt` | `.mov` | 10-bit 4:2:2 |
 | DNxHR LB / SQ | `dnxhr_lb` / `dnxhr_sq` | `.mov` | 8-bit 4:2:2 |
 | H.264 | `h264` | `.mp4` | 8-bit 4:2:0 (CRF 23, `veryfast`) |

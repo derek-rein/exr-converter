@@ -136,7 +136,7 @@ the bridge when secret `BRAW_SDK_READ_TOKEN` is set. Without it, `.braw`
 inputs error with a clear missing-SDK message. Decode is Linear ACES AP0
 (Metal / CUDA / OpenCL when available, otherwise CPU).
 
-**`.crm` camera RAW:** the video browser lists these files. Without a source
+**Camera RAW plugin support for `.crm`:** the video browser lists these files. Without a source
 plugin, Inspect and `video2exr` report `Camera RAW plugin not installed`. The
 file is never opened with PyAV. `proxy` and `transcode` do not accept it.
 Release builds include the optional plugin when its private feed is
@@ -193,7 +193,7 @@ named after the folder, with a codec-appropriate extension:
 Keys match `exr2video --codec`. Software ProRes is **always 10-bit** encode
 (`prores_ks`); do not treat 4444/XQ as true 12-bit on that path.
 
-**VideoToolbox** (`prores_vt_*`) is **Apple’s hardware ProRes encoder** on
+**VideoToolbox** (`prores_vt_*`) is the hardware encoder on
 **macOS only.** It offers the same six profiles as software ProRes. 422
 Proxy, LT, 422, and HQ are **10-bit 4:2:2**. 4444 and XQ keep **~12-bit
 class** precision that `prores_ks` does not, with alpha only when the source
@@ -327,7 +327,7 @@ Cache locations, what survives re-encoding, and other limits:
 The watch folder polls instead of relying on OS file events, so it works on
 network shares and removable volumes. Proxies are written to a hidden
 `.name.partial.ext` file and renamed when complete. RAW clips (`.r3d`, `.nev`,
-`.braw`, ARRIRAW, `.crm`) are not supported by `proxy`.
+`.braw`, `.crm`) are not supported by `proxy`.
 
 ---
 
@@ -356,7 +356,7 @@ uv run python main.py transcode -i plate.mov --codec hevc --bitrate 25 --audio a
 uv run python main.py transcode -i clip.mov --codec prores_4444 --width 2048 --fps 24
 
 # Log footage to a Rec.709 display with the bundled ACES config
-uv run python main.py transcode -i log.mov --src "ARRI LogC3 (EI800)" --dst "Rec.1886 Rec.709 - Display"
+uv run python main.py transcode -i log.mov --src "S-Log3 S-Gamut3.Cine" --dst "Rec.1886 Rec.709 - Display"
 ```
 
 | Flag | Default | Meaning |
@@ -382,8 +382,8 @@ uv run python main.py transcode -i log.mov --src "ARRI LogC3 (EI800)" --dst "Rec
 
 | Codec key | Codec | Containers (default first) | Bit depth |
 |-----------|-------|----------------------------|-----------|
-| `prores_proxy`, `prores_lt`, `prores_422`, `prores` (HQ) | Apple ProRes 422 family (software) | `.mov` | 10-bit 4:2:2 |
-| `prores_4444`, `prores_xq` | Apple ProRes 4444 / 4444 XQ (software) | `.mov` | 10-bit 4:4:4:4 |
+| `prores_proxy`, `prores_lt`, `prores_422`, `prores` (HQ) | ProRes 422 family (software, `.mov`) | `.mov` | 10-bit 4:2:2 |
+| `prores_4444`, `prores_xq` | ProRes 4444 / 4444 XQ (software, `.mov`) | `.mov` | 10-bit 4:4:4:4 |
 | `prores_vt_*` | VideoToolbox ProRes (macOS only) | `.mov` | as in [Codecs](#codecs-honest-bit-depths) |
 | `dnxhr_lb`, `dnxhr_sq`, `dnxhr_hq` | DNxHR LB / SQ / HQ | `.mov`, `.mxf` | 8-bit 4:2:2 |
 | `dnxhr_hqx` | DNxHR HQX | `.mov`, `.mxf` | 10-bit 4:2:2 |
@@ -410,8 +410,8 @@ first audio track is carried according to `--audio`.
 **Camera RAW.** `.r3d` / `.nev` and `.braw` are accepted when the
 [R3D](./r3d.md) or [BRAW](./braw.md) bridge is available. They decode to float
 RGB in the camera space the SDK reports (R3D Log3G10 / REDWideGamutRGB, BRAW
-Linear ACES AP0), have no audio, and usually want `--src` / `--dst`. ARRIRAW and
-`.crm` are not supported.
+Linear ACES AP0), have no audio, and usually want `--src` / `--dst`. `.crm`
+is not supported.
 
 Outputs are written to a hidden `.name.partial.ext` file and renamed when
 complete. A clip that fails is reported and the batch continues (exit code
