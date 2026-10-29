@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QToolButton,
     QVBoxLayout,
@@ -47,7 +48,6 @@ from ..core.watch_folder import DEFAULT_SETTLE_SECONDS, WatchFolder
 from ..services.proxy_queue import ProxyJob, ProxyQueue, WatchPoller
 from .color_widgets import lock_form_row_height
 from .convert_tab import _ConvertFormBody, _form_scroll_area
-from .style import HINT_STYLE
 
 LOCATION_BESIDE = "beside"
 LOCATION_CUSTOM = "custom"
@@ -115,7 +115,34 @@ class _CollapsibleSection(QWidget):
 
     def _on_toggled(self, expanded: bool) -> None:
         self.toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
-        self.body.setVisible(expanded)
+        if not expanded:
+            self.body.setVisible(False)
+            return
+        # Showing the body lays out every parent right away. Inside a scroll
+        # form that is still at its old height, that pass squeezes the groups
+        # above, then the scroll area grows the form and lays it all out a
+        # second time, so the whole tab moves and repaints. Growing the form
+        # first means the show only moves this section.
+        form = self._scroll_form()
+        if form is None:
+            self.body.setVisible(True)
+            return
+        extra = self.body.sizeHint().height() + max(self.layout().spacing(), 0)
+        before = form.minimumSize()
+        form.setMinimumHeight(form.minimumSizeHint().height() + extra)
+        self.body.setVisible(True)
+        form.setMinimumSize(before)
+
+    def _scroll_form(self) -> QWidget | None:
+        """The resizable scroll-area form this section sits in, if any."""
+        inner: QWidget | None = self
+        while inner is not None:
+            parent = inner.parentWidget()
+            area = parent.parentWidget() if parent is not None else None
+            if isinstance(area, QScrollArea) and area.widget() is inner:
+                return inner if area.widgetResizable() else None
+            inner = parent
+        return None
 
     def set_expanded(self, expanded: bool) -> None:
         self.toggle.setChecked(expanded)
@@ -289,37 +316,34 @@ class ProxyTab(QWidget):
         out_main.addLayout(grid)
         layout.addWidget(out_group)
 
-        # -- Watch folder (collapsed: header matches one form row) --
-        self._watch_section = _CollapsibleSection("Watch folder")
-        self._watch_section.toggle.setToolTip(
-            "Show the watch-folder path and options. Start Watching is always here."
-        )
-        self.watch_status = QLabel("Not watching.")
-        self.watch_status.setStyleSheet(HINT_STYLE)
-        self.watch_status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.watch_btn = QPushButton("Start Watching")
-        self.watch_btn.setObjectName("watchBtn")
-        self.watch_btn.setCheckable(True)
-        self._watch_section.header.addWidget(self.watch_status, 1)
-        self._watch_section.header.addWidget(self.watch_btn)
-
+        # -- Watch folder (always shown; status lives in the group title) --
+        self._watch_group = QGroupBox()
+        watch_row = QHBoxLayout(self._watch_group)
+        watch_row.setSpacing(6)
         self.watch_dir = QLineEdit(str(settings.value(f"{_K}/watch_dir", "") or ""))
         self.watch_dir.setPlaceholderText("Folder to watch for new clips")
         self._browse_watch = QPushButton("Browse…")
-        watch_row = QHBoxLayout()
-        watch_row.setSpacing(6)
-        watch_row.addWidget(self.watch_dir, 1)
-        watch_row.addWidget(self._browse_watch)
-        self._watch_section.body_layout.addLayout(watch_row)
-
-        self.existing_cb = QCheckBox("Also convert clips already there")
+        self.existing_cb = QCheckBox("Existing clips too")
         self.existing_cb.setToolTip(
             "When watching starts, proxy the clips already in the folder too.\n"
             "Off: only clips that arrive after you start watching."
         )
         self.existing_cb.setChecked(settings.value(f"{_K}/watch_existing", False, type=bool))
-        self._watch_section.body_layout.addWidget(self.existing_cb)
-        layout.addWidget(self._watch_section)
+        self.watch_btn = QPushButton("Start Watching")
+        self.watch_btn.setObjectName("watchBtn")
+        self.watch_btn.setCheckable(True)
+        # Same width for Start and Stop, so toggling never shifts the row.
+        widths = []
+        for text in ("Stop Watching", "Start Watching"):
+            self.watch_btn.setText(text)
+            widths.append(self.watch_btn.sizeHint().width())
+        self.watch_btn.setMinimumWidth(max(widths))
+        watch_row.addWidget(self.watch_dir, 1)
+        watch_row.addWidget(self._browse_watch)
+        watch_row.addSpacing(8)
+        watch_row.addWidget(self.existing_cb)
+        watch_row.addWidget(self.watch_btn)
+        layout.addWidget(self._watch_group)
 
         for combo, chars in (
             (self.location_combo, 28),
@@ -327,7 +351,7 @@ class ProxyTab(QWidget):
             (self.resolution_combo, 12),
         ):
             _limit_combo_width(combo, chars)
-        for g in (in_group, out_group, self._watch_section):
+        for g in (in_group, out_group, self._watch_group):
             g.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addStretch()
 
@@ -345,8 +369,6 @@ class ProxyTab(QWidget):
             self._strength_label,
             self.watermark_strength,
             self.recursive_cb,
-            self._watch_section.toggle,
-            self.watch_status,
             self.watch_btn,
             self.watch_dir,
             self._browse_watch,
@@ -403,6 +425,7 @@ class ProxyTab(QWidget):
         self._queue.busy_changed.connect(self.busy_changed)
         self._queue.queue_changed.connect(lambda _: self._update_watch_status())
         self._queue.job_finished.connect(self._on_job_finished)
+        self._update_watch_status()
 
     # -- small helpers --
 
@@ -636,7 +659,6 @@ class ProxyTab(QWidget):
 
     def _on_watch_toggled(self, on: bool) -> None:
         if on and self._poller is None:
-            self._watch_section.set_expanded(True)
             if not self.start_watching():
                 self.watch_btn.blockSignals(True)
                 self.watch_btn.setChecked(False)
@@ -673,9 +695,7 @@ class ProxyTab(QWidget):
             parts.append(f"{self._queue.completed} done")
         if self._queue.failed:
             parts.append(f"{self._queue.failed} failed")
-        text = " · ".join(parts) + "."
-        self.watch_status.setText(text)
-        self.watch_status.setToolTip(text)
+        self._watch_group.setTitle("Watch folder · " + " · ".join(parts))
 
     def shutdown(self) -> None:
         """Stop the watcher and any running job (window close)."""
