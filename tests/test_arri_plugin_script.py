@@ -132,3 +132,14 @@ def test_install_fails_when_required_but_missing(
     monkeypatch.setattr(module, "REQUIRED", required)
     with pytest.raises(SystemExit, match="did not build"):
         module.install(tmp_path / "bundle")
+
+
+@pytest.mark.parametrize("smudge", [True, False])
+def test_git_env_ignores_saved_credentials(tmp_path: Path, smudge: bool) -> None:
+    # On macOS/Windows the credential store kept the camera RAW token and gave it
+    # to the ARRI clone ("Repository not found"). Helpers must be switched off.
+    module = _load()
+    env = module._git_env("tok", tmp_path / "askpass.sh", smudge=smudge)
+    assert env["GIT_CONFIG_COUNT"] == "1"
+    assert env["GIT_CONFIG_KEY_0"] == "credential.helper"
+    assert env["GIT_CONFIG_VALUE_0"] == ""
