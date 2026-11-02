@@ -17,6 +17,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 - Transcode output names and folders take naming variables, in the same `<token>` style as the slate: `<reel>`, `<srcresolution>`, `<srcwidth>`, `<srcheight>`, `<srcfps>`, `<timecode>` and `<parent>` join `<name>`, `<codec>`, `<width>`, `<height>`, `<fps>` and `<date>`, plus `<resolution>` for the output size. The reel comes from the clip's metadata, or from a camera clip name such as `A_0001C001_…`. Right-click the Name or Folder field to insert one.
 - A `/` in the Transcode name pattern (or `transcode --name`) makes sub-folders, for example `<reel>/<name>/<srcresolution>/<name>_<codec>`. The custom folder (and `--output-dir`) can use variables too.
+- Transcode Name and Folder fields expand Unix-style environment variables on every platform: `$VAR`, `${VAR}`, and `${VAR:-default}`. An unset variable with no default stops that clip with an error instead of writing `$VAR` into the path.
 
 ### Changed
 

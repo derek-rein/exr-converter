@@ -43,6 +43,7 @@ from .errors import ConversionCancelled
 from .path_tokens import (
     PATH_TOKEN_GROUPS,
     build_path_values,
+    expand_env,
     expand_folder,
     expand_name_pattern,
     needs_output_geometry,
@@ -550,7 +551,7 @@ def format_output_name(
     names become ``_``. *source_info* is :func:`probe_source_info` (reel,
     timecode, source size); without it only the name-derived reel is known.
     """
-    pattern = (pattern or "").strip() or DEFAULT_NAME_PATTERN
+    pattern = expand_env((pattern or "").strip()) or DEFAULT_NAME_PATTERN
     values = build_path_values(
         source,
         codec=codec_slug(codec_key),
@@ -581,7 +582,7 @@ def plan_output(
     """Output path for *source*, or ``None`` when it exists and *overwrite* is skip.
 
     Without *output_dir* the file goes next to the source. Both *output_dir*
-    and *pattern* may use ``<token>`` variables (see :mod:`.path_tokens`), and
+    and *pattern* may use ``$ENV`` and ``<token>`` variables (see :mod:`.path_tokens`), and
     ``/`` in *pattern* makes sub-folders. The output can never be the source
     file itself. *taken* holds paths already planned in this batch so "Add a
     number" does not hand two clips the same name. Entries are compared with
@@ -590,7 +591,8 @@ def plan_output(
     """
     src = Path(source)
     container = resolve_container(settings.codec_key, settings.container)
-    out_dir = os.fspath(output_dir) if output_dir else ""
+    out_dir = expand_env(os.fspath(output_dir)) if output_dir else ""
+    pattern = expand_env((pattern or "").strip()) or DEFAULT_NAME_PATTERN
     if source_info is None and needs_source_probe(pattern, out_dir):
         source_info = probe_source_info(src)
     if not (width and height and fps) and needs_output_geometry(pattern, out_dir):
@@ -605,7 +607,7 @@ def plan_output(
         today=today,
     )
     folder = expand_folder(out_dir, values) if out_dir else src.parent
-    subdirs, stem = expand_name_pattern((pattern or "").strip() or DEFAULT_NAME_PATTERN, values)
+    subdirs, stem = expand_name_pattern(pattern, values)
     folder = folder.joinpath(*subdirs)
     out = folder / f"{stem}.{container}"
     taken_norm = {_norm(p) for p in (taken or set())}

@@ -12,6 +12,10 @@ metadata. When a clip has no reel name in its metadata, the reel is read from
 a camera-style clip name (``A_0001C001…`` → ``A_0001``, ``A001C003…`` →
 ``A001``).
 
+Both fields also expand Unix-style environment variables (``$SHOW``,
+``${SHOW}``, ``${SHOW:-default}``) on every platform, before the tokens: ``$``
+for values from the pipeline, ``<token>`` for values from the clip.
+
 Qt-free so the GUI, the CLI and the tests share it.
 """
 
@@ -299,6 +303,41 @@ def substitute_path(text: str, values: Mapping[str, str]) -> str:
     return TOKEN_RE.sub(_sub, text or "")
 
 
+_ENV_RE = re.compile(
+    r"\$\$"  # $$ → a literal $
+    r"|\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)(?::-(?P<default>[^}]*))?\}"
+    r"|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)"
+)
+
+
+def expand_env(text: str | None, env: Mapping[str, str] | None = None) -> str:
+    """Expand Unix-style environment variables in *text*, on every platform.
+
+    ``$VAR`` and ``${VAR}`` take the variable's value; ``${VAR:-default}`` uses
+    *default* when ``VAR`` is unset or empty; ``$$`` is a literal ``$``. An unset
+    variable with no default raises :class:`ValueError`, so a typo never lands
+    in a path. A ``$`` not followed by a name is left as is.
+    """
+    environ = os.environ if env is None else env
+
+    def _sub(m: re.Match[str]) -> str:
+        if m.group(0) == "$$":
+            return "$"
+        name = m.group("braced") or m.group("bare")
+        value = environ.get(name)
+        default = m.group("default")
+        if default is not None:
+            return value if value else default
+        if value is None:
+            raise ValueError(
+                f"Environment variable ${name} is not set "
+                f"(use ${{{name}:-fallback}} for a default)."
+            )
+        return value
+
+    return _ENV_RE.sub(_sub, text or "")
+
+
 def _clean_segment(seg: str) -> str:
     # A token with no value leaves a stray separator, e.g. "<reel>_<name>"
     # with no reel → "_A001C003"; trim those along with spaces and dots.
@@ -358,6 +397,7 @@ __all__ = [
     "PATH_TOKEN_GROUPS",
     "build_path_values",
     "canonical",
+    "expand_env",
     "expand_folder",
     "expand_name_pattern",
     "has_tokens",

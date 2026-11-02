@@ -530,6 +530,20 @@ A token with no value (a clip with no reel) drops its folder level and any
 `_` or `-` left at the ends of a name. An unknown token stops that clip with an
 error in the log.
 
+**Environment variables.** Both fields also read environment variables, Unix
+style on every platform (Windows too), before the tokens are filled in: `$`
+for values from the pipeline, `<>` for values from the clip.
+
+| Form | Value |
+|------|-------|
+| `$VAR`, `${VAR}` | The variable's value (empty if it is set but empty) |
+| `${VAR:-default}` | `default` when `VAR` is unset or empty |
+| `$$` | A literal `$` |
+
+An unset variable with no default stops that clip with an error in the log
+(`Environment variable $SHOW is not set`), so a typo never ends up in a path.
+For example, a folder of `$DAILIES_ROOT/${SHOW:-misc}/<date>/<reel>`.
+
 ### Input color space
 
 Each clip converts from its own input space. When a clip is added, its color

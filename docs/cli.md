@@ -362,7 +362,7 @@ uv run python main.py transcode -i log.mov --src "S-Log3 S-Gamut3.Cine" --dst "R
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `-i`, `--input PATH …` | (required) | Clips and/or folders of clips |
-| `-o`, `--output-dir DIR` | next to each clip | One folder for all outputs. May use the same tokens as `--name`, for example `/dailies/<date>/<reel>` |
+| `-o`, `--output-dir DIR` | next to each clip | One folder for all outputs. May use the same tokens as `--name`, for example `/dailies/<date>/<reel>`. `$VAR` / `${VAR}` / `${VAR:-default}` environment variables are expanded too (the shell does this in double quotes; in single quotes the app does it, and an unset variable is an error) |
 | `--codec KEY` | `prores` (ProRes 422 HQ) | See the codec table below. The list in `--help` is what this machine can encode |
 | `--container EXT` | codec default | `mov`, `mxf`, `mp4`, or `mkv`, where the codec allows it (table below) |
 | `--resolution KEY` | `original` | `original`, `75`, `half`, `quarter`, `eighth` (scale), `2160`, `1080`, `720`, `540` (fit to that height), or `custom`. Scale and fit never upscale. Sizes round to even numbers |

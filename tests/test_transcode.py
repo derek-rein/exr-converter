@@ -281,6 +281,18 @@ class TestNaming:
         out = plan_output(src, s, pattern="<parent>_tc/<name>", source_info=info)
         assert out == src.parent / "in_tc" / "A001C003_x.mp4"
 
+    def test_plan_output_env_then_tokens(self, tmp_path, monkeypatch):
+        src = tmp_path / "A001C003_x.mov"
+        src.write_bytes(b"x")
+        monkeypatch.setenv("DAILIES_ROOT", str(tmp_path / "dailies"))
+        monkeypatch.setenv("SHOW", "PROJ")
+        monkeypatch.delenv("NOPE", raising=False)
+        s = TranscodeSettings(codec_key="h264")
+        out = plan_output(src, s, output_dir="$DAILIES_ROOT/<reel>", pattern="${SHOW}_<name>")
+        assert out == tmp_path / "dailies" / "A001" / "PROJ_A001C003_x.mp4"
+        with pytest.raises(ValueError, match="NOPE is not set"):
+            plan_output(src, s, pattern="$NOPE/<name>")
+
     def test_probe_source_info_reads_clip(self, tmp_path):
         from src.core.path_tokens import probe_source_info
 

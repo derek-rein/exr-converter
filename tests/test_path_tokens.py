@@ -9,6 +9,7 @@ import pytest
 from src.core.path_tokens import (
     _REEL_KEYS,
     _pick,
+    expand_env,
     expand_folder,
     expand_name_pattern,
     reel_from_clip_name,
@@ -59,3 +60,12 @@ def test_resolution_x_and_y_aliases():
     assert substitute_path("<srcresx>x<srcres_y>", v) == "3840x2160"
     assert substitute_path("<source-resolution-x>_<resolution_y>", v) == "3840_1080"
     assert substitute_path("<resx>/<resy>", v) == "1920/1080"
+
+
+def test_expand_env_unix_style():
+    env = {"SHOW": "PROJ", "ROOT": "/mnt/show", "EMPTY": ""}
+    assert expand_env("$ROOT/${SHOW}_dailies", env) == "/mnt/show/PROJ_dailies"
+    assert expand_env("${MISSING:-none}/${EMPTY:-x}/$EMPTY", env) == "none/x/"
+    assert expand_env("cost$$5 $5", env) == "cost$5 $5"
+    with pytest.raises(ValueError, match=r"\$MISSING is not set"):
+        expand_env("$MISSING/<name>", env)

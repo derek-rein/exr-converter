@@ -318,7 +318,8 @@ class TranscodeTab(QWidget):
             groups=PATH_TOKEN_GROUPS,
             tooltip=(
                 "Folder for all transcodes. It can use variables too, e.g.\n"
-                "/Volumes/Dailies/<date>/<reel>\n"
+                "/Volumes/Dailies/<date>/<reel>  or  $DAILIES_ROOT/<reel>\n"
+                "$VAR / ${VAR} read environment variables (${VAR:-default} for a fallback).\n"
                 "Right-click to insert a variable:\n\n" + tokens_tooltip()
             ),
         )
@@ -330,7 +331,8 @@ class TranscodeTab(QWidget):
         grid.addWidget(self._browse_out, 6, 4)
         self._naming_hint = QLabel(
             "Right-click Name or Folder to insert variables such as <reel>, <name> "
-            "or <srcresolution>. Use / in Name for sub-folders."
+            "or <srcresolution>. Use / in Name for sub-folders, and $VAR or ${VAR} "
+            "for environment variables."
         )
         self._naming_hint.setStyleSheet(HINT_STYLE)
         self._naming_hint.setWordWrap(True)
