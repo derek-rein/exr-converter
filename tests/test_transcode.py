@@ -236,7 +236,65 @@ class TestNaming:
     def test_unknown_token_and_bad_chars(self):
         with pytest.raises(ValueError, match="Unknown name token"):
             format_output_name("<shot>", "x.mov", codec_key="h264")
-        assert format_output_name("a:b/<name>", "x.mov", codec_key="h264") == "a_b_x"
+        assert format_output_name("a:b/<name>", "x.mov", codec_key="h264") == "a_b/x"
+
+    def test_subfolders_and_source_tokens(self, tmp_path):
+        src = tmp_path / "A_0001C001_261022_145741_a12S6.mov"
+        info = {"srcwidth": "3840", "srcheight": "2160", "reel": "", "timecode": "14:57:41:00"}
+        rel = format_output_name(
+            "<reel>/<name>/<srcresolution>/<name>_<codec>",
+            src,
+            codec_key="prores",
+            source_info=info,
+        )
+        assert rel == (
+            "A_0001/A_0001C001_261022_145741_a12S6/3840x2160/"
+            "A_0001C001_261022_145741_a12S6_ProRes422HQ"
+        )
+        # Aliases and spellings, as in the slate variables.
+        assert (
+            format_output_name(
+                "<Reel_Name>_<source-resolution>_<TC>", src, codec_key="h264", source_info=info
+            )
+            == "A_0001_3840x2160_14_57_41_00"
+        )
+        # A blank token drops its folder level and trims stray separators.
+        assert format_output_name("<reel>/<reel>_<name>", "/a/clip.mov", codec_key="h264") == "clip"
+        with pytest.raises(ValueError, match=r"\.\."):
+            format_output_name("../<name>", src, codec_key="h264")
+
+    def test_plan_output_tokens_in_folder_and_name(self, tmp_path):
+        src = tmp_path / "in" / "A001C003_x.mov"
+        src.parent.mkdir()
+        src.write_bytes(b"x")
+        s = TranscodeSettings(codec_key="h264")
+        info = {"reel": "A001", "srcwidth": "128", "srcheight": "72"}
+        out = plan_output(
+            src,
+            s,
+            output_dir=str(tmp_path / "out" / "<reel>"),
+            pattern="<srcres>/<name>",
+            source_info=info,
+        )
+        assert out == tmp_path / "out" / "A001" / "128x72" / "A001C003_x.mp4"
+        # No custom folder: sub-folders go next to the clip.
+        out = plan_output(src, s, pattern="<parent>_tc/<name>", source_info=info)
+        assert out == src.parent / "in_tc" / "A001C003_x.mp4"
+
+    def test_probe_source_info_reads_clip(self, tmp_path):
+        from src.core.path_tokens import probe_source_info
+
+        src = tmp_path / "B002C007_take.mov"
+        _write_clip(src, timecode="01:00:00:00", audio=False)
+        info = probe_source_info(src)
+        assert info["srcwidth"] == "128" and info["srcheight"] == "72"
+        assert info["srcfps"] == "24"
+        assert info["timecode"] == "01:00:00:00"
+        assert info["reel"] == "B002"  # from the camera clip name
+        out = plan_output(
+            src, TranscodeSettings(codec_key="h264"), pattern="<reel>/<srcresolution>/<name>"
+        )
+        assert out == tmp_path / "B002" / "128x72" / "B002C007_take.mp4"
 
     def test_plan_output_locations_and_overwrite(self, tmp_path):
         src = tmp_path / "clip.mov"

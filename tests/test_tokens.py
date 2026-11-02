@@ -100,3 +100,10 @@ def test_shottypes_and_submitfor_mapping():
     assert substitute("<shottypes>", values) == "2d comp"
     assert substitute("<submitfor>", values) == "WIP"
     assert substitute("<status>", values) == "WIP"  # alias
+
+
+def test_underscores_and_hyphens_are_ignored():
+    values = build_values(_SLATE)
+    assert substitute("<shot_types>", values) == "2d comp"
+    assert substitute("<shot-types>", values) == "2d comp"
+    assert substitute("<Submit-For>", values) == "WIP"

@@ -13,6 +13,15 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- Transcode output names and folders take naming variables, in the same `<token>` style as the slate: `<reel>`, `<srcresolution>`, `<srcwidth>`, `<srcheight>`, `<srcfps>`, `<timecode>` and `<parent>` join `<name>`, `<codec>`, `<width>`, `<height>`, `<fps>` and `<date>`, plus `<resolution>` for the output size. The reel comes from the clip's metadata, or from a camera clip name such as `A_0001C001_…`. Right-click the Name or Folder field to insert one.
+- A `/` in the Transcode name pattern (or `transcode --name`) makes sub-folders, for example `<reel>/<name>/<srcresolution>/<name>_<codec>`. The custom folder (and `--output-dir`) can use variables too.
+
+### Changed
+
+- Slate and burn-in variables ignore `_` and `-` in names, so `<shot_types>` and `<shot-types>` both work.
+
 ---
 
 ## [0.12.12] - 2026-10-29

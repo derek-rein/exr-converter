@@ -497,10 +497,38 @@ are not supported.
 | | Quality | CRF 18 (H.264), 20 (HEVC), 28 (AV1), preset `medium` | Long-GOP codecs only: **Constant quality (CRF)** or **Target bitrate** (Mb/s), plus the x264 / x265 speed preset (mapped to SVT-AV1 presets for AV1). ProRes and DNxHR show a note instead: their quality is set by the profile. |
 | | Audio | **Copy source audio** | Copy keeps the first audio track as is when the container can hold it, and otherwise encodes AAC (`.mp4` / `.mkv`) or 24-bit PCM (`.mov` / `.mxf`). Also **AAC**, **PCM 24-bit**, or **No audio**. The list follows the container: `.mp4` has no PCM and `.mxf` has no AAC. |
 | | If file exists | **Skip** | **Overwrite**, or **Add a number** (`_1`, `_2`, …). An output can never replace its own source. |
-| | Location | **Next to each clip** | **Custom folder** reveals a folder field for all outputs. |
-| | Name | `<name>_<codec>` | File name without the extension. Tokens: `<name>`, `<codec>` (for example `ProRes422HQ`, `DNxHR_HQX`, `H264`, `HEVC10`), `<width>`, `<height>`, `<fps>`, `<date>`. Characters that are not allowed in file names become `_`. |
+| | Location | **Next to each clip** | **Custom folder** reveals a folder field for all outputs. The folder can use [naming variables](#naming-variables), for example `/Volumes/Dailies/<date>/<reel>`. |
+| | Name | `<name>_<codec>` | File name without the extension. Use `/` to make sub-folders. Right-click to insert a [naming variable](#naming-variables). Characters that are not allowed in file names become `_`. |
 | **Color and watermark** | Output space | `Output - Rec.709` | One output space or display for every clip, from the OCIO config at the top of the window. A display uses that display's default view, as on EXR → Video. |
 | | Invisible watermark | off | Payload and strength, the same [invisible watermark](#invisible-watermark) as Video → Proxy, added after the color step on the picture the codec encodes. |
+
+### Naming variables
+
+The **Name** and **Folder** fields take `<token>` variables, written the same
+way as the slate and burn-in variables: right-click either field for an
+**Insert Variable** menu. Case does not matter and `_` / `-` are ignored, so
+`<reelname>`, `<reel_name>` and `<Reel-Name>` are the same token. A `/` in
+**Name** makes sub-folders (next to each clip, or inside the custom folder).
+
+| Token | Also | Value |
+|-------|------|-------|
+| `<name>` | `<filename>`, `<clip>` | Source file name without the extension |
+| `<reel>` | `<reelname>`, `<tape>` | Reel name from the clip's metadata. With none, the reel part of a camera clip name (`A_0001C001_…` → `A_0001`, `A001C003_…` → `A001`) |
+| `<srcresolution>` | `<source-resolution>`, `<srcres>` | Source size, for example `3840x2160` |
+| `<srcwidth>`, `<srcheight>`, `<srcfps>` | | Source width, height and frame rate |
+| `<timecode>` | `<tc>` | Start timecode, with `:` turned into `_` (`14_57_41_00`) |
+| `<parent>` | `<folder>` | Name of the folder the clip is in |
+| `<codec>` | | Output codec, for example `ProRes422HQ`, `DNxHR_HQX`, `H264`, `HEVC10` |
+| `<resolution>` | `<res>` | Output size after scaling |
+| `<width>`, `<height>`, `<fps>` | | Output width, height and frame rate |
+| `<date>` | | Today's date (`YYYY-MM-DD`) |
+
+For example, the name `<reel>/<name>/<srcresolution>/<name>_<codec>` turns
+`A_0001C001_261022_145741_a12S6.mov` into
+`A_0001/A_0001C001_261022_145741_a12S6/3840x2160/A_0001C001_261022_145741_a12S6_ProRes422HQ.mov`.
+A token with no value (a clip with no reel) drops its folder level and any
+`_` or `-` left at the ends of a name. An unknown token stops that clip with an
+error in the log.
 
 ### Input color space
 

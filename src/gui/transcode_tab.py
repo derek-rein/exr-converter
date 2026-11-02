@@ -36,6 +36,7 @@ from ..core.constants import (
     X26X_PRESETS,
 )
 from ..core.ocio_utils import find_equivalent_space
+from ..core.path_tokens import PATH_TOKEN_GROUPS, tokens_tooltip
 from ..core.transcode import (
     AUDIO_MODES,
     CONTAINER_LABELS,
@@ -48,7 +49,6 @@ from ..core.transcode import (
     DEFAULT_PRESET,
     DEFAULT_TRANSCODE_CODEC,
     DEFAULT_TRANSCODE_RESOLUTION,
-    NAME_TOKENS,
     OVERWRITE_MODES,
     RATE_BITRATE,
     RATE_CRF,
@@ -76,6 +76,7 @@ from .color_widgets import ColorSpaceButton, lock_form_row_height
 from .convert_tab import _ConvertFormBody, _form_scroll_area
 from .proxy_tab import _field_label, _limit_combo_width
 from .style import HINT_STYLE
+from .token_line_edit import TokenLineEdit
 from .transcode_clips import ClipColorTree
 
 LOCATION_BESIDE = "beside"
@@ -295,26 +296,45 @@ class TranscodeTab(QWidget):
         self.location_combo = QComboBox()
         self.location_combo.addItem("Next to each clip", LOCATION_BESIDE)
         self.location_combo.addItem("Custom folder", LOCATION_CUSTOM)
-        self.name_edit = QLineEdit(
+        self.name_edit = TokenLineEdit(
+            groups=PATH_TOKEN_GROUPS,
+            tooltip=(
+                "File name without the extension. Use / to make sub-folders, e.g.\n"
+                "<reel>/<name>/<srcresolution>/<name>_<codec>\n"
+                "Right-click to insert a variable:\n\n" + tokens_tooltip()
+            ),
+        )
+        self.name_edit.setText(
             str(settings.value(f"{_K}/pattern", DEFAULT_NAME_PATTERN) or DEFAULT_NAME_PATTERN)
         )
         self.name_edit.setPlaceholderText(DEFAULT_NAME_PATTERN)
-        self.name_edit.setToolTip(
-            "File name without the extension. Tokens:\n"
-            + "\n".join(f"<{t}>  {d}" for t, d in NAME_TOKENS)
-        )
         grid.addWidget(_field_label("Location"), 5, 0)
         grid.addWidget(self.location_combo, 5, 1)
         grid.addWidget(_field_label("Name"), 5, 2)
         grid.addWidget(self.name_edit, 5, 3, 1, 2)
 
         self._folder_label = _field_label("Folder")
-        self.output_dir = QLineEdit(str(settings.value(f"{_K}/output_dir", "") or ""))
+        self.output_dir = TokenLineEdit(
+            groups=PATH_TOKEN_GROUPS,
+            tooltip=(
+                "Folder for all transcodes. It can use variables too, e.g.\n"
+                "/Volumes/Dailies/<date>/<reel>\n"
+                "Right-click to insert a variable:\n\n" + tokens_tooltip()
+            ),
+        )
+        self.output_dir.setText(str(settings.value(f"{_K}/output_dir", "") or ""))
         self.output_dir.setPlaceholderText("Folder for all transcodes")
         self._browse_out = QPushButton("Browse…")
         grid.addWidget(self._folder_label, 6, 0)
         grid.addWidget(self.output_dir, 6, 1, 1, 3)
         grid.addWidget(self._browse_out, 6, 4)
+        self._naming_hint = QLabel(
+            "Right-click Name or Folder to insert variables such as <reel>, <name> "
+            "or <srcresolution>. Use / in Name for sub-folders."
+        )
+        self._naming_hint.setStyleSheet(HINT_STYLE)
+        self._naming_hint.setWordWrap(True)
+        grid.addWidget(self._naming_hint, 7, 1, 1, 4)
         layout.addWidget(out_group)
 
         # -- Color and watermark --

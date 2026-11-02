@@ -70,7 +70,6 @@ _ALIASES: dict[str, str] = {
     "file": "input",
     "filename": "input",
     "status": "submitfor",
-    "shot_types": "shottypes",
     "start": "startframe",
     "end": "endframe",
 }
@@ -79,11 +78,22 @@ _ALIASES: dict[str, str] = {
 # any field the pipeline can render the overlay once and reuse it.
 PER_FRAME_TOKENS: frozenset[str] = frozenset({"frame"})
 
-_TOKEN_RE = re.compile(r"<([A-Za-z][A-Za-z0-9_]*)>")
+# ``<name>`` with letters, digits, ``_`` or ``-``.  Shared with the transcode
+# output-path tokens (:mod:`src.core.transcode`) so both use one syntax.
+TOKEN_RE = re.compile(r"<([A-Za-z][A-Za-z0-9_-]*)>")
+_TOKEN_RE = TOKEN_RE
+
+
+def token_key(name: str) -> str:
+    """Lookup key for a token name: lower case, ``_`` and ``-`` ignored.
+
+    So ``<Shot_Types>``, ``<shot-types>`` and ``<shottypes>`` are one token.
+    """
+    return name.lower().replace("_", "").replace("-", "")
 
 
 def _canonical(name: str) -> str:
-    key = name.lower()
+    key = token_key(name)
     return _ALIASES.get(key, key)
 
 
@@ -180,8 +190,10 @@ def build_values(
 __all__ = [
     "PER_FRAME_TOKENS",
     "TOKEN_GROUPS",
+    "TOKEN_RE",
     "any_per_frame_token",
     "build_values",
     "has_per_frame_token",
     "substitute",
+    "token_key",
 ]
