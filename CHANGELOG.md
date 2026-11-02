@@ -13,12 +13,14 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+## [0.12.13] - 2026-11-02
+
 ### Added
 
 - Transcode output names and folders take naming variables, in the same `<token>` style as the slate: `<reel>`, `<srcresolution>`, `<srcwidth>`, `<srcheight>`, `<srcfps>`, `<timecode>` and `<parent>` join `<name>`, `<codec>`, `<width>`, `<height>`, `<fps>` and `<date>`, plus `<resolution>` for the output size. The reel comes from the clip's metadata, or from a camera clip name such as `A_0001C001_…`. Right-click the Name or Folder field to insert one.
 - A `/` in the Transcode name pattern (or `transcode --name`) makes sub-folders, for example `<reel>/<name>/<srcresolution>/<name>_<codec>`. The custom folder (and `--output-dir`) can use variables too.
 - Transcode Name and Folder fields expand Unix-style environment variables on every platform: `$VAR`, `${VAR}`, and `${VAR:-default}`. An unset variable with no default stops that clip with an error instead of writing `$VAR` into the path.
-- Release builds can include ARRIRAW and ARRICORE support (`.ari` sequences and ARRI `.mxf`) through the ARRI Image SDK when the private ARRI feed is configured. Help → About then shows the ARRI Image SDK and MXF Library versions, and ARRI's notices ship inside the app. Builds without the feed are unchanged.
+- ARRIRAW and ARRICORE support (`.ari` sequences and ARRI `.mxf`) through the ARRI Image SDK, in the release builds for macOS, Windows and Linux. Help → About shows the ARRI Image SDK and MXF Library versions, and ARRI's notices ship inside the app.
 
 - New [Variables](./docs/variables.md) docs page listing every `<token>` (Transcode paths, slate, burn-in, watermark), its aliases, and environment variable rules.
 
@@ -1118,7 +1120,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.12...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.13...HEAD
+[0.12.13]: https://github.com/derek-rein/exr-converter/compare/v0.12.12...v0.12.13
 [0.12.12]: https://github.com/derek-rein/exr-converter/compare/v0.12.11...v0.12.12
 [0.12.11]: https://github.com/derek-rein/exr-converter/compare/v0.12.10...v0.12.11
 [0.12.10]: https://github.com/derek-rein/exr-converter/compare/v0.12.9...v0.12.10
