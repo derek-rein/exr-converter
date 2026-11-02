@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- Release builds can include ARRIRAW and ARRICORE support (`.ari` sequences and ARRI `.mxf`) through the ARRI Image SDK when the private ARRI feed is configured. Help → About then shows the ARRI Image SDK and MXF Library versions, and ARRI's notices ship inside the app. Builds without the feed are unchanged.
+
 ---
 
 ## [0.12.12] - 2026-10-29

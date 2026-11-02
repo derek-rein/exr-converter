@@ -131,7 +131,7 @@ else
   echo "BRAW_SDK_READ_TOKEN not set — skipping BRAW bridge"
 fi
 
-if [ -n "${CAMERA_RAW_READ_TOKEN:-}" ]; then
+if [ -n "${CAMERA_RAW_READ_TOKEN:-}" ] || [ -n "${ARRI_SDK_READ_TOKEN:-}" ]; then
   dnf -y install cmake ocl-icd
   if ! command -v git-lfs >/dev/null 2>&1; then
     curl -fsSL -o /tmp/git-lfs.tar.gz \
@@ -141,10 +141,14 @@ if [ -n "${CAMERA_RAW_READ_TOKEN:-}" ]; then
     tar -C /tmp/git-lfs-extract -xzf /tmp/git-lfs.tar.gz
     install -m 755 /tmp/git-lfs-extract/*/git-lfs /usr/local/bin/git-lfs
   fi
+fi
+if [ -n "${CAMERA_RAW_READ_TOKEN:-}" ]; then
   uv run python scripts/camera_raw_plugin.py prepare
 else
   echo "camera RAW plugin token not set; skipping"
 fi
+# ARRI plugin (prints its own skip line without ARRI_SDK_READ_TOKEN).
+uv run python scripts/arri_plugin.py prepare
 
 uv run python scripts/build_cinemadng.py
 
@@ -155,8 +159,9 @@ RAW_FLAGS=()
 while IFS= read -r flag || [ -n "$flag" ]; do
   flag="${flag%$'\r'}"
   [ -n "$flag" ] || continue
+  case " ${RAW_FLAGS[*]-} " in *" $flag "*) continue ;; esac
   RAW_FLAGS+=("$flag")
-done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags)
+done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags; uv run python scripts/arri_plugin.py nuitka-flags)
 
 # Flags kept in sync with `make bundle` and the Release workflow Nuitka step.
 # NUITKA_JOBS caps C compile/LTO parallelism on small machines (default: all cores).
@@ -204,14 +209,16 @@ uv run python scripts/install_cinemadng_into_bundle.py dist/main.dist
 uv run python scripts/install_r3d_into_bundle.py dist/main.dist
 uv run python scripts/install_braw_into_bundle.py dist/main.dist
 uv run python scripts/camera_raw_plugin.py install dist/main.dist
+uv run python scripts/arri_plugin.py install dist/main.dist
 
 STRIP_EX=()
-if [ -f build/camera-raw-strip-paths.txt ]; then
+for list in build/camera-raw-strip-paths.txt build/arri-strip-paths.txt; do
+  [ -f "$list" ] || continue
   while IFS= read -r pat || [ -n "$pat" ]; do
     [ -n "$pat" ] || continue
     STRIP_EX+=(! -path "$pat")
-  done < build/camera-raw-strip-paths.txt
-fi
+  done < "$list"
+done
 find dist/main.dist -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) \
   ! -path '*/r3d/*' ! -path '*/braw/*' \
   ${STRIP_EX[@]+"${STRIP_EX[@]}"} \

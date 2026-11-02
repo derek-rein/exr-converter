@@ -142,6 +142,11 @@ file is never opened with PyAV. `proxy` and `transcode` do not accept it.
 Release builds include the optional plugin when its private feed is
 configured, and then ship that plugin's runtime notices inside the app.
 
+**ARRIRAW (`.ari`, ARRIRAW / ARRICORE `.mxf`):** builds that include the ARRI
+plugin decode these with the ARRI Image SDK in the camera's log space (LogC4 /
+AWG4 for ALEXA 35, LogC3 / AWG3 otherwise) for `video2exr`. Without the plugin,
+`.ari` reports `Camera RAW is not supported`.
+
 ---
 
 ## `exr2video`: image sequence to video
