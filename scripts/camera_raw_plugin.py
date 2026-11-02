@@ -36,6 +36,7 @@ ENABLED = ROOT / "src" / "plugins" / "_enabled.py"
 REQUIRED = ROOT / "build" / "camera-raw-required"
 STRIP_PATHS = ROOT / "build" / "camera-raw-strip-paths.txt"
 TOKEN_ENV = "CAMERA_RAW_READ_TOKEN"
+VERBOSE_ENV = "CAMERA_RAW_PLUGIN_VERBOSE"
 
 # Assembled so this file does not spell the private feed's name in one piece.
 _FEED_REPO = "derek-rein/" + "can" + "on-sdk-private"
@@ -64,8 +65,14 @@ def _run(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None 
         check=False,
     )
     if proc.returncode != 0:
-        detail = redact((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
-        raise SystemExit(f"command failed ({proc.returncode})\n{detail}")
+        # Compiler and CMake output can quote the private SDK headers, and
+        # public CI logs are world-readable. Show it only when asked.
+        msg = f"command failed ({proc.returncode})"
+        if os.environ.get(VERBOSE_ENV) == "1":
+            msg += "\n" + redact((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+        else:
+            msg += f". Output hidden; set {VERBOSE_ENV}=1 on a private machine to see it."
+        raise SystemExit(msg)
 
 
 def _git_env(token: str, askpass: Path) -> dict[str, str]:
