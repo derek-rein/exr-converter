@@ -50,7 +50,7 @@ opens that URL (`DOCS_URL` in `src/core/constants.py`).
 |------|--------|
 | When | Any change that affects how users run or integrate the app: CLI flags, GUI behavior, codecs, OCIO/defaults, install/packaging users notice, Nuke/helpers, post-convert prefs, launch flags |
 | Where | Update the matching file under `docs/` in the **same PR / commit set** as the code (and [CHANGELOG.md](./CHANGELOG.md) when user-visible) |
-| Map | [docs/cli.md](./docs/cli.md) CLI + GUI launch · [docs/gui.md](./docs/gui.md) GUI / prefs / overlays · [docs/quicklook.md](./docs/quicklook.md) macOS Quick Look · [docs/prores.md](./docs/prores.md) VideoToolbox / software / oxideav · [docs/nuke.md](./docs/nuke.md) Nuke menu · [docs/releasing.md](./docs/releasing.md) short release pointer · design notes only when the design changes |
+| Map | [docs/cli.md](./docs/cli.md) CLI + GUI launch · [docs/gui.md](./docs/gui.md) GUI / prefs / overlays · [docs/quicklook.md](./docs/quicklook.md) macOS Quick Look · [docs/variables.md](./docs/variables.md) every `<token>` / `$VAR` (tests check it lists them all) · [docs/prores.md](./docs/prores.md) VideoToolbox / software / oxideav · [docs/nuke.md](./docs/nuke.md) Nuke menu · [docs/releasing.md](./docs/releasing.md) short release pointer · design notes only when the design changes |
 | Do not | Leave docs describing old flags/defaults/codecs. Do not put the only copy of user docs solely in chat or PR text. |
 
 Agents: **before finishing work**, check whether `docs/` still matches the

@@ -268,6 +268,10 @@ Transcode can also add an [invisible watermark](#invisible-watermark)
 | **Burn-in** | Per-frame text overlay |
 | **Watermark** | Text watermark (default **40%** opacity, **tiled** across frame; size/angle editable) |
 
+Burn-in fields and the watermark text take `<token>` variables such as
+`<shot>`, `<version>` and `<frame>`; right-click a field to insert one. The
+full list is in [Variables](./variables.md#overlay-tokens).
+
 Overlays are authored in a display/sRGB-oriented space, linearised into a
 scene-linear **compositing space** (prefer ACES2065-1 via `aces_interchange`,
 else `scene_linear`), alpha-composited, then OCIO-transformed to the encode
@@ -506,43 +510,13 @@ are not supported.
 
 The **Name** and **Folder** fields take `<token>` variables, written the same
 way as the slate and burn-in variables: right-click either field for an
-**Insert Variable** menu. Case does not matter and `_` / `-` are ignored, so
-`<reelname>`, `<reel_name>` and `<Reel-Name>` are the same token. A `/` in
-**Name** makes sub-folders (next to each clip, or inside the custom folder).
-
-| Token | Also | Value |
-|-------|------|-------|
-| `<name>` | `<filename>`, `<clip>` | Source file name without the extension |
-| `<reel>` | `<reelname>`, `<tape>` | Reel name from the clip's metadata. With none, the reel part of a camera clip name (`A_0001C001_…` → `A_0001`, `A001C003_…` → `A001`) |
-| `<srcresolution>` | `<source-resolution>`, `<srcres>` | Source size, for example `3840x2160` |
-| `<srcwidth>`, `<srcheight>`, `<srcfps>` | `<srcresx>`, `<srcresy>` | Source width, height and frame rate |
-| `<timecode>` | `<tc>` | Start timecode, with `:` turned into `_` (`14_57_41_00`) |
-| `<parent>` | `<folder>` | Name of the folder the clip is in |
-| `<codec>` | | Output codec, for example `ProRes422HQ`, `DNxHR_HQX`, `H264`, `HEVC10` |
-| `<resolution>` | `<res>` | Output size after scaling |
-| `<width>`, `<height>`, `<fps>` | `<resx>`, `<resy>` | Output width, height and frame rate |
-| `<date>` | | Today's date (`YYYY-MM-DD`) |
-
-For example, the name `<reel>/<name>/<srcresolution>/<name>_<codec>` turns
+**Insert Variable** menu. A `/` in **Name** makes sub-folders. Both fields
+also expand `$VAR` / `${VAR}` environment variables. For example, the name
+`<reel>/<name>/<srcresolution>/<name>_<codec>` turns
 `A_0001C001_261022_145741_a12S6.mov` into
 `A_0001/A_0001C001_261022_145741_a12S6/3840x2160/A_0001C001_261022_145741_a12S6_ProRes422HQ.mov`.
-A token with no value (a clip with no reel) drops its folder level and any
-`_` or `-` left at the ends of a name. An unknown token stops that clip with an
-error in the log.
 
-**Environment variables.** Both fields also read environment variables, Unix
-style on every platform (Windows too), before the tokens are filled in: `$`
-for values from the pipeline, `<>` for values from the clip.
-
-| Form | Value |
-|------|-------|
-| `$VAR`, `${VAR}` | The variable's value (empty if it is set but empty) |
-| `${VAR:-default}` | `default` when `VAR` is unset or empty |
-| `$$` | A literal `$` |
-
-An unset variable with no default stops that clip with an error in the log
-(`Environment variable $SHOW is not set`), so a typo never ends up in a path.
-For example, a folder of `$DAILIES_ROOT/${SHOW:-misc}/<date>/<reel>`.
+Every token, alias and rule is in [Variables](./variables.md).
 
 ### Input color space
 

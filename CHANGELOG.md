@@ -19,6 +19,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 - A `/` in the Transcode name pattern (or `transcode --name`) makes sub-folders, for example `<reel>/<name>/<srcresolution>/<name>_<codec>`. The custom folder (and `--output-dir`) can use variables too.
 - Transcode Name and Folder fields expand Unix-style environment variables on every platform: `$VAR`, `${VAR}`, and `${VAR:-default}`. An unset variable with no default stops that clip with an error instead of writing `$VAR` into the path.
 
+- New [Variables](./docs/variables.md) docs page listing every `<token>` (Transcode paths, slate, burn-in, watermark), its aliases, and environment variable rules.
+
 ### Changed
 
 - Slate and burn-in variables ignore `_` and `-` in names, so `<shot_types>` and `<shot-types>` both work.
