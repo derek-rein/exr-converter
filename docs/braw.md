@@ -249,3 +249,8 @@ Official sample clip (from the SDK package, not this repo): `profile.braw`.
 `derek-rein/braw-sdk-private` tarball at `BRAW_BRIDGE_REF` (default `bridge-v1`)
 using `BRAW_SDK_READ_TOKEN` / `gh auth`. Without access, builds skip the bridge
 and the app reports the format as unavailable.
+
+The build hides compiler and linker output, because public CI logs are
+world-readable and diagnostics can quote the confidential source. It prints
+only success or the exit code. Set `PRIVATE_BUILD_VERBOSE=1` on a private
+machine to see the full output.
