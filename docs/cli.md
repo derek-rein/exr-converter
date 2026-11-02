@@ -367,7 +367,7 @@ uv run python main.py transcode -i log.mov --src "S-Log3 S-Gamut3.Cine" --dst "R
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `-i`, `--input PATH …` | (required) | Clips and/or folders of clips |
-| `-o`, `--output-dir DIR` | next to each clip | One folder for all outputs |
+| `-o`, `--output-dir DIR` | next to each clip | One folder for all outputs. May use the same tokens as `--name`, for example `/dailies/<date>/<reel>`. `$VAR` / `${VAR}` / `${VAR:-default}` environment variables are expanded too (the shell does this in double quotes; in single quotes the app does it, and an unset variable is an error). See [Variables](./variables.md#environment-variables) |
 | `--codec KEY` | `prores` (ProRes 422 HQ) | See the codec table below. The list in `--help` is what this machine can encode |
 | `--container EXT` | codec default | `mov`, `mxf`, `mp4`, or `mkv`, where the codec allows it (table below) |
 | `--resolution KEY` | `original` | `original`, `75`, `half`, `quarter`, `eighth` (scale), `2160`, `1080`, `720`, `540` (fit to that height), or `custom`. Scale and fit never upscale. Sizes round to even numbers |
@@ -377,7 +377,7 @@ uv run python main.py transcode -i log.mov --src "S-Log3 S-Gamut3.Cine" --dst "R
 | `--crf N` | 18 (H.264), 20 (HEVC), 28 (AV1) | Constant quality for long-GOP codecs. `0` to `51` (AV1 `0` to `63`). Ignored for ProRes and DNxHR |
 | `--bitrate MBPS` | off | Target bitrate in Mb/s for long-GOP codecs, instead of CRF |
 | `--preset NAME` | `medium` | x264 / x265 speed preset. For AV1 it maps to the matching SVT-AV1 preset number |
-| `--name PATTERN` | `<name>_<codec>` | File name without the extension. Tokens: `<name>` (source name), `<codec>` (for example `ProRes422HQ`, `DNxHR_HQX`, `H264`, `HEVC10`, `AV1`), `<width>`, `<height>`, `<fps>`, `<date>` |
+| `--name PATTERN` | `<name>_<codec>` | File name without the extension; `/` makes sub-folders. Tokens: `<name>` (source name), `<reel>` (from metadata, or the camera clip name), `<srcresolution>`, `<srcwidth>`, `<srcheight>`, `<srcfps>`, `<timecode>`, `<parent>` (source folder name), `<codec>` (for example `ProRes422HQ`, `DNxHR_HQX`, `H264`, `HEVC10`, `AV1`), `<resolution>`, `<width>`, `<height>`, `<fps>`, `<date>`. See [Variables](./variables.md) for aliases and rules. Example: `--name "<reel>/<name>/<srcresolution>/<name>"` |
 | `--if-exists MODE` | `skip` | `skip`, `overwrite`, or `rename` (adds `_1`, `_2`, …). The output can never replace its own source |
 | `--ocio PATH` | bundled / `$OCIO` | OCIO config for `--src` / `--dst` |
 | `--src NAME` / `--dst NAME` | (none) | Both together turn on the OCIO transform. `--dst` may be a display, which uses that display's default view |

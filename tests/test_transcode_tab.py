@@ -271,3 +271,9 @@ def test_failed_clip_is_marked(tab: TranscodeTab, tmp_path) -> None:
     assert _wait_until(lambda: not tab.is_busy())
     assert tab.queue.failed == 1
     assert tab.clip_tree.status_text(str(bad)).startswith("✗ ")
+
+
+def test_name_and_folder_offer_path_variables(tab: TranscodeTab) -> None:
+    for edit in (tab.name_edit, tab.output_dir):
+        names = {n for _g, toks in edit.token_groups() for n, _d, _t in toks}
+        assert {"reel", "name", "srcresolution", "codec"} <= names
