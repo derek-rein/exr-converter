@@ -52,3 +52,10 @@ def test_expand_folder_keeps_literal_text():
     assert expand_folder("/mnt/out", {}) == Path("/mnt/out")
     assert expand_folder("/mnt/./out/<reel>", {"reel": "A1"}) == Path("/mnt/./out/A1")
     assert expand_folder("/mnt/<reel>/day", {"reel": ""}) == Path("/mnt/day")
+
+
+def test_resolution_x_and_y_aliases():
+    v = {"srcwidth": "3840", "srcheight": "2160", "width": "1920", "height": "1080"}
+    assert substitute_path("<srcresx>x<srcres_y>", v) == "3840x2160"
+    assert substitute_path("<source-resolution-x>_<resolution_y>", v) == "3840_1080"
+    assert substitute_path("<resx>/<resy>", v) == "1920/1080"

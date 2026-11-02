@@ -515,12 +515,12 @@ way as the slate and burn-in variables: right-click either field for an
 | `<name>` | `<filename>`, `<clip>` | Source file name without the extension |
 | `<reel>` | `<reelname>`, `<tape>` | Reel name from the clip's metadata. With none, the reel part of a camera clip name (`A_0001C001_…` → `A_0001`, `A001C003_…` → `A001`) |
 | `<srcresolution>` | `<source-resolution>`, `<srcres>` | Source size, for example `3840x2160` |
-| `<srcwidth>`, `<srcheight>`, `<srcfps>` | | Source width, height and frame rate |
+| `<srcwidth>`, `<srcheight>`, `<srcfps>` | `<srcresx>`, `<srcresy>` | Source width, height and frame rate |
 | `<timecode>` | `<tc>` | Start timecode, with `:` turned into `_` (`14_57_41_00`) |
 | `<parent>` | `<folder>` | Name of the folder the clip is in |
 | `<codec>` | | Output codec, for example `ProRes422HQ`, `DNxHR_HQX`, `H264`, `HEVC10` |
 | `<resolution>` | `<res>` | Output size after scaling |
-| `<width>`, `<height>`, `<fps>` | | Output width, height and frame rate |
+| `<width>`, `<height>`, `<fps>` | `<resx>`, `<resy>` | Output width, height and frame rate |
 | `<date>` | | Today's date (`YYYY-MM-DD`) |
 
 For example, the name `<reel>/<name>/<srcresolution>/<name>_<codec>` turns
