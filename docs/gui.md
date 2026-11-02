@@ -272,6 +272,10 @@ Transcode can also add an [invisible watermark](#invisible-watermark)
 | **Burn-in** | Per-frame text overlay |
 | **Watermark** | Text watermark (default **40%** opacity, **tiled** across frame; size/angle editable) |
 
+Burn-in fields and the watermark text take `<token>` variables such as
+`<shot>`, `<version>` and `<frame>`; right-click a field to insert one. The
+full list is in [Variables](./variables.md#overlay-tokens).
+
 Overlays are authored in a display/sRGB-oriented space, linearised into a
 scene-linear **compositing space** (prefer ACES2065-1 via `aces_interchange`,
 else `scene_linear`), alpha-composited, then OCIO-transformed to the encode
@@ -501,10 +505,22 @@ are not supported.
 | | Quality | CRF 18 (H.264), 20 (HEVC), 28 (AV1), preset `medium` | Long-GOP codecs only: **Constant quality (CRF)** or **Target bitrate** (Mb/s), plus the x264 / x265 speed preset (mapped to SVT-AV1 presets for AV1). ProRes and DNxHR show a note instead: their quality is set by the profile. |
 | | Audio | **Copy source audio** | Copy keeps the first audio track as is when the container can hold it, and otherwise encodes AAC (`.mp4` / `.mkv`) or 24-bit PCM (`.mov` / `.mxf`). Also **AAC**, **PCM 24-bit**, or **No audio**. The list follows the container: `.mp4` has no PCM and `.mxf` has no AAC. |
 | | If file exists | **Skip** | **Overwrite**, or **Add a number** (`_1`, `_2`, …). An output can never replace its own source. |
-| | Location | **Next to each clip** | **Custom folder** reveals a folder field for all outputs. |
-| | Name | `<name>_<codec>` | File name without the extension. Tokens: `<name>`, `<codec>` (for example `ProRes422HQ`, `DNxHR_HQX`, `H264`, `HEVC10`), `<width>`, `<height>`, `<fps>`, `<date>`. Characters that are not allowed in file names become `_`. |
+| | Location | **Next to each clip** | **Custom folder** reveals a folder field for all outputs. The folder can use [naming variables](#naming-variables), for example `/Volumes/Dailies/<date>/<reel>`. |
+| | Name | `<name>_<codec>` | File name without the extension. Use `/` to make sub-folders. Right-click to insert a [naming variable](#naming-variables). Characters that are not allowed in file names become `_`. |
 | **Color and watermark** | Output space | `Output - Rec.709` | One output space or display for every clip, from the OCIO config at the top of the window. A display uses that display's default view, as on EXR → Video. |
 | | Invisible watermark | off | Payload and strength, the same [invisible watermark](#invisible-watermark) as Video → Proxy, added after the color step on the picture the codec encodes. |
+
+### Naming variables
+
+The **Name** and **Folder** fields take `<token>` variables, written the same
+way as the slate and burn-in variables: right-click either field for an
+**Insert Variable** menu. A `/` in **Name** makes sub-folders. Both fields
+also expand `$VAR` / `${VAR}` environment variables. For example, the name
+`<reel>/<name>/<srcresolution>/<name>_<codec>` turns
+`A_0001C001_261022_145741_a12S6.mov` into
+`A_0001/A_0001C001_261022_145741_a12S6/3840x2160/A_0001C001_261022_145741_a12S6_ProRes422HQ.mov`.
+
+Every token, alias and rule is in [Variables](./variables.md).
 
 ### Input color space
 

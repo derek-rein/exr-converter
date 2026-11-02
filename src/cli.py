@@ -588,8 +588,10 @@ def _add_transcode_parser(sub) -> None:
         "--name",
         default=DEFAULT_NAME_PATTERN,
         help=(
-            f"File name pattern (default: {DEFAULT_NAME_PATTERN}). Tokens: <name> <codec> "
-            "<width> <height> <fps> <date>"
+            f"File name pattern (default: {DEFAULT_NAME_PATTERN}). / makes sub-folders. "
+            "Tokens: <name> <reel> <srcresolution> <srcwidth> <srcheight> <srcfps> "
+            "<timecode> <parent> <codec> <resolution> <width> <height> <fps> <date>. "
+            "--output-dir can use them too"
         ),
     )
     tc.add_argument(

@@ -40,6 +40,16 @@ from .constants import (
     video_codec_by_key,
 )
 from .errors import ConversionCancelled
+from .path_tokens import (
+    PATH_TOKEN_GROUPS,
+    build_path_values,
+    expand_env,
+    expand_folder,
+    expand_name_pattern,
+    needs_output_geometry,
+    needs_source_probe,
+    probe_source_info,
+)
 
 ProgressCallback = Callable[[int, int], None]
 LogCallback = Callable[[str], None]
@@ -403,13 +413,9 @@ OVERWRITE_MODES: tuple[tuple[str, str], ...] = (
 DEFAULT_OVERWRITE = OVERWRITE_SKIP
 
 DEFAULT_NAME_PATTERN = "<name>_<codec>"
-NAME_TOKENS: tuple[tuple[str, str], ...] = (
-    ("name", "Source file name without extension"),
-    ("codec", "Codec, e.g. ProRes422HQ or H264"),
-    ("width", "Output width"),
-    ("height", "Output height"),
-    ("fps", "Output frame rate"),
-    ("date", "Today's date (YYYY-MM-DD)"),
+# (token, description) for every output path token. See :mod:`.path_tokens`.
+NAME_TOKENS: tuple[tuple[str, str], ...] = tuple(
+    (n, d) for _g, toks in PATH_TOKEN_GROUPS for n, _disp, d in toks
 )
 
 # SVT-AV1 presets (0 slowest, 13 fastest) for the shared x264 preset names.
@@ -527,16 +533,6 @@ def encoder_options(settings: TranscodeSettings) -> tuple[dict[str, str], int]:
     return opts, bit_rate
 
 
-_TOKEN_RE = re.compile(r"<([A-Za-z_]+)>")
-_BAD_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
-
-
-def _fps_label(fps: float) -> str:
-    if abs(fps - round(fps)) < 1e-3:
-        return str(int(round(fps)))
-    return f"{fps:.3f}".rstrip("0").rstrip(".")
-
-
 def format_output_name(
     pattern: str,
     source: str | os.PathLike[str],
@@ -545,35 +541,28 @@ def format_output_name(
     width: int = 0,
     height: int = 0,
     fps: float = 0.0,
+    source_info: dict[str, str] | None = None,
     today: datetime.date | None = None,
 ) -> str:
-    """Expand ``<token>`` names in *pattern* into a file stem (no extension).
+    """Expand ``<token>`` names in *pattern* into a relative path stem (no extension).
 
-    Unknown tokens raise :class:`ValueError`. Characters that are not allowed
-    in file names become ``_``.
+    ``/`` in *pattern* makes sub-folders, so the result may hold ``/``. Unknown
+    tokens raise :class:`ValueError`. Characters that are not allowed in file
+    names become ``_``. *source_info* is :func:`probe_source_info` (reel,
+    timecode, source size); without it only the name-derived reel is known.
     """
-    pattern = (pattern or "").strip() or DEFAULT_NAME_PATTERN
-    values = {
-        "name": Path(source).stem,
-        "codec": codec_slug(codec_key),
-        "width": str(width) if width else "",
-        "height": str(height) if height else "",
-        "fps": _fps_label(fps) if fps else "",
-        "date": (today or datetime.date.today()).isoformat(),
-    }
-
-    def _sub(m: re.Match[str]) -> str:
-        tok = m.group(1).lower()
-        if tok not in values:
-            known = ", ".join(f"<{t}>" for t, _ in NAME_TOKENS)
-            raise ValueError(f"Unknown name token <{m.group(1)}> (use {known}).")
-        return values[tok]
-
-    stem = _TOKEN_RE.sub(_sub, pattern)
-    stem = _BAD_NAME_CHARS.sub("_", stem).strip().strip(".")
-    if not stem:
-        raise ValueError("The file name pattern produced an empty name.")
-    return stem
+    pattern = expand_env((pattern or "").strip()) or DEFAULT_NAME_PATTERN
+    values = build_path_values(
+        source,
+        codec=codec_slug(codec_key),
+        width=width,
+        height=height,
+        fps=fps,
+        source_info=source_info,
+        today=today,
+    )
+    folders, stem = expand_name_pattern(pattern, values)
+    return "/".join([*folders, stem])
 
 
 def plan_output(
@@ -586,24 +575,40 @@ def plan_output(
     width: int = 0,
     height: int = 0,
     fps: float = 0.0,
+    source_info: dict[str, str] | None = None,
     taken: set[str] | None = None,
+    today: datetime.date | None = None,
 ) -> Path | None:
     """Output path for *source*, or ``None`` when it exists and *overwrite* is skip.
 
-    Without *output_dir* the file goes next to the source. The output can never
-    be the source file itself. *taken* holds paths already planned in this
-    batch so "Add a number" does not hand two clips the same name. Entries are
-    compared with :func:`_norm` (absolute path, and case-folded on Windows),
-    so a raw ``str(path)`` from the GUI or CLI matches.
+    Without *output_dir* the file goes next to the source. Both *output_dir*
+    and *pattern* may use ``$ENV`` and ``<token>`` variables (see :mod:`.path_tokens`), and
+    ``/`` in *pattern* makes sub-folders. The output can never be the source
+    file itself. *taken* holds paths already planned in this batch so "Add a
+    number" does not hand two clips the same name. Entries are compared with
+    :func:`_norm` (absolute path, and case-folded on Windows), so a raw
+    ``str(path)`` from the GUI or CLI matches.
     """
     src = Path(source)
     container = resolve_container(settings.codec_key, settings.container)
-    folder = Path(output_dir).expanduser() if output_dir else src.parent
-    if not (width and height and fps) and _needs_probe(pattern):
+    out_dir = expand_env(os.fspath(output_dir)) if output_dir else ""
+    pattern = expand_env((pattern or "").strip()) or DEFAULT_NAME_PATTERN
+    if source_info is None and needs_source_probe(pattern, out_dir):
+        source_info = probe_source_info(src)
+    if not (width and height and fps) and needs_output_geometry(pattern, out_dir):
         width, height, fps = output_geometry(src, settings)
-    stem = format_output_name(
-        pattern, src, codec_key=settings.codec_key, width=width, height=height, fps=fps
+    values = build_path_values(
+        src,
+        codec=codec_slug(settings.codec_key),
+        width=width,
+        height=height,
+        fps=fps,
+        source_info=source_info,
+        today=today,
     )
+    folder = expand_folder(out_dir, values) if out_dir else src.parent
+    subdirs, stem = expand_name_pattern(pattern, values)
+    folder = folder.joinpath(*subdirs)
     out = folder / f"{stem}.{container}"
     taken_norm = {_norm(p) for p in (taken or set())}
 
@@ -625,11 +630,6 @@ def plan_output(
     if out.exists() and overwrite == OVERWRITE_SKIP:
         return None
     return out
-
-
-def _needs_probe(pattern: str) -> bool:
-    p = (pattern or "").lower()
-    return any(f"<{t}>" in p for t in ("width", "height", "fps"))
 
 
 def output_geometry(

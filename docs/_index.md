@@ -71,6 +71,7 @@ as the code (and [CHANGELOG.md](https://github.com/derek-rein/exr-converter/blob
 |-------|--------|
 | [CLI](./cli.md) | `video2exr`, `exr2video`, `proxy` (`--watch`, `--watermark`), `transcode`, GUI launch flags |
 | [Linux](./linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
+| [Variables](./variables.md) | Every `<token>` for slate, burn-in, watermark and Transcode output paths, and `$VAR` / `${VAR}` environment variables |
 | [GUI](./gui.md) | Tabs, Video → Proxy and the watch folder, Transcode, invisible watermark, browsers, player, overlays, preferences, post-convert |
 | [Quick Look on macOS](./quicklook.md) | Spacebar previews and Finder icons for EXR, DPX, and optional stills |
 | [ProRes and VideoToolbox](./prores.md) | Software vs VideoToolbox vs oxideav, bit depths |
