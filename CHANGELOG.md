@@ -13,7 +13,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
-## [0.12.13] - 2026-11-02
+## [0.12.14] - 2026-11-02
 
 ### Added
 
@@ -21,6 +21,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 - A `/` in the Transcode name pattern (or `transcode --name`) makes sub-folders, for example `<reel>/<name>/<srcresolution>/<name>_<codec>`. The custom folder (and `--output-dir`) can use variables too.
 - Transcode Name and Folder fields expand Unix-style environment variables on every platform: `$VAR`, `${VAR}`, and `${VAR:-default}`. An unset variable with no default stops that clip with an error instead of writing `$VAR` into the path.
 - ARRIRAW and ARRICORE support (`.ari` sequences and ARRI `.mxf`) through the ARRI Image SDK, in the release builds for macOS, Windows and Linux. Help → About shows the ARRI Image SDK and MXF Library versions, and ARRI's notices ship inside the app.
+- ARRI clips decode on the GPU when one is available (Metal on Mac, CUDA or OpenCL elsewhere) and fall back to the CPU otherwise.
 
 - New [Variables](./docs/variables.md) docs page listing every `<token>` (Transcode paths, slate, burn-in, watermark), its aliases, and environment variable rules.
 
@@ -1120,8 +1121,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.13...HEAD
-[0.12.13]: https://github.com/derek-rein/exr-converter/compare/v0.12.12...v0.12.13
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.14...HEAD
+[0.12.14]: https://github.com/derek-rein/exr-converter/compare/v0.12.12...v0.12.14
 [0.12.12]: https://github.com/derek-rein/exr-converter/compare/v0.12.11...v0.12.12
 [0.12.11]: https://github.com/derek-rein/exr-converter/compare/v0.12.10...v0.12.11
 [0.12.10]: https://github.com/derek-rein/exr-converter/compare/v0.12.9...v0.12.10

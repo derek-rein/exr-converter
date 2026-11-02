@@ -94,3 +94,12 @@ def test_verbose_failure_shows_redacted_output(monkeypatch: pytest.MonkeyPatch) 
         module._run(cmd)
     assert "url ***" in str(exc.value)
     assert "tok123" not in str(exc.value)
+
+
+def test_git_env_ignores_saved_credentials(tmp_path: Path) -> None:
+    # Keychain / Credential Manager must not hand another feed's token to git.
+    module = _load()
+    env = module._git_env("tok", tmp_path / "askpass.sh")
+    assert env["GIT_CONFIG_COUNT"] == "1"
+    assert env["GIT_CONFIG_KEY_0"] == "credential.helper"
+    assert env["GIT_CONFIG_VALUE_0"] == ""

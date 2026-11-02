@@ -105,6 +105,13 @@ def _git_env(token: str, askpass: Path, *, smudge: bool) -> dict[str, str]:
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["GIT_ASKPASS"] = str(askpass)
+    # Ignore Keychain / Credential Manager. On macOS and Windows runners they
+    # save the first token used for github.com and offer it to later clones,
+    # so a second private feed got the wrong token. This also keeps tokens
+    # out of the runner's credential store.
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "credential.helper"
+    env["GIT_CONFIG_VALUE_0"] = ""
     env[TOKEN_ENV] = token
     if smudge:
         env.pop("GIT_LFS_SKIP_SMUDGE", None)
