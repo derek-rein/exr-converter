@@ -5,7 +5,7 @@ The bridge source is confidential and lives in the private repo
 derek-rein/r3d-sdk-private (bridge/), not in this MIT repository. This wrapper
 locates it (R3D_BRIDGE_SRC, ~/code/r3d-sdk-private/bridge, or downloads the
 repo tarball at R3D_BRIDGE_REF using R3D_SDK_READ_TOKEN / gh auth) and runs
-its build script. Output: build/r3d/.
+its build script quietly (see private_bridge.run_build). Output: build/r3d/.
 
 Usage:
   R3D_SDK_ROOT=/path/to/sdk python3 scripts/build_r3d_bridge.py [-v] [--sdk PATH] [--out DIR]
@@ -18,12 +18,11 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from private_bridge import ROOT, find_bridge  # noqa: E402
+from private_bridge import ROOT, find_bridge, run_build  # noqa: E402
 
 DEFAULT_REPO = "derek-rein/r3d-sdk-private"
 DEFAULT_REF = "bridge-v1"
@@ -48,7 +47,7 @@ def main() -> None:
     if a.dry_run:
         print(" ".join(cmd))
         return
-    subprocess.check_call(cmd, cwd=ROOT)
+    run_build("R3D", cmd, cwd=ROOT, token_env="R3D_SDK_READ_TOKEN")
 
 
 if __name__ == "__main__":

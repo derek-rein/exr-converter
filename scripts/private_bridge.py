@@ -3,6 +3,11 @@
 The R3D / BRAW C ABI bridge sources are NOT part of this MIT repository (SDK
 license compliance). They live in the private SDK repos under ``bridge/`` and
 are fetched at build time with the same read token used for the SDK release.
+
+Public CI logs are world-readable, and compiler or linker diagnostics can quote
+the confidential bridge source and SDK headers. ``run_build`` therefore hides
+the build's output and reports only success or the exit code. Set
+``PRIVATE_BUILD_VERBOSE=1`` on a private machine to see the full output.
 """
 
 from __future__ import annotations
@@ -11,12 +16,14 @@ import io
 import os
 import shutil
 import subprocess
+import sys
 import tarfile
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+VERBOSE_ENV = "PRIVATE_BUILD_VERBOSE"
 
 
 def token(*keys: str) -> str:
@@ -82,3 +89,33 @@ def find_bridge(kind: str, repo: str, ref: str, token_env: str) -> Path:
             f"to ~/code/{kind}-sdk-private, or set {token_env}."
         )
     return fetch_tarball(repo, ref, tok, ROOT / f".{kind}-bridge").resolve()
+
+
+def redact(text: str, *token_envs: str) -> str:
+    for key in token_envs:
+        val = os.environ.get(key, "").strip()
+        if val:
+            text = text.replace(val, "***")
+    return text
+
+
+def run_build(kind: str, cmd: list[str], *, cwd: Path, token_env: str) -> None:
+    """Run the private bridge build without echoing its output.
+
+    With ``PRIVATE_BUILD_VERBOSE=1`` the output streams as before, with the
+    read token redacted.
+    """
+    proc = subprocess.run(
+        cmd, cwd=cwd, capture_output=True, text=True, errors="replace", check=False
+    )
+    verbose = os.environ.get(VERBOSE_ENV) == "1"
+    output = (proc.stdout or "") + (proc.stderr or "")
+    output = redact(output, token_env, "GH_TOKEN", "GITHUB_TOKEN")
+    if verbose and output:
+        print(output, file=sys.stderr)
+    if proc.returncode != 0:
+        msg = f"{kind} bridge build failed ({proc.returncode})"
+        if not verbose:
+            msg += f". Output hidden; rerun locally with {VERBOSE_ENV}=1 to see it."
+        raise SystemExit(msg)
+    print(f"{kind} bridge built", file=sys.stderr)
