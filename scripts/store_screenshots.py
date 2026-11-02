@@ -523,9 +523,6 @@ def _fill_queues(win: QMainWindow, videos: list[Path], output_dir: Path) -> None
     _set_combo_data(transcode.location_combo, "custom")
     output_dir.mkdir(parents=True, exist_ok=True)
     transcode.output_dir.setText(str(output_dir))
-    transcode._extras.set_expanded(True)
-    transcode.color_cb.setChecked(True)
-    _select_space(transcode.src_btn, _SRC_VIDEO)
     _select_space(transcode.dst_btn, _DST_VIDEO)
     _pump(200)
 

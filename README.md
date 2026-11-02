@@ -167,8 +167,10 @@ chmod +x exr_converter-linux-x86_64.AppImage
 ## Screenshot
 
 <p align="center">
-  <img src="resources/screenshots/exr_converter_screenshot.png" alt="EXR Converter: EXR to Video">
+  <img src="resources/screenshots/exr_converter_screenshot.png" alt="EXR Converter: Video to EXR tab" width="900">
 </p>
+
+Regenerate it with `uv run python scripts/readme_screenshot.py` (renders offscreen, no display needed).
 
 ## Quick start
 
