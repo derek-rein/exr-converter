@@ -73,3 +73,24 @@ def test_install_skips_when_unprepared(
     monkeypatch.setattr(module, "REQUIRED", tmp_path / "not-required")
     module.install(tmp_path / "bundle")
     assert "not included" in capsys.readouterr().out
+
+
+def test_failed_step_hides_tool_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    monkeypatch.delenv(module.VERBOSE_ENV, raising=False)
+    cmd = [sys.executable, "-c", "import sys; print('SECRET HEADER LINE'); sys.exit(3)"]
+    with pytest.raises(SystemExit) as exc:
+        module._run(cmd)
+    assert "command failed (3)" in str(exc.value)
+    assert "SECRET HEADER LINE" not in str(exc.value)
+
+
+def test_verbose_failure_shows_redacted_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load()
+    monkeypatch.setenv(module.VERBOSE_ENV, "1")
+    monkeypatch.setenv(module.TOKEN_ENV, "tok123")
+    cmd = [sys.executable, "-c", "import sys; print('url tok123'); sys.exit(1)"]
+    with pytest.raises(SystemExit) as exc:
+        module._run(cmd)
+    assert "url ***" in str(exc.value)
+    assert "tok123" not in str(exc.value)

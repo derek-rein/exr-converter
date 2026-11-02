@@ -18,6 +18,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 - Transcode output names and folders take naming variables, in the same `<token>` style as the slate: `<reel>`, `<srcresolution>`, `<srcwidth>`, `<srcheight>`, `<srcfps>`, `<timecode>` and `<parent>` join `<name>`, `<codec>`, `<width>`, `<height>`, `<fps>` and `<date>`, plus `<resolution>` for the output size. The reel comes from the clip's metadata, or from a camera clip name such as `A_0001C001_…`. Right-click the Name or Folder field to insert one.
 - A `/` in the Transcode name pattern (or `transcode --name`) makes sub-folders, for example `<reel>/<name>/<srcresolution>/<name>_<codec>`. The custom folder (and `--output-dir`) can use variables too.
 - Transcode Name and Folder fields expand Unix-style environment variables on every platform: `$VAR`, `${VAR}`, and `${VAR:-default}`. An unset variable with no default stops that clip with an error instead of writing `$VAR` into the path.
+- Release builds can include ARRIRAW and ARRICORE support (`.ari` sequences and ARRI `.mxf`) through the ARRI Image SDK when the private ARRI feed is configured. Help → About then shows the ARRI Image SDK and MXF Library versions, and ARRI's notices ship inside the app. Builds without the feed are unchanged.
 
 - New [Variables](./docs/variables.md) docs page listing every `<token>` (Transcode paths, slate, burn-in, watermark), its aliases, and environment variable rules.
 

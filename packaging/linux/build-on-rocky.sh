@@ -18,6 +18,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
+# Keep the private SDK read tokens out of the environment of everything else
+# this script runs (dnf, uv sync, cargo build scripts, Nuitka). Each token is
+# held in an unexported shell variable and handed only to the step that needs it.
+_r3d_token="${R3D_SDK_READ_TOKEN:-}"
+_braw_token="${BRAW_SDK_READ_TOKEN:-}"
+_camera_raw_token="${CAMERA_RAW_READ_TOKEN:-}"
+_arri_token="${ARRI_SDK_READ_TOKEN:-}"
+unset R3D_SDK_READ_TOKEN BRAW_SDK_READ_TOKEN CAMERA_RAW_READ_TOKEN ARRI_SDK_READ_TOKEN
+
 fix_owner() {
   if [ -n "${HOST_UID:-}" ]; then
     chown -R "${HOST_UID}:${HOST_GID:-$HOST_UID}" "$ROOT" || true
@@ -113,25 +122,25 @@ PY
 uv run python scripts/ensure_ocio.py
 uv run python scripts/build_oxideav_prores.py
 
-if [ -n "${R3D_SDK_READ_TOKEN:-}" ]; then
-  SDK_ROOT="$(uv run python scripts/fetch_r3d_sdk.py --out "${RUNNER_TEMP:-/tmp}/r3d-sdk")"
+if [ -n "$_r3d_token" ]; then
+  SDK_ROOT="$(R3D_SDK_READ_TOKEN="$_r3d_token" uv run python scripts/fetch_r3d_sdk.py --out "${RUNNER_TEMP:-/tmp}/r3d-sdk")"
   export R3D_SDK_ROOT="$SDK_ROOT"
   export R3D_BRIDGE_REF="${R3D_BRIDGE_REF:-bridge-v1}"
-  uv run python scripts/build_r3d_bridge.py -v
+  R3D_SDK_READ_TOKEN="$_r3d_token" uv run python scripts/build_r3d_bridge.py -v
 else
   echo "R3D_SDK_READ_TOKEN not set — skipping R3D bridge"
 fi
 
-if [ -n "${BRAW_SDK_READ_TOKEN:-}" ]; then
-  SDK_ROOT="$(uv run python scripts/fetch_braw_sdk.py --out "${RUNNER_TEMP:-/tmp}/braw-sdk")"
+if [ -n "$_braw_token" ]; then
+  SDK_ROOT="$(BRAW_SDK_READ_TOKEN="$_braw_token" uv run python scripts/fetch_braw_sdk.py --out "${RUNNER_TEMP:-/tmp}/braw-sdk")"
   export BRAW_SDK_ROOT="$SDK_ROOT"
   export BRAW_BRIDGE_REF="${BRAW_BRIDGE_REF:-bridge-v1}"
-  uv run python scripts/build_braw_bridge.py -v
+  BRAW_SDK_READ_TOKEN="$_braw_token" uv run python scripts/build_braw_bridge.py -v
 else
   echo "BRAW_SDK_READ_TOKEN not set — skipping BRAW bridge"
 fi
 
-if [ -n "${CAMERA_RAW_READ_TOKEN:-}" ]; then
+if [ -n "$_camera_raw_token" ] || [ -n "$_arri_token" ]; then
   dnf -y install cmake ocl-icd
   if ! command -v git-lfs >/dev/null 2>&1; then
     curl -fsSL -o /tmp/git-lfs.tar.gz \
@@ -141,10 +150,14 @@ if [ -n "${CAMERA_RAW_READ_TOKEN:-}" ]; then
     tar -C /tmp/git-lfs-extract -xzf /tmp/git-lfs.tar.gz
     install -m 755 /tmp/git-lfs-extract/*/git-lfs /usr/local/bin/git-lfs
   fi
-  uv run python scripts/camera_raw_plugin.py prepare
+fi
+if [ -n "$_camera_raw_token" ]; then
+  CAMERA_RAW_READ_TOKEN="$_camera_raw_token" uv run python scripts/camera_raw_plugin.py prepare
 else
   echo "camera RAW plugin token not set; skipping"
 fi
+# ARRI plugin (prints its own skip line without ARRI_SDK_READ_TOKEN).
+ARRI_SDK_READ_TOKEN="$_arri_token" uv run python scripts/arri_plugin.py prepare
 
 uv run python scripts/build_cinemadng.py
 
@@ -155,8 +168,9 @@ RAW_FLAGS=()
 while IFS= read -r flag || [ -n "$flag" ]; do
   flag="${flag%$'\r'}"
   [ -n "$flag" ] || continue
+  case " ${RAW_FLAGS[*]-} " in *" $flag "*) continue ;; esac
   RAW_FLAGS+=("$flag")
-done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags)
+done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags; uv run python scripts/arri_plugin.py nuitka-flags)
 
 # Flags kept in sync with `make bundle` and the Release workflow Nuitka step.
 # NUITKA_JOBS caps C compile/LTO parallelism on small machines (default: all cores).
@@ -204,14 +218,16 @@ uv run python scripts/install_cinemadng_into_bundle.py dist/main.dist
 uv run python scripts/install_r3d_into_bundle.py dist/main.dist
 uv run python scripts/install_braw_into_bundle.py dist/main.dist
 uv run python scripts/camera_raw_plugin.py install dist/main.dist
+uv run python scripts/arri_plugin.py install dist/main.dist
 
 STRIP_EX=()
-if [ -f build/camera-raw-strip-paths.txt ]; then
+for list in build/camera-raw-strip-paths.txt build/arri-strip-paths.txt; do
+  [ -f "$list" ] || continue
   while IFS= read -r pat || [ -n "$pat" ]; do
     [ -n "$pat" ] || continue
     STRIP_EX+=(! -path "$pat")
-  done < build/camera-raw-strip-paths.txt
-fi
+  done < "$list"
+done
 find dist/main.dist -type f \( -name '*.so' -o -name '*.so.*' -o -name 'exr_converter' \) \
   ! -path '*/r3d/*' ! -path '*/braw/*' \
   ${STRIP_EX[@]+"${STRIP_EX[@]}"} \
