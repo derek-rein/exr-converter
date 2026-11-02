@@ -402,6 +402,15 @@ jobs:
           CAMERA_RAW_READ_TOKEN: ${{ secrets.CANON_SDK_READ_TOKEN }}
         run: uv run python scripts/camera_raw_plugin.py prepare
 
+      # Optional ARRI (ARRIRAW / ARRICORE) plugin from the private ARRI feed.
+      # Output stays hidden (SDK content is confidential). No token means skip.
+      - name: Build optional ARRI plugin
+        shell: bash
+        env:
+          ARRI_SDK_READ_TOKEN: ${{ secrets.ARRI_SDK_READ_TOKEN }}
+          ARRI_BRIDGE_ARCH: ${{ runner.arch == 'ARM64' && 'arm64' || 'x86_64' }}
+        run: uv run python scripts/arri_plugin.py prepare
+
       - name: Compile Qt resources
         run: uv run pyside6-rcc --compress-algo zlib resources.qrc -o src/rc_resources.py
 
@@ -460,8 +469,9 @@ jobs:
           while IFS= read -r flag || [ -n "$flag" ]; do
             flag="${flag%$'\r'}"
             [ -n "$flag" ] || continue
+            case " ${RAW_FLAGS[*]-} " in *" $flag "*) continue ;; esac
             RAW_FLAGS+=("$flag")
-          done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags)
+          done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags; uv run python scripts/arri_plugin.py nuitka-flags)
           uv run python -m nuitka \
             $MODE \
             --output-dir=dist \
@@ -605,6 +615,16 @@ jobs:
             uv run python scripts/camera_raw_plugin.py install dist/main.dist
           fi
 
+      - name: Install ARRI plugin into bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            uv run python scripts/arri_plugin.py install "dist/EXR Converter.app"
+          else
+            uv run python scripts/arri_plugin.py install dist/main.dist
+          fi
+
       - name: Slim macOS bundle
         if: runner.os == 'macOS'
         shell: bash
@@ -625,15 +645,16 @@ jobs:
           fi
 
           # Strip debug symbols (never strip private RED / Blackmagic
-          # redistributables under r3d/ or braw/, the camera RAW plugin
-          # runtime, or the oxideav PyO3 extension. Strip can break those loads).
+          # redistributables under r3d/ or braw/, the camera RAW and ARRI plugin
+          # runtimes, or the oxideav PyO3 extension. Strip can break those loads).
           STRIP_EX=()
-          if [ -f build/camera-raw-strip-paths.txt ]; then
+          for list in build/camera-raw-strip-paths.txt build/arri-strip-paths.txt; do
+            [ -f "$list" ] || continue
             while IFS= read -r pat || [ -n "$pat" ]; do
               [ -n "$pat" ] || continue
               STRIP_EX+=(! -path "$pat")
-            done < build/camera-raw-strip-paths.txt
-          fi
+            done < "$list"
+          done
           find "$APP" -type f \( -name '*.dylib' -o -name '*.so' \) \
             ! -path '*/r3d/*' ! -path '*/braw/*' ! -path '*exr_prores*' \
             ${STRIP_EX[@]+"${STRIP_EX[@]}"} \
@@ -1373,6 +1394,7 @@ jobs:
           R3D_SDK_READ_TOKEN: ${{ secrets.R3D_SDK_READ_TOKEN }}
           BRAW_SDK_READ_TOKEN: ${{ secrets.BRAW_SDK_READ_TOKEN }}
           CAMERA_RAW_READ_TOKEN: ${{ secrets.CANON_SDK_READ_TOKEN }}
+          ARRI_SDK_READ_TOKEN: ${{ secrets.ARRI_SDK_READ_TOKEN }}
           R3D_BRIDGE_REF: bridge-v1
           BRAW_BRIDGE_REF: bridge-v1
         run: |
@@ -1388,6 +1410,7 @@ jobs:
             -e R3D_SDK_READ_TOKEN \
             -e BRAW_SDK_READ_TOKEN \
             -e CAMERA_RAW_READ_TOKEN \
+            -e ARRI_SDK_READ_TOKEN \
             -e R3D_BRIDGE_REF \
             -e BRAW_BRIDGE_REF \
             rockylinux:8 \
