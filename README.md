@@ -67,7 +67,7 @@
 | | Video to EXR | EXR to video |
 | --- | --- | --- |
 | Command | `video2exr` | `exr2video` |
-| Input | A video file. Optional `.r3d` / `.nev` or `.braw` when that SDK bridge is built. A CinemaDNG `.dng` sequence also works here | An image sequence: OpenEXR, CinemaDNG (`.dng`), DPX, PNG, JPEG, WebP |
+| Input | A video file, including Apple ProRes RAW. Optional `.r3d` / `.nev` or `.braw` when that SDK bridge is built. A CinemaDNG `.dng` sequence also works here | An image sequence: OpenEXR, CinemaDNG (`.dng`), DPX, PNG, JPEG, WebP |
 | Output | An EXR sequence | ProRes, DNxHR, CineForm, HEVC, H.264, or FFV1 |
 | Overlays | Ingest only. Slate, burn-in, and watermark stay on the other tab | Slate, burn-in, and watermark in one pass |
 | Color | OCIO into a scene space (default toward `ACEScg` / `scene_linear`) | OCIO out to a display (default toward `Output - Rec.709`) |
@@ -79,6 +79,8 @@
 **Optional RED R3D / N-RAW:** when built with the official RED R3D SDK bridge, **Video to EXR** can decode `.r3d` and `.nev` (IPP2 primary to Log3G10 REDWideGamutRGB for OCIO), including browser thumbnails, sequence-player preview, and camera/timecode metadata on written EXRs. Release binaries may ship only RED's allowed Redistributable libraries in a private app folder. See [docs/r3d.md](docs/r3d.md) and **Help → About** for the redistributable notice.
 
 **Optional Blackmagic RAW:** when built with the official Blackmagic RAW SDK bridge, **Video to EXR** can decode `.braw` (Linear + ACES AP0 / `ACES2065-1` for OCIO). Without the SDK the extension is recognized but conversion fails with a clear missing-SDK message. Public Release binaries ship the runtime libraries in a private app folder when secret `BRAW_SDK_READ_TOKEN` is configured. See [docs/braw.md](docs/braw.md).
+
+**Apple ProRes RAW:** ProRes RAW and ProRes RAW HQ `.mov` clips (Atomos recorders behind Sony, Panasonic, Fujifilm, Canon and others) convert to EXR with no SDK. FFmpeg decodes them to a 16-bit linear Bayer mosaic; the app applies the clip's levels, white balance, color matrix and crop and writes scene-linear `ACES2065-1`. See [docs/prores-raw.md](docs/prores-raw.md).
 
 **CinemaDNG:** `.dng` frame sequences (uncompressed or lossless JPEG Bayer) convert to EXR or to a video proxy. DJI Inspire 3 / Zenmuse X9 is scene-linear **P3-D60** with the recommended **+1.4 stops** already applied (`Linear P3-D60`). Convert to `Linear D-Gamut` or `D-Log D-Gamut` with the bundled OCIO config. See [docs/cinemadng.md](docs/cinemadng.md).
 
@@ -273,6 +275,7 @@ Guides live under [`docs/`](docs/) (Markdown source of truth). They are publishe
 | [Quick Look on macOS](docs/quicklook.md) | Spacebar previews and Finder icons for EXR, DPX, and optional stills |
 | [ProRes and VideoToolbox](docs/prores.md) | Software vs VideoToolbox vs oxideav; honest bit depths |
 | [R3D / N-RAW](docs/r3d.md) | Optional RED SDK (license, build, CI, preview) |
+| [ProRes RAW](docs/prores-raw.md) | Apple ProRes RAW to ACES2065-1 EXR through FFmpeg (no SDK) |
 | [Blackmagic RAW](docs/braw.md) | Optional BRAW SDK (license, build, Linear ACES AP0; public Releases ship when `BRAW_SDK_READ_TOKEN` is set) |
 | [12-bit ProRes (oxideav)](docs/plan-12bit-prores-oxideav.md) | Experimental RDD-36 ProRes 4444 and XQ (12-bit). 422 stays 10-bit |
 | [Nuke](docs/nuke.md) | Menu: open selected Read + session OCIO |

@@ -19,7 +19,7 @@ and DPX can be sequence inputs on EXR → Video. They are not outputs.
 
 | Feature | What it does |
 |---------|--------------|
-| **Video → EXR** | Decode a movie through OCIO into an EXR sequence. Ingest only: no slate, burn-in, or watermark. CinemaDNG `.dng` sequences use the built-in reader. RED R3D / N-RAW (`.r3d`, `.nev`) and Blackmagic RAW (`.braw`) work when that SDK bridge is in the build. |
+| **Video → EXR** | Decode a movie through OCIO into an EXR sequence. Ingest only: no slate, burn-in, or watermark. CinemaDNG `.dng` sequences use the built-in reader. Apple [ProRes RAW](./prores-raw.md) clips decode through FFmpeg to scene-linear ACES. RED R3D / N-RAW (`.r3d`, `.nev`) and Blackmagic RAW (`.braw`) work when that SDK bridge is in the build. |
 | **EXR → Video** | Turn an OpenEXR sequence, or CinemaDNG, DPX, PNG, JPEG, or WebP, into ProRes, DNxHR, CineForm, H.264, HEVC, or FFV1. Optional slate, burn-in, and visible text watermark in the same pass. |
 | **Video → Proxy** | Editing proxies. Default is ProRes 422 Proxy at half size, in a `Proxy` folder next to each clip, with the same name so editors can relink. Proxies keep the source look, timecode, and audio. A watch folder converts new clips once they finish copying. [Details](./gui.md#video--proxy). |
 | **Transcode** | Batch video → video (ProRes, DNxHR, H.264, HEVC, AV1). No color change by default; set a source and destination space for an OCIO transform. |

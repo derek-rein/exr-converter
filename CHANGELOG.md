@@ -13,6 +13,14 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- Apple ProRes RAW and ProRes RAW HQ (`.mov`, e.g. Atomos recorders behind Sony, Panasonic, Fujifilm and Canon cameras) on Video → EXR, Inspect, thumbnails and the player. FFmpeg decodes a 16-bit linear Bayer mosaic; the app applies the clip's black/white level, as-shot white balance, color matrix, gain and recommended crop, demosaics, and writes scene-linear `ACES2065-1`. Nothing is clipped. Half size and smaller converts bin 2x2 Bayer quads. See [docs/prores-raw.md](./docs/prores-raw.md).
+
+### Changed
+
+- PyAV 19 (FFmpeg 9.0) is now required. FFmpeg 8 decoded ProRes RAW to 12 bits without linearizing it.
+
 ## [0.12.14] - 2026-11-02
 
 ### Added

@@ -1,6 +1,8 @@
 """Optional media source plugins (generic, vendor-neutral hook).
 
-The public application ships **no** plugins. Private builds may drop
+The public application ships one built-in source, Apple ProRes RAW
+(:mod:`.prores_raw`), which goes through the same dispatch but is not part
+of :func:`plugins`. Private builds may drop
 additional camera-RAW / container decoders into the ``src.plugins`` package
 and list them in an optional generated module ``src/plugins/_enabled.py``::
 
@@ -12,9 +14,10 @@ that satisfies :class:`SourcePlugin`. Developers can also set
 names. Plugin import or probe failures are logged and never break the app.
 
 Dispatch order everywhere is: OS-sidecar rejection → source plugins → built-in
-RAW bridges → PyAV. A plugin *claims* a path via :meth:`SourcePlugin.claims`,
-which may sniff the file header (e.g. to tell one essence type in a shared
-container such as ``.mxf`` from another) but must stay cheap.
+sources (ProRes RAW) → built-in RAW bridges → PyAV. A plugin *claims* a path
+via :meth:`SourcePlugin.claims`, which may sniff the file header (e.g. to
+tell one essence type in a shared container such as ``.mxf`` from another)
+but must stay cheap.
 """
 
 from __future__ import annotations
@@ -171,9 +174,25 @@ def plugin_suffixes() -> frozenset[str]:
     return frozenset(out)
 
 
-def plugin_for_path(path: str | Path) -> Any | None:
-    """First plugin that claims *path*, else None. Never raises."""
-    found = plugins()
+def builtin_sources() -> list[Any]:
+    """Sources that ship with the app and use the plugin dispatch."""
+    from . import prores_raw
+
+    return [prores_raw.get_source_plugin()]
+
+
+def plugin_for_path(path: str | Path, *, builtin: bool = True) -> Any | None:
+    """First plugin (then built-in source) that claims *path*, else None. Never raises.
+
+    ``builtin=False`` skips the built-in sources, whose claim reads the file
+    header, for callers that must not open files (directory listing).
+    """
+    found = list(plugins())
+    if builtin:
+        try:
+            found.extend(builtin_sources())
+        except Exception:
+            log.debug("built-in sources failed to load", exc_info=True)
     if not found:
         return None
     p = str(path)

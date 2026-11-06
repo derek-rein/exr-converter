@@ -100,7 +100,7 @@ def test_optional_raw_messages_without_plugin(tmp_path: Path, monkeypatch) -> No
     from src.core.frame_source import open_ingest_source
     from src.core.video import probe_video_metadata, scan_video_files
 
-    monkeypatch.setattr(source_plugins, "plugin_for_path", lambda _p: None)
+    monkeypatch.setattr(source_plugins, "plugin_for_path", lambda _p, **_kw: None)
     monkeypatch.setattr(source_plugins, "plugin_suffixes", lambda: frozenset())
     _patch_av_open(monkeypatch)
     clip = tmp_path / "A001C001.CRM"
