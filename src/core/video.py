@@ -590,7 +590,7 @@ def list_video_files(directory: str) -> list[dict[str, str]]:
             row["probe"] = ""
             results.append(row)
             continue
-        plugin = plugin_for_path(entry.path)
+        plugin = plugin_for_path(entry.path, builtin=False)
         if plugin is not None:
             # Frame-per-file formats list one row per sequence (first frame).
             seq_fn = getattr(plugin, "sequence_key", None)

@@ -101,6 +101,8 @@ uv run python main.py video2exr -i clip.R3D -o /tmp/exr_out \
 # Optional Blackmagic RAW (requires local BRAW SDK bridge; see docs/braw.md):
 uv run python main.py video2exr -i clip.braw -o /tmp/exr_out \
   --src ACES2065-1 --dst ACEScg
+# Apple ProRes RAW (develops to ACES2065-1; the source space is auto-detected):
+uv run python main.py video2exr -i A001C002.mov -o /tmp/exr_out
 # CinemaDNG sequence (DJI is Linear P3-D60 with +1.4 already in the pixels):
 uv run python main.py video2exr -i /path/to/shot -o /tmp/exr_out \
   --src "Linear P3-D60" --dst ACEScg
@@ -108,7 +110,7 @@ uv run python main.py video2exr -i /path/to/shot -o /tmp/exr_out \
 
 | Option | Default | Notes |
 |--------|---------|--------|
-| `-i` / `--input` | *(required)* | Input video file (also `.r3d` / `.nev` when R3D support is built; `.braw` when BRAW support is built; a `.dng` frame or a folder of CinemaDNG frames) |
+| `-i` / `--input` | *(required)* | Input video file (Apple ProRes RAW `.mov` included; see [prores-raw.md](./prores-raw.md); also `.r3d` / `.nev` when R3D support is built; `.braw` when BRAW support is built; a `.dng` frame or a folder of CinemaDNG frames) |
 | `-o` / `--output-dir` | `<input_dir>/<stem>/` | Directory for EXR frames |
 | `--ocio` | bundled / `$OCIO` | Config file path |
 | `--src` | auto | Auto-detect from the video (stream color tags and codec ranking), then **`Output - Rec.709`**. `--help` calls that fallback Rec.709-ish. Names are alias-resolved. R3D/N-RAW defaults toward **Log3G10 REDWideGamutRGB**. BRAW defaults toward **ACES2065-1** (Linear ACES AP0). Not an OIIO still probe. |
@@ -416,7 +418,8 @@ first audio track is carried according to `--audio`.
 [R3D](./r3d.md) or [BRAW](./braw.md) bridge is available. They decode to float
 RGB in the camera space the SDK reports (R3D Log3G10 / REDWideGamutRGB, BRAW
 Linear ACES AP0), have no audio, and usually want `--src` / `--dst`. `.crm`
-is not supported.
+is not supported. Apple ProRes RAW is not a Transcode source; use
+`video2exr` (see [prores-raw.md](./prores-raw.md)).
 
 Outputs are written to a hidden `.name.partial.ext` file and renamed when
 complete. A clip that fails is reported and the batch continues (exit code

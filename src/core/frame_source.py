@@ -257,7 +257,7 @@ class VideoPreviewDecoder:
         return rgb
 
     def _pts_to_index(self, pts: int | None) -> int:
-        if pts is None or self._time_base is None:
+        if pts is None or not self._time_base:
             return 1
         try:
             rel = float((int(pts) - self._start_pts) * self._time_base)
@@ -269,7 +269,7 @@ class VideoPreviewDecoder:
 
     def _index_to_pts(self, idx_1based: int) -> int:
         idx = max(1, int(idx_1based))
-        if self._time_base is None:
+        if not self._time_base:
             import av
 
             return int((idx - 1) / self.fps * av.time_base)
@@ -284,7 +284,7 @@ class VideoPreviewDecoder:
         if t is not None:
             try:
                 rel = float(t)
-                if self._time_base is not None and self._start_pts:
+                if self._time_base and self._start_pts:
                     rel = max(0.0, rel - float(self._start_pts * self._time_base))
                 return max(1, int(math.floor(rel * self.fps + 1e-6)) + 1)
             except Exception:
@@ -318,7 +318,7 @@ class VideoPreviewDecoder:
         target = max(1, int(idx_1based))
         try:
             if target <= 1:
-                if self._time_base is not None:
+                if self._time_base:
                     self.container.seek(
                         self._start_pts,
                         stream=self.stream,
@@ -339,7 +339,7 @@ class VideoPreviewDecoder:
             log.debug("Video seek failed for frame %s; reopening", target, exc_info=True)
             self._reopen()
             try:
-                if target > 1 and self._time_base is not None:
+                if target > 1 and self._time_base:
                     self.container.seek(
                         self._index_to_pts(target),
                         stream=self.stream,

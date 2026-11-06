@@ -22,10 +22,15 @@ def _yuv422p10_rgb_matrix_frame(*, width: int = 32, height: int = 32):
     return yuv
 
 
-def test_direct_rgb24_raises_on_yuv_with_rgb_colorspace() -> None:
+def test_direct_rgb24_on_yuv_with_rgb_colorspace_raises_or_is_correct() -> None:
+    """FFmpeg 8 swscale raised here; FFmpeg 9 converts. Either way, never wrong colours."""
     frame = _yuv422p10_rgb_matrix_frame()
-    with pytest.raises(OSError):
-        frame.to_ndarray(format="rgb24")
+    try:
+        rgb = frame.to_ndarray(format="rgb24")
+    except OSError:
+        return
+    expected = av_frame_to_rgb_ndarray(frame, pix_fmt="rgb24")
+    assert np.abs(rgb.astype(int) - expected.astype(int)).max() <= 1
 
 
 def test_av_frame_to_rgb_ndarray_recovers_rgb24() -> None:
