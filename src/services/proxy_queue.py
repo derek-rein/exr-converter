@@ -15,11 +15,13 @@ from __future__ import annotations
 import threading
 from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 
+from ..core.constants import ENCODER_AUTO
 from ..core.errors import ConversionCancelled
 
 
@@ -31,6 +33,7 @@ class ProxyJob(NamedTuple):
     audio: bool = True
     watermark_text: str = ""
     watermark_strength: float = 1.0
+    encoder: str = ENCODER_AUTO
 
 
 class TranscodeJob(NamedTuple):
@@ -57,6 +60,7 @@ def run_proxy_job(job: ProxyJob, progress, cancel_check, log) -> None:
         audio=job.audio,
         watermark_text=job.watermark_text,
         watermark_strength=job.watermark_strength,
+        encoder=job.encoder,
         progress=progress,
         cancel_check=cancel_check,
         log=log,
@@ -107,6 +111,13 @@ class _JobWorker(QObject):
             self.done.emit(True, "")
 
 
+@dataclass(frozen=True)
+class _Running:
+    job: Any
+    worker: _JobWorker
+    thread: QThread
+
+
 class JobQueue(QObject):
     """Serial queue of encode jobs (GUI-thread object; work runs off-thread).
 
@@ -133,34 +144,36 @@ class JobQueue(QObject):
         self._runner = runner
         self._noun = noun
         self._jobs: deque[Any] = deque()
-        self._current: Any = None
-        self._worker: _JobWorker | None = None
-        self._thread: QThread | None = None
-        self._busy = False
+        self._running: _Running | None = None
+        self._busy = False  # last value sent on busy_changed
         self.completed = 0
         self.failed = 0
 
     def is_busy(self) -> bool:
-        return self._busy
+        """True from the first job starting until the queue drains."""
+        return self._running is not None or bool(self._jobs)
 
     def pending(self) -> int:
-        return len(self._jobs) + (1 if self._current is not None else 0)
+        return len(self._jobs) + (1 if self._running is not None else 0)
 
     def current_source(self) -> str:
-        return str(self._current.source) if self._current is not None else ""
+        return str(self._running.job.source) if self._running is not None else ""
 
     def is_queued(self, output: str) -> bool:
         """True if a job already targets *output* (running or waiting)."""
-        key = str(Path(output))
-        if self._current is not None and str(Path(self._current.output)) == key:
-            return True
-        return any(str(Path(j.output)) == key for j in self._jobs)
+        return str(Path(output)) in self.queued_outputs()
 
     def queued_outputs(self) -> set[str]:
         outs = {str(Path(j.output)) for j in self._jobs}
-        if self._current is not None:
-            outs.add(str(Path(self._current.output)))
+        if self._running is not None:
+            outs.add(str(Path(self._running.job.output)))
         return outs
+
+    def _sync_busy(self) -> None:
+        busy = self.is_busy()
+        if busy != self._busy:
+            self._busy = busy
+            self.busy_changed.emit(busy)
 
     def add(self, job: Any) -> bool:
         if self.is_queued(job.output):
@@ -174,26 +187,25 @@ class JobQueue(QObject):
         """Drop waiting jobs and stop the running one."""
         dropped = len(self._jobs)
         self._jobs.clear()
-        if self._worker is not None:
-            self._worker.cancel()
+        if self._running is not None:
+            self._running.worker.cancel()
         if dropped:
             self.log_message.emit(f"{self._noun} queue cleared ({dropped} waiting)")
         self.queue_changed.emit(self.pending())
 
     def shutdown(self, timeout_ms: int = 8000) -> None:
         self._jobs.clear()
-        if self._worker is not None:
-            self._worker.cancel()
-        thr = self._thread
-        if thr is not None and thr.isRunning():
-            thr.quit()
-            thr.wait(timeout_ms)
+        running = self._running
+        if running is not None:
+            running.worker.cancel()
+            if running.thread.isRunning():
+                running.thread.quit()
+                running.thread.wait(timeout_ms)
 
     def _start_next(self) -> None:
-        if self._current is not None or not self._jobs:
+        if self._running is not None or not self._jobs:
             return
         job = self._jobs.popleft()
-        self._current = job
         thread = QThread(self)
         worker = _JobWorker(job, self._runner)
         worker.moveToThread(thread)
@@ -204,21 +216,16 @@ class JobQueue(QObject):
         worker.done.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
-        self._worker = worker
-        self._thread = thread
-        if not self._busy:
-            self._busy = True
-            self.busy_changed.emit(True)
+        self._running = _Running(job, worker, thread)
+        self._sync_busy()
         self.job_started.emit(str(job.source), str(job.output))
         thread.start()
 
     @Slot(bool, str)
     def _on_done(self, ok: bool, err: str) -> None:
-        job = self._current
-        self._current = None
-        self._worker = None
-        self._thread = None
-        if job is not None:
+        running, self._running = self._running, None
+        if running is not None:
+            job = running.job
             name = Path(job.source).name
             noun = self._noun.lower()
             if ok:
@@ -234,9 +241,7 @@ class JobQueue(QObject):
         if self._jobs:
             # Defer so the finished thread unwinds before the next one starts.
             QTimer.singleShot(0, self, self._start_next)
-        else:
-            self._busy = False
-            self.busy_changed.emit(False)
+        self._sync_busy()
 
 
 class ProxyQueue(JobQueue):

@@ -46,6 +46,7 @@ from ..core.watch_folder import DEFAULT_SETTLE_SECONDS, WatchFolder
 from ..services.proxy_queue import ProxyJob, ProxyQueue, WatchPoller
 from .color_widgets import lock_form_row_height
 from .convert_tab import _ConvertFormBody, _form_scroll_area
+from .preferences import encoder_mode
 
 LOCATION_BESIDE = "beside"
 LOCATION_CUSTOM = "custom"
@@ -503,6 +504,7 @@ class ProxyTab(QWidget):
             audio=self.audio_cb.isChecked(),
             watermark_text=watermark_text,
             watermark_strength=float(self.watermark_strength.value()),
+            encoder=encoder_mode(self._settings),
         )
 
     def enqueue(self, sources: list[str]) -> int:

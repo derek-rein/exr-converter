@@ -32,6 +32,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.constants import DECODER_AUTO, DECODER_MODES, ENCODER_AUTO, ENCODER_MODES
+from ..core.decoders import set_decode_mode
 from ..core.trustmark.payload import (
     DEFAULT_STRENGTH,
     MAX_TEXT_CHARS,
@@ -159,6 +161,18 @@ def invisible_wm_strength(settings: QSettings) -> float:
     if value != value:  # NaN
         return DEFAULT_STRENGTH
     return round(min(max(value, STRENGTH_MIN), STRENGTH_MAX), STRENGTH_DECIMALS)
+
+
+def encoder_mode(settings: QSettings) -> str:
+    """``auto`` (hardware H.264 / HEVC when available) or ``software``."""
+    mode = str(settings.value(Keys.ENCODER_MODE, ENCODER_AUTO) or ENCODER_AUTO)
+    return mode if mode in dict(ENCODER_MODES) else ENCODER_AUTO
+
+
+def decoder_mode(settings: QSettings) -> str:
+    """``auto`` (GPU decode of H.264 / HEVC / AV1 / VP9 when possible) or ``software``."""
+    mode = str(settings.value(Keys.DECODER_MODE, DECODER_AUTO) or DECODER_AUTO)
+    return mode if mode in dict(DECODER_MODES) else DECODER_AUTO
 
 
 def sequence_display_name(path: str | Path) -> str:
@@ -488,6 +502,38 @@ class PreferencesDialog(QDialog):
         slate_form.addRow("Thumbnail frame:", self._thumb_combo)
         root.addWidget(slate_box)
 
+        encode_box = QGroupBox("Video encoding")
+        encode_form = QFormLayout(encode_box)
+        self._encoder_combo = QComboBox()
+        self._encoder_combo.setObjectName("encoder_mode_combo")
+        for value, label in ENCODER_MODES:
+            self._encoder_combo.addItem(label, value)
+        self._encoder_combo.setCurrentIndex(
+            max(0, self._encoder_combo.findData(encoder_mode(settings)))
+        )
+        self._encoder_combo.setToolTip(
+            "8- and 10-bit H.264 and HEVC use the GPU encoder (NVIDIA NVENC, Intel Quick Sync, "
+            "AMD AMF or Apple VideoToolbox) when this machine can open it, and fall "
+            "back to the software encoder if it fails. HEVC 12-bit, AV1, ProRes, DNxHR, "
+            "CineForm and FFV1 always encode in software."
+        )
+        encode_form.addRow("H.264 / HEVC:", self._encoder_combo)
+        self._decoder_combo = QComboBox()
+        self._decoder_combo.setObjectName("decoder_mode_combo")
+        for value, label in DECODER_MODES:
+            self._decoder_combo.addItem(label, value)
+        self._decoder_combo.setCurrentIndex(
+            max(0, self._decoder_combo.findData(decoder_mode(settings)))
+        )
+        self._decoder_combo.setToolTip(
+            "8- and 10-bit 4:2:0 H.264, HEVC, AV1 and VP9 files decode on the GPU (NVIDIA NVDEC, "
+            "Direct3D 11 / DXVA2, VAAPI, Intel Quick Sync or Apple VideoToolbox) when this "
+            "machine can, and decode in software otherwise. 4:2:2, 4:4:4, 12-bit, ProRes and "
+            "DNxHR always decode in software."
+        )
+        encode_form.addRow("Decoding:", self._decoder_combo)
+        root.addWidget(encode_box)
+
         # Load current values
         mode = player_mode(settings)
         if mode == PLAYER_MODE_CUSTOM:
@@ -538,7 +584,7 @@ class PreferencesDialog(QDialog):
         root.addWidget(self._build_invisible_wm_box(settings))
 
         # Boxes keep their natural height; spare space goes below them, not inside.
-        for box in (player_box, slate_box, cache_box):
+        for box in (player_box, slate_box, encode_box, cache_box):
             box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         root.addStretch(1)
 
@@ -631,6 +677,9 @@ class PreferencesDialog(QDialog):
             int(thumb_data) if thumb_data is not None else THUMBNAIL_FRAME_MID,
         )
         save_cache_budget_pct(self._settings, int(self._cache_slider.value()))
+        self._settings.setValue(Keys.ENCODER_MODE, self._encoder_combo.currentData())
+        self._settings.setValue(Keys.DECODER_MODE, self._decoder_combo.currentData())
+        set_decode_mode(decoder_mode(self._settings))
         self._settings.setValue(
             Keys.INVISIBLE_WM_TEMPLATE, clean_invisible_wm_template(self._wm_template.text())
         )

@@ -14,7 +14,7 @@ import numpy as np
 import PyOpenColorIO as OCIO
 
 from .exr_io import read_image, read_image_alpha, write_exr
-from .ocio_utils import load_config_from_source_info, make_export_processor
+from .ocio_utils import apply_packed_rgb, load_config_from_source_info, make_export_processor
 
 # Workers cache up to two CPUProcessors: one for src→working (OCIO load
 # stage) and one for working→display (OCIO display stage).  Each is keyed
@@ -98,8 +98,7 @@ def process_frame_v2e(
     cpu = _ensure_cpu(config_source, config_path, src_space, dst_space)
     h, w = rgb.shape[:2]
     buf = np.ascontiguousarray(rgb[:, :, :3], dtype=np.float32)
-    desc = OCIO.PackedImageDesc(buf, w, h, 3)
-    cpu.apply(desc)
+    apply_packed_rgb(cpu, buf)
     write_exr(
         out_path,
         buf,
@@ -147,15 +146,13 @@ def process_frame_e2v(
 
     rgb = read_image(path)
     h, w = rgb.shape[:2]
-    desc = OCIO.PackedImageDesc(rgb, w, h, 3)
-    cpu_to_working.apply(desc)
+    apply_packed_rgb(cpu_to_working, rgb)
 
     if overlay_working is not None and overlay_working.shape[:2] == (h, w):
         rgb = _alpha_over_rgb(rgb, overlay_working)
         rgb = np.ascontiguousarray(rgb, dtype=np.float32)
 
-    desc2 = OCIO.PackedImageDesc(rgb, w, h, 3)
-    cpu_to_display.apply(desc2)
+    apply_packed_rgb(cpu_to_display, rgb)
 
     rgb_u16 = quantize_u16(rgb)
     if with_alpha:

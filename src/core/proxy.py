@@ -20,7 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 
-from .constants import video_codec_by_key
+from .constants import ENCODER_AUTO, video_codec_by_key
 
 ProgressCallback = Callable[[int, int], None]
 LogCallback = Callable[[str], None]
@@ -39,10 +39,10 @@ PROXY_CODEC_KEYS: tuple[str, ...] = (
 )
 DEFAULT_PROXY_CODEC = "prores_proxy"
 
-# Proxy-friendly encoder settings: fast and small, not delivery quality.
-_PROXY_CODEC_OPTS: dict[str, dict[str, str]] = {
-    "h264": {"crf": "23", "preset": "veryfast"},
-    "hevc_8": {"crf": "26", "preset": "fast"},
+# Proxy-friendly (CRF, preset): fast and small, not delivery quality.
+_PROXY_QUALITY: dict[str, tuple[int, str]] = {
+    "h264": (23, "veryfast"),
+    "hevc_8": (26, "fast"),
 }
 
 
@@ -148,6 +148,7 @@ def run_video_to_proxy(
     codec_opts: dict[str, str] | None = None,
     watermark_text: str = "",
     watermark_strength: float = 1.0,
+    encoder: str = ENCODER_AUTO,
     progress: ProgressCallback | None = None,
     cancel_check: Callable[[], bool] | None = None,
     log: LogCallback | None = None,
@@ -155,8 +156,10 @@ def run_video_to_proxy(
     """Transcode *input_path* into a proxy at *output_path*.
 
     Runs the shared :func:`~src.core.transcode.run_transcode` engine with proxy
-    settings: no color transform, proxy codec options, and PCM audio in
-    ``.mov`` (AAC in ``.mp4``). The engine writes to a hidden
+    settings: no color transform, proxy quality, and PCM audio in ``.mov``
+    (AAC in ``.mp4``). *encoder* ``ENCODER_AUTO`` lets H.264 / HEVC proxies use
+    a hardware encoder; *codec_opts* keep the encode in software. The engine
+    writes to a hidden
     ``.<name>.partial<ext>`` file and renames it into place when the encode
     finishes, so a watch folder or editor never sees a half-written proxy.
     Returns the final output path.
@@ -177,9 +180,7 @@ def run_video_to_proxy(
     if spec.libav_codec == "oxideav_prores":
         raise RuntimeError("oxideav ProRes is not offered for proxies.")
 
-    opts = dict(_PROXY_CODEC_OPTS.get(codec_key, {}))
-    if codec_opts:
-        opts.update(codec_opts)
+    crf, preset = _PROXY_QUALITY.get(codec_key, (None, ""))
     if audio:
         audio_mode = AUDIO_AAC if out.suffix.lower() == ".mp4" else AUDIO_PCM16
     else:
@@ -191,7 +192,10 @@ def run_video_to_proxy(
         audio=audio_mode,
         watermark_text=watermark_text if watermark_text.strip() else "",
         watermark_strength=watermark_strength,
-        codec_opts=opts or None,
+        crf=crf,
+        preset=preset,
+        codec_opts=dict(codec_opts) if codec_opts else None,
+        encoder=encoder,
     )
     return run_transcode(
         src,

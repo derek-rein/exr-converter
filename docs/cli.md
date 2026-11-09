@@ -124,6 +124,7 @@ uv run python main.py video2exr -i /path/to/shot -o /tmp/exr_out \
 | `--frame-range` | all | Nuke-style, e.g. `1-100`, `1-50x2` |
 | `--deinterlace` | `auto` | `auto` / `on` / `off` |
 | `--workers` | global | Parallel workers (`0` = auto, `1` = serial); overrides global `--workers` |
+| `--decoder MODE` | `auto` | `auto` decodes 8- and 10-bit 4:2:0 H.264, HEVC, AV1, and VP9 files on the GPU (NVDEC, Direct3D 11 / DXVA2, VAAPI, Quick Sync, or VideoToolbox) when this machine can, and in software otherwise. The decoded pixels are identical. `software` never uses the GPU. Light files on a many-core CPU can decode a little faster in software |
 
 **Output naming:** `stem.####.exr` inside the output directory (pad width from
 `--padding`). Default directory is `<input_parent>/<stem>/` (same idea as the GUI).
@@ -184,6 +185,7 @@ uv run python main.py exr2video -i ./plate --codec h264 --crf 18
 | `--workers` | global | Same meaning as `video2exr` |
 | `--watermark TEXT` | off | Invisible TrustMark payload, up to 8 printable ASCII characters, on every frame after the display transform. Same model and cache as `proxy --watermark`. A bad payload exits with code `2` |
 | `--watermark-strength N` | `1.0` | `0.1` to `2.0`. Used only with `--watermark` |
+| `--encoder MODE` | `auto` | `auto` encodes 8- and 10-bit H.264 / HEVC, and 10-bit AV1 on `transcode`, on the GPU when this machine can open that encoder at the output size, and encodes again in software if it fails. It tries Apple VideoToolbox (macOS; no AV1), NVIDIA NVENC, Intel Quick Sync, AMD AMF, then Windows Media Foundation (Windows). `software` always uses libx264 / libx265 / SVT-AV1. HEVC 12-bit, ProRes, DNxHR, CineForm, and FFV1 are always software |
 
 **Default output path** when `-o` is omitted: sibling of the sequence folder,
 named after the folder, with a codec-appropriate extension:
@@ -314,6 +316,8 @@ appear on macOS only.
 | `--settle SECONDS` | `3` | `--watch`: how long a file's size must stay the same before it is converted |
 | `--watermark TEXT` | off | Invisible TrustMark payload, up to 8 printable ASCII characters. Omitted means no watermark. The encoder model (`encoder_Q.onnx`) downloads once into a per-user cache and is checked with SHA256 |
 | `--watermark-strength N` | `1.0` | Strength from `0.1` to `2.0`. Used only when `--watermark` is set |
+| `--encoder MODE` | `auto` | `h264` and `hevc_8` proxies use the GPU encoder when available. Same as `exr2video --encoder` |
+| `--decoder MODE` | `auto` | `auto` decodes 8- and 10-bit 4:2:0 H.264, HEVC, AV1, and VP9 files on the GPU (NVDEC, Direct3D 11 / DXVA2, VAAPI, Quick Sync, or VideoToolbox) when this machine can, and in software otherwise. The decoded pixels are identical. `software` never uses the GPU. Light files on a many-core CPU can decode a little faster in software |
 
 The watermark is embedded in the resized RGB frame, on every frame, before the
 codec. Proxies do not run an OCIO view transform, so that RGB image is the
@@ -385,6 +389,8 @@ uv run python main.py transcode -i log.mov --src "S-Log3 S-Gamut3.Cine" --dst "R
 | `--src NAME` / `--dst NAME` | (none) | Both together turn on the OCIO transform. `--dst` may be a display, which uses that display's default view |
 | `--watermark TEXT` | off | Invisible TrustMark payload, the same as `proxy --watermark` |
 | `--watermark-strength N` | `1.0` | `0.1` to `2.0` |
+| `--encoder MODE` | `auto` | Same as `exr2video --encoder` |
+| `--decoder MODE` | `auto` | `auto` decodes 8- and 10-bit 4:2:0 H.264, HEVC, AV1, and VP9 files on the GPU (NVDEC, Direct3D 11 / DXVA2, VAAPI, Quick Sync, or VideoToolbox) when this machine can, and in software otherwise. The decoded pixels are identical. `software` never uses the GPU. Light files on a many-core CPU can decode a little faster in software |
 | `--recursive` | off | Include subfolders of `-i` folders (`Proxy` folders are skipped) |
 
 | Codec key | Codec | Containers (default first) | Bit depth |

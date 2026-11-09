@@ -74,6 +74,7 @@ from ..core.trustmark.payload import (
 from ..services.proxy_queue import TranscodeJob, TranscodeQueue
 from .color_widgets import ColorSpaceButton, lock_form_row_height
 from .convert_tab import _ConvertFormBody, _form_scroll_area
+from .preferences import encoder_mode
 from .proxy_tab import _field_label, _limit_combo_width
 from .style import HINT_STYLE
 from .token_line_edit import TokenLineEdit
@@ -756,6 +757,7 @@ class TranscodeTab(QWidget):
             config_path=self._config_path,
             watermark_text=watermark_text,
             watermark_strength=float(self.watermark_strength.value()),
+            encoder=encoder_mode(self._settings),
         )
         return validate_settings(settings)
 

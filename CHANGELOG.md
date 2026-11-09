@@ -17,9 +17,16 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 - Apple ProRes RAW and ProRes RAW HQ (`.mov`, e.g. Atomos recorders behind Sony, Panasonic, Fujifilm and Canon cameras) on Video → EXR, Inspect, thumbnails and the player. FFmpeg decodes a 16-bit linear Bayer mosaic; the app applies the clip's black/white level, as-shot white balance, color matrix, gain and recommended crop, demosaics, and writes scene-linear `ACES2065-1`. Nothing is clipped. Half size and smaller converts bin 2x2 Bayer quads. See [docs/prores-raw.md](./docs/prores-raw.md).
 
+- Hardware H.264 / HEVC encoding on EXR → Video, Video → Proxy, and Transcode: NVIDIA NVENC, Intel Quick Sync, or AMD AMF on Windows and Linux, Windows Media Foundation (the OS encoder, as a last resort on Windows), and VideoToolbox on macOS, for 8- and 10-bit output. 10-bit AV1 on Transcode uses NVENC, Quick Sync, AMF, or Media Foundation when the GPU has an AV1 encoder. The app checks that the encoder opens at the output size, logs which one it used, and encodes again in software if the GPU encoder fails. **Preferences → Video encoding** and `--encoder software` (on `exr2video`, `proxy`, and `transcode`) turn it off. See [docs/gui.md](./docs/gui.md#preferences-file--preferences) and [docs/cli.md](./docs/cli.md).
+
+- GPU decoding of H.264, HEVC, AV1, and VP9 files on Video → EXR, Transcode, Video → Proxy, and the player: NVIDIA NVDEC, Direct3D 11 / DXVA2 on Windows (any GPU vendor), VAAPI or Quick Sync on Linux, and VideoToolbox on macOS. Only 8- and 10-bit 4:2:0 streams use it (GPUs cannot decode 4:2:2 / 4:4:4 or 12-bit), the decoded pixels match software decode exactly, and the app decodes in software when the GPU cannot. It helps most on high-bitrate camera files, and costs a little on light ones when the CPU has many cores. **Preferences → Video encoding → Decoding** and `--decoder software` (on `video2exr`, `proxy`, and `transcode`) turn it off. See [docs/gui.md](./docs/gui.md#preferences-file--preferences) and [docs/cli.md](./docs/cli.md).
+
 ### Changed
 
 - PyAV 19 (FFmpeg 9.0) is now required. FFmpeg 8 decoded ProRes RAW to 12 bits without linearizing it.
+- EXR → Video and Transcode run OCIO on every CPU core. ACES 2.0 display transforms were the bottleneck: a 4K EXR → H.264 / HEVC render is now 2 to 4 times faster, with identical pixels.
+- Software ProRes (`prores_ks`) and CineForm encode with frame threads, up to about 4 times faster at 4K. DNxHR and FFV1 keep slice threads, which are faster for them.
+- 10-bit 4:2:2 and 4:4:4 Y'CbCr conversion (ProRes, DNxHR HQX / 444) runs in parallel strips, about 8 times faster per frame, with identical output.
 
 ## [0.12.14] - 2026-11-02
 

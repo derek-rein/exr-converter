@@ -206,28 +206,35 @@ class VideoPreviewDecoder:
 
         self.path = path
         self._av = av
-        self.container = av.open(path)
+        self._open()
+        probed = float(fps) if fps and fps > 0 else 0.0
+        self.fps = probed if probed > 0 else (stream_fps(self.stream) or 24.0)
+        self._decode_w = int(self.stream.width or 0)
+        self._decode_h = int(self.stream.height or 0)
+        self._reset_cursor()
+
+    def _open(self) -> None:
+        from .decoders import open_input
+
+        self.container, self._hw_device = open_input(self.path)
         if not self.container.streams.video:
             self.container.close()
-            raise RuntimeError(f"No video stream in {path}")
+            raise RuntimeError(f"No video stream in {self.path}")
         self.stream = self.container.streams.video[0]
         try:
             self.stream.thread_type = "AUTO"
         except Exception:
             pass
-
-        probed = float(fps) if fps and fps > 0 else 0.0
-        self.fps = probed if probed > 0 else (stream_fps(self.stream) or 24.0)
         self._time_base = self.stream.time_base
         self._start_pts = int(self.stream.start_time or 0)
 
+    def _reset_cursor(self) -> None:
+        """Forget the decode position; the next read starts a fresh decode iterator."""
         self._frame_iter: Iterator | None = None
         self._next_idx: int | None = None
         self._last_rgb: np.ndarray | None = None
         self._last_idx: int | None = None
         self._eof = False
-        self._decode_w = int(self.stream.width or 0)
-        self._decode_h = int(self.stream.height or 0)
 
     @property
     def decode_size(self) -> tuple[int, int]:
@@ -244,8 +251,10 @@ class VideoPreviewDecoder:
             pass
 
     def _frame_to_rgb_f32(self, frame) -> np.ndarray:
+        from .decoders import normalize_frame
         from .video import av_frame_to_rgb_ndarray
 
+        frame = normalize_frame(frame, self._hw_device)
         try:
             arr = av_frame_to_rgb_ndarray(frame, pix_fmt="rgb48le")
             rgb = np.ascontiguousarray(arr.astype(np.float32) * (1.0 / 65535.0))
@@ -296,58 +305,29 @@ class VideoPreviewDecoder:
             self.container.close()
         except Exception:
             pass
-        self.container = self._av.open(self.path)
-        self.stream = self.container.streams.video[0]
-        try:
-            self.stream.thread_type = "AUTO"
-        except Exception:
-            pass
-        self._time_base = self.stream.time_base
-        self._start_pts = int(self.stream.start_time or 0)
-        if self.fps <= 0:
-            from .video import stream_fps
+        self._open()
+        self._reset_cursor()
 
-            self.fps = stream_fps(self.stream) or 24.0
-        self._frame_iter = None
-        self._next_idx = None
-        self._last_rgb = None
-        self._last_idx = None
-        self._eof = False
+    def _seek(self, target: int) -> None:
+        """Seek back to the keyframe at or before 1-based frame *target*."""
+        if target <= 1 and not self._time_base:
+            self.container.seek(0, any_frame=False, backward=True)
+            return
+        pts = self._start_pts if target <= 1 else self._index_to_pts(target)
+        self.container.seek(pts, stream=self.stream, any_frame=False, backward=True)
 
     def _seek_to_index(self, idx_1based: int) -> None:
         target = max(1, int(idx_1based))
         try:
-            if target <= 1:
-                if self._time_base:
-                    self.container.seek(
-                        self._start_pts,
-                        stream=self.stream,
-                        any_frame=False,
-                        backward=True,
-                    )
-                else:
-                    self.container.seek(0, any_frame=False, backward=True)
-            else:
-                pts = self._index_to_pts(target)
-                self.container.seek(
-                    pts,
-                    stream=self.stream,
-                    any_frame=False,
-                    backward=True,
-                )
+            self._seek(target)
         except Exception:
             log.debug("Video seek failed for frame %s; reopening", target, exc_info=True)
             self._reopen()
-            try:
-                if target > 1 and self._time_base:
-                    self.container.seek(
-                        self._index_to_pts(target),
-                        stream=self.stream,
-                        any_frame=False,
-                        backward=True,
-                    )
-            except Exception:
-                log.debug("Retry seek failed for frame %s", target, exc_info=True)
+            if target > 1:
+                try:
+                    self._seek(target)
+                except Exception:
+                    log.debug("Retry seek failed for frame %s", target, exc_info=True)
 
         try:
             flush = getattr(self.stream.codec_context, "flush_buffers", None)
@@ -355,12 +335,7 @@ class VideoPreviewDecoder:
                 flush()
         except Exception:
             pass
-
-        self._frame_iter = None
-        self._next_idx = None
-        self._last_rgb = None
-        self._last_idx = None
-        self._eof = False
+        self._reset_cursor()
 
     def _ensure_iter(self) -> Iterator:
         if self._frame_iter is None:
@@ -543,7 +518,6 @@ class VideoIngestSource:
         *,
         cancel_check: ProgressCancel | None = None,
     ) -> Iterator[tuple[int, np.ndarray, dict[str, str]]]:
-        import av
 
         from .video import av_frame_reformat, av_frame_to_rgb_ndarray, decode_video_frames
 
@@ -551,7 +525,9 @@ class VideoIngestSource:
         ow, oh = self._out_w, self._out_h
         max_idx = max(frame_set) if frame_set else 0
 
-        container = av.open(self._path)
+        from .decoders import normalize_frame, open_input
+
+        container, hw_device = open_input(self._path, log_fn=self._log_fn)
         self._container = container
         try:
             stream = container.streams.video[0]
@@ -569,6 +545,7 @@ class VideoIngestSource:
                         if max_idx and idx > max_idx:
                             break
                         continue
+                frame = normalize_frame(frame, hw_device)
                 if do_resize:
                     frame = av_frame_reformat(frame, width=ow, height=oh)
                 rgb_u16 = av_frame_to_rgb_ndarray(frame, pix_fmt="rgb48le")

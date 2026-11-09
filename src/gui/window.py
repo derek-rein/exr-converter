@@ -43,6 +43,7 @@ from ..core.constants import (
     IMAGE_SEQUENCE_EXTS,
     is_image_sequence_ext,
 )
+from ..core.decoders import set_decode_mode
 from ..core.ocio_utils import color_space_families, config_source_info
 from ..core.quicklook_prefs import schedule_quicklook_view_lut
 from ..core.video import is_ignored_media_filename
@@ -52,6 +53,8 @@ from .color_widgets import lock_form_row_height
 from .preferences import (
     PLAYER_MODE_BUILTIN,
     PreferencesDialog,
+    decoder_mode,
+    encoder_mode,
     open_video_with_player,
     player_mode,
     resolve_invisible_watermark,
@@ -284,6 +287,7 @@ class MainWindow(QMainWindow):
         # Process-wide settings façade (single QSettings backend).
         self._app_settings = get_app_settings()
         self._settings = self._app_settings.qsettings
+        set_decode_mode(decoder_mode(self._settings))
         self._thread: QThread | None = None
         self._worker: ConvertWorker | None = None
         self._ocio_cfg = None
@@ -942,6 +946,7 @@ class MainWindow(QMainWindow):
                 slate_overlay=slate_overlay_np,
                 overlay_provider=overlay_provider,
                 codec_opts=tab.get_codec_opts() or None,
+                encoder=encoder_mode(self._settings),
             )
             if tab.invisible_watermark_enabled():
                 wm_text, wm_strength = resolve_invisible_watermark(
