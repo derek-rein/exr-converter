@@ -33,11 +33,21 @@ import numpy as np
 
 from .constants import (
     DNXHR_PROFILE,
+    ENCODER_AUTO,
+    ENCODER_SOFTWARE,
     PRORES_KS_PROFILE,
     PRORES_VT_PROFILE,
     X26X_PRESETS,
     VideoCodecSpec,
     video_codec_by_key,
+)
+from .decoders import normalize_frame, open_input
+from .encoders import (
+    EncoderChoice,
+    encode_frame,
+    open_encoder,
+    pick_encoder,
+    run_with_fallback,
 )
 from .errors import ConversionCancelled
 from .path_tokens import (
@@ -458,7 +468,10 @@ class TranscodeSettings:
     config_path: str = ""
     watermark_text: str = ""
     watermark_strength: float = 1.0
-    codec_opts: dict[str, str] | None = None  # extra libav options (override)
+    # Extra libav options for the software encoder. Setting any keeps the
+    # encode in software, since hardware encoders take different options.
+    codec_opts: dict[str, str] | None = None
+    encoder: str = ENCODER_AUTO  # or ENCODER_SOFTWARE
 
     @property
     def color_enabled(self) -> bool:
@@ -499,6 +512,8 @@ def validate_settings(settings: TranscodeSettings) -> TranscodeSettings:
             raise ValueError(f"Unknown preset: {settings.preset!r}")
     if bool(settings.color_src) != bool(settings.color_dst):
         raise ValueError("Color transform needs both a source and a destination space.")
+    if settings.encoder not in (ENCODER_AUTO, ENCODER_SOFTWARE):
+        raise ValueError(f"Unknown encoder mode: {settings.encoder!r}")
     return replace(settings, container=resolve_container(settings.codec_key, container))
 
 
@@ -531,6 +546,25 @@ def encoder_options(settings: TranscodeSettings) -> tuple[dict[str, str], int]:
     if settings.codec_opts:
         opts.update({str(k): str(v) for k, v in settings.codec_opts.items()})
     return opts, bit_rate
+
+
+def transcode_encoder(
+    settings: TranscodeSettings, spec: VideoCodecSpec, width: int, height: int
+) -> EncoderChoice:
+    """The encoder for *settings* at *width* × *height*: hardware when allowed and working."""
+    opts, bit_rate = encoder_options(settings)
+    software = EncoderChoice(spec.libav_codec, spec.pix_fmt, opts, bit_rate)
+    key = settings.codec_key
+    return pick_encoder(
+        software,
+        codec_key=key,
+        bit_depth=spec.bit_depth,
+        mode=ENCODER_SOFTWARE if settings.codec_opts else settings.encoder,
+        crf=settings.crf if settings.crf is not None else DEFAULT_CRF.get(key, 18),
+        preset=settings.preset or DEFAULT_PRESET,
+        width=width,
+        height=height,
+    )
 
 
 def format_output_name(
@@ -824,9 +858,9 @@ class _Pipeline:
 
         arr = np.ascontiguousarray(rgb[..., :3], dtype=np.float32)
         if self.processor is not None:
-            from .ocio_utils import _apply_rgb_processor
+            from .ocio_utils import apply_packed_rgb
 
-            _apply_rgb_processor(self.processor, arr)
+            apply_packed_rgb(self.processor, arr)
         u16 = np.clip(arr * 65535.0 + 0.5, 0, 65535).astype(np.uint16)
         vf = av.VideoFrame.from_ndarray(u16, format="rgb48le")
         if (vf.width, vf.height) != (self.width, self.height):
@@ -838,10 +872,10 @@ class _Pipeline:
 
     def _process_u16(self, rgb: np.ndarray) -> np.ndarray:
         if self.processor is not None:
-            from .ocio_utils import _apply_rgb_processor
+            from .ocio_utils import apply_packed_rgb
 
             f = np.ascontiguousarray(rgb, dtype=np.float32) * np.float32(1.0 / 65535.0)
-            _apply_rgb_processor(self.processor, f)
+            apply_packed_rgb(self.processor, f)
             rgb = np.clip(f * 65535.0 + 0.5, 0, 65535).astype(np.uint16)
         if self.watermark is not None:
             rgb = self.watermark.apply_u16(rgb)
@@ -936,26 +970,20 @@ def _open_output(tmp: Path, container: str, settings: TranscodeSettings) -> Any:
 
 def _add_video_stream(
     out_c: Any,
-    spec: VideoCodecSpec,
+    encoder: EncoderChoice,
     container: str,
     rate: Fraction,
     width: int,
     height: int,
     settings: TranscodeSettings,
 ) -> Any:
-    opts, bit_rate = encoder_options(settings)
-    if spec.libav_codec == "libsvtav1":
+    if encoder.libav_codec == "libsvtav1":
         # SVT-AV1 prints a config banner on every encode unless told otherwise.
         os.environ.setdefault("SVT_LOG", "1")
-    out_v = out_c.add_stream(spec.libav_codec, rate=rate)
+    out_v = out_c.add_stream(encoder.libav_codec, rate=rate)
     out_v.width = width
     out_v.height = height
-    out_v.pix_fmt = spec.pix_fmt
-    out_v.thread_type = "AUTO"
-    if bit_rate:
-        out_v.bit_rate = bit_rate
-    if opts:
-        out_v.options = opts
+    encoder.configure(out_v)
     if codec_family(settings.codec_key) == "hevc" and container in ("mp4", "mov"):
         # hvc1 (not hev1) so QuickTime and Apple apps play the file.
         try:
@@ -973,6 +1001,83 @@ def _check_rate(container: str, rate: Fraction) -> None:
         )
 
 
+def _via(encoder: EncoderChoice) -> str:
+    return f" via {encoder.label}" if encoder.hardware else ""
+
+
+class _AudioCopy:
+    """Stream-copies the first audio track, rebased so it starts at 0."""
+
+    def __init__(self, out_c: Any, out_a: Any) -> None:
+        self._out_c = out_c
+        self._out_a = out_a
+        self._offset: int | None = None
+
+    def handle(self, packet: Any) -> None:
+        if packet.dts is None or packet.pts is None:
+            return
+        if self._offset is None:
+            self._offset = int(packet.pts)
+        packet.pts = int(packet.pts) - self._offset
+        packet.dts = int(packet.dts) - self._offset
+        packet.stream = self._out_a
+        self._out_c.mux(packet)
+
+    def flush(self) -> None:
+        pass
+
+
+class _AudioEncode:
+    """Decodes the first audio track and encodes it with another codec."""
+
+    def __init__(self, out_c: Any, out_a: Any) -> None:
+        self._out_c = out_c
+        self._out_a = out_a
+
+    def handle(self, packet: Any) -> None:
+        for frame in packet.decode():
+            frame.pts = None
+            self._out_c.mux(self._out_a.encode(frame))
+
+    def flush(self) -> None:
+        self._out_c.mux(self._out_a.encode())
+
+
+def _open_audio(
+    out_c: Any,
+    in_a: Any,
+    settings: TranscodeSettings,
+    container: str,
+    conform: bool,
+    log: LogCallback | None,
+) -> _AudioCopy | _AudioEncode | None:
+    """Add the output audio stream for *in_a*, or ``None`` when the output has no audio."""
+    if in_a is None or settings.audio == AUDIO_NONE:
+        return None
+    if conform:
+        if log:
+            log("Audio dropped: conforming the frame rate changes the clip length.")
+        return None
+    action, note = resolve_audio(settings.audio, container, in_a.codec_context.name)
+    if note and log:
+        log(note)
+    try:
+        if action == AUDIO_COPY:
+            return _AudioCopy(out_c, out_c.add_stream_from_template(in_a))
+        rate = 48000 if container == "mxf" else in_a.codec_context.sample_rate
+        out_a = out_c.add_stream(action, rate=rate)
+        layout = in_a.codec_context.layout
+        if layout is not None:
+            out_a.layout = layout.name
+        if action == "aac":
+            out_a.bit_rate = AAC_BITRATE
+        return _AudioEncode(out_c, out_a)
+    except Exception as e:
+        if log:
+            log(f"Audio skipped ({e})")
+        return None
+
+
 def _transcode_av(
     src: Path,
     out: Path,
@@ -984,8 +1089,6 @@ def _transcode_av(
     log: LogCallback | None,
     label: str,
 ) -> Path:
-    import av
-
     from .convert import _fps_to_rate
     from .video import probe_video
 
@@ -1000,141 +1103,116 @@ def _transcode_av(
 
     processor = _color_processor(settings, log)
     watermark = _open_watermark(settings, log)
+    encoder = transcode_encoder(settings, spec, ow, oh)
     if log:
         size = f"{w}×{h}" if (w, h) == (ow, oh) else f"{w}×{h} → {ow}×{oh}"
         fps_note = f", {float(src_rate):.3f} → {float(rate):.3f} fps" if conform else ""
-        log(f"{label}: {src.name} {size} {spec.display_name} .{container}{fps_note}")
+        log(f"{label}: {src.name} {size} {spec.display_name} .{container}{fps_note}{_via(encoder)}")
 
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = _partial_path(out)
-    n = 0
 
-    in_c = av.open(str(src))
-    try:
+    def attempt(enc: EncoderChoice) -> int:
+        return _encode_av(
+            src,
+            tmp,
+            settings,
+            enc,
+            container,
+            rate,
+            conform,
+            (ow, oh),
+            processor,
+            watermark,
+            total,
+            progress,
+            cancel_check,
+            log,
+        )
+
+    n = run_with_fallback(encoder, attempt, log)
+    os.replace(tmp, out)
+    if log:
+        log(f"Wrote {out} ({n} frames)")
+    return out
+
+
+def _encode_av(
+    src: Path,
+    tmp: Path,
+    settings: TranscodeSettings,
+    encoder: EncoderChoice,
+    container: str,
+    rate: Fraction,
+    conform: bool,
+    size: tuple[int, int],
+    processor: Any,
+    watermark: Any,
+    total: int,
+    progress: ProgressCallback | None,
+    cancel_check: Callable[[], bool] | None,
+    log: LogCallback | None,
+) -> int:
+    """Decode *src* and encode it into *tmp*. Returns the frame count; *tmp* is removed on error."""
+    ow, oh = size
+    n = 0
+    in_c, hw_device = open_input(str(src), log_fn=log)
+    with in_c:
         in_v = in_c.streams.video[0]
         in_v.thread_type = "AUTO"
         in_a = in_c.streams.audio[0] if in_c.streams.audio else None
-
-        action = AUDIO_NONE
-        if in_a is not None and settings.audio != AUDIO_NONE:
-            if conform:
-                if log:
-                    log("Audio dropped: conforming the frame rate changes the clip length.")
-            else:
-                action, note = resolve_audio(settings.audio, container, in_a.codec_context.name)
-                if note and log:
-                    log(note)
-
         out_c = _open_output(tmp, container, settings)
         ok = False
         try:
             tc = _timecode_for_rate(_source_timecode(in_c, in_v), rate)
             if tc:
                 out_c.metadata["timecode"] = tc
-            out_v = _add_video_stream(out_c, spec, container, rate, ow, oh, settings)
+            out_v = _add_video_stream(out_c, encoder, container, rate, ow, oh, settings)
             if tc:
                 out_v.metadata["timecode"] = tc
             _copy_color_tags(out_v, in_v.codec_context, matrix_only=processor is not None)
-
-            out_a = None
-            audio_offset: int | None = None
-            if action == AUDIO_COPY and in_a is not None:
-                try:
-                    out_a = out_c.add_stream_from_template(in_a)
-                except Exception as e:
-                    out_a = None
-                    action = AUDIO_NONE
-                    if log:
-                        log(f"Audio skipped ({e})")
-            elif action != AUDIO_NONE and in_a is not None:
-                try:
-                    a_rate = in_a.codec_context.sample_rate
-                    if container == "mxf":
-                        a_rate = 48000
-                    out_a = out_c.add_stream(action, rate=a_rate)
-                    layout = in_a.codec_context.layout
-                    if layout is not None:
-                        out_a.layout = layout.name
-                    if action == "aac":
-                        out_a.bit_rate = AAC_BITRATE
-                except Exception as e:
-                    out_a = None
-                    action = AUDIO_NONE
-                    if log:
-                        log(f"Audio skipped ({e})")
-
+            open_encoder(out_v)
+            audio = _open_audio(out_c, in_a, settings, container, conform, log)
             pipe = _Pipeline(
                 ow,
                 oh,
-                spec.pix_fmt,
+                encoder.pix_fmt,
                 processor=processor,
                 watermark=watermark,
                 matrix=_sws_matrix(in_v.codec_context),
             )
             time_base = Fraction(1, 1) / rate
 
-            def _encode_video(frame: Any) -> None:
-                nonlocal n
-                vf = pipe.from_av(frame)
-                vf.pts = n
-                vf.time_base = time_base
-                n += 1
-                for packet in out_v.encode(vf):
-                    out_c.mux(packet)
-                if progress:
-                    progress(n, max(total, n))
-
-            def _encode_audio(frame: Any) -> None:
-                frame.pts = None
-                assert out_a is not None
-                for packet in out_a.encode(frame):
-                    out_c.mux(packet)
-
-            def _copy_audio(packet: Any) -> None:
-                nonlocal audio_offset
-                if packet.dts is None or packet.pts is None:
-                    return
-                if audio_offset is None:
-                    audio_offset = int(packet.pts)
-                packet.pts = int(packet.pts) - audio_offset
-                packet.dts = int(packet.dts) - audio_offset
-                packet.stream = out_a
-                out_c.mux(packet)
-
-            streams = [in_v] if out_a is None else [in_v, in_a]
+            streams = [in_v] if audio is None else [in_v, in_a]
             for packet in in_c.demux(*streams):
                 if cancel_check and cancel_check():
                     raise ConversionCancelled()
-                if packet.stream is in_v:
-                    for frame in packet.decode():
-                        _encode_video(frame)
-                elif action == AUDIO_COPY:
-                    _copy_audio(packet)
-                else:
-                    for frame in packet.decode():
-                        _encode_audio(frame)
+                if packet.stream is not in_v:
+                    assert audio is not None
+                    audio.handle(packet)
+                    continue
+                for frame in packet.decode():
+                    vf = pipe.from_av(normalize_frame(frame, hw_device))
+                    vf.pts = n
+                    vf.time_base = time_base
+                    n += 1
+                    out_c.mux(encode_frame(out_v, vf))
+                    if progress:
+                        progress(n, max(total, n))
 
-            for packet in out_v.encode():
-                out_c.mux(packet)
-            if out_a is not None and action != AUDIO_COPY:
-                for packet in out_a.encode():
-                    out_c.mux(packet)
-            ok = n > 0
-            if not ok:
+            out_c.mux(encode_frame(out_v, None))
+            if audio is not None:
+                audio.flush()
+            if n == 0:
                 raise RuntimeError(f"No video frames decoded from {src.name}")
+            ok = True
         finally:
             try:
                 out_c.close()
             finally:
                 if not ok:
                     tmp.unlink(missing_ok=True)
-    finally:
-        in_c.close()
-
-    os.replace(tmp, out)
-    if log:
-        log(f"Wrote {out} ({n} frames)")
-    return out
+    return n
 
 
 def _transcode_raw(
@@ -1169,47 +1247,54 @@ def _transcode_raw(
             hint = info.colorspace_hint or "the camera space"
             log(f"No color transform: frames stay in {hint}.")
         watermark = _open_watermark(settings, log)
+        encoder = transcode_encoder(settings, spec, ow, oh)
         if log:
             log(
                 f"Transcode: {src.name} {info.width}×{info.height} → {ow}×{oh} "
-                f"{spec.display_name} .{container} (camera RAW, no audio)"
+                f"{spec.display_name} .{container} (camera RAW, no audio){_via(encoder)}"
             )
         out.parent.mkdir(parents=True, exist_ok=True)
         tmp = _partial_path(out)
-        pipe = _Pipeline(ow, oh, spec.pix_fmt, processor=processor, watermark=watermark, matrix=1)
         total = info.frame_count
-        n = 0
-        out_c = _open_output(tmp, container, settings)
-        ok = False
-        try:
-            out_v = _add_video_stream(out_c, spec, container, rate, ow, oh, settings)
+
+        def attempt(enc: EncoderChoice) -> int:
+            pipe = _Pipeline(
+                ow, oh, enc.pix_fmt, processor=processor, watermark=watermark, matrix=1
+            )
+            n = 0
+            out_c = _open_output(tmp, container, settings)
+            ok = False
             try:
-                out_v.codec_context.colorspace = 1
-            except Exception:
-                pass
-            time_base = Fraction(1, 1) / rate
-            for _idx, rgb, _attrs in source.iter_frames(cancel_check=cancel_check):
-                if cancel_check and cancel_check():
-                    raise ConversionCancelled()
-                vf = pipe.from_float(rgb)
-                vf.pts = n
-                vf.time_base = time_base
-                n += 1
-                for packet in out_v.encode(vf):
-                    out_c.mux(packet)
-                if progress:
-                    progress(n, max(total, n))
-            for packet in out_v.encode():
-                out_c.mux(packet)
-            ok = n > 0
-            if not ok:
-                raise RuntimeError(f"No frames decoded from {src.name}")
-        finally:
-            try:
-                out_c.close()
+                out_v = _add_video_stream(out_c, enc, container, rate, ow, oh, settings)
+                try:
+                    out_v.codec_context.colorspace = 1
+                except Exception:
+                    pass
+                open_encoder(out_v)
+                time_base = Fraction(1, 1) / rate
+                for _idx, rgb, _attrs in source.iter_frames(cancel_check=cancel_check):
+                    if cancel_check and cancel_check():
+                        raise ConversionCancelled()
+                    vf = pipe.from_float(rgb)
+                    vf.pts = n
+                    vf.time_base = time_base
+                    n += 1
+                    out_c.mux(encode_frame(out_v, vf))
+                    if progress:
+                        progress(n, max(total, n))
+                out_c.mux(encode_frame(out_v, None))
+                if n == 0:
+                    raise RuntimeError(f"No frames decoded from {src.name}")
+                ok = True
             finally:
-                if not ok:
-                    tmp.unlink(missing_ok=True)
+                try:
+                    out_c.close()
+                finally:
+                    if not ok:
+                        tmp.unlink(missing_ok=True)
+            return n
+
+        n = run_with_fallback(encoder, attempt, log)
     os.replace(tmp, out)
     if log:
         log(f"Wrote {out} ({n} frames)")

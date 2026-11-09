@@ -47,6 +47,10 @@ class Keys:
     # Invisible TrustMark watermark for EXR → Video (template may use tokens).
     INVISIBLE_WM_TEMPLATE = "watermark/invisible_template"
     INVISIBLE_WM_STRENGTH = "watermark/invisible_strength"
+    # Video encoder: "auto" (hardware H.264 / HEVC when available) or "software".
+    ENCODER_MODE = "encode/encoder_mode"
+    # Video decoder: "auto" (GPU H.264 / HEVC / AV1 / VP9 when possible) or "software".
+    DECODER_MODE = "encode/decoder_mode"
     # macOS Quick Look toggles: quicklook/format/<key> (src/core/quicklook_formats.py).
     # Whether the Quick Look / thumbnail extensions are elected on (pluginkit).
     QUICKLOOK_INSTALLED = "quicklook/installed"

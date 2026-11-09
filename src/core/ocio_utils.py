@@ -4,6 +4,8 @@ import os
 import re
 import sys
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -845,10 +847,32 @@ def get_internal_interchange_space() -> str:
     return ix
 
 
-def _apply_rgb_processor(cpu: OCIO.CPUProcessor, rgb: np.ndarray) -> None:
-    """In-place RGB float32 HxWx3 via OCIO PackedImageDesc."""
+_STRIP_PIXELS = 131_072
+
+
+@cache
+def _strip_pool() -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(max_workers=os.cpu_count() or 4, thread_name_prefix="ocio-strip")
+
+
+def apply_packed_rgb(cpu: OCIO.CPUProcessor, rgb: np.ndarray) -> None:
+    """In-place OCIO on a C-contiguous float32 HxWx3 array.
+
+    ``CPUProcessor.apply`` releases the GIL, so row strips run in parallel on a
+    shared thread pool. ACES 2.0 output transforms cost ~3 s per 4K frame on
+    one core, which this spreads across every core with identical results.
+    """
     h, w = rgb.shape[:2]
-    cpu.apply(OCIO.PackedImageDesc(rgb, w, h, 3))
+    rows = max(1, _STRIP_PIXELS // max(w, 1))
+    if h <= rows:
+        cpu.apply(OCIO.PackedImageDesc(rgb, w, h, 3))
+        return
+
+    def strip(y: int) -> None:
+        part = rgb[y : y + rows]
+        cpu.apply(OCIO.PackedImageDesc(part, w, part.shape[0], 3))
+
+    list(_strip_pool().map(strip, range(0, h, rows)))
 
 
 def bridge_scene_rgb_to_config(
@@ -884,15 +908,15 @@ def bridge_scene_rgb_to_config(
 
     if src_ix and dst_ix:
         if src_space != src_ix:
-            _apply_rgb_processor(make_cpu_processor(src_config, src_space, src_ix), out)
+            apply_packed_rgb(make_cpu_processor(src_config, src_space, src_ix), out)
         # out is now AP0; dst_ix is also AP0 on the destination config.
         if dst_space != dst_ix:
-            _apply_rgb_processor(make_cpu_processor(dst_config, dst_ix, dst_space), out)
+            apply_packed_rgb(make_cpu_processor(dst_config, dst_ix, dst_space), out)
         return out
 
     # Same config, no interchange — direct processor.
     if src_config is dst_config:
-        _apply_rgb_processor(make_cpu_processor(src_config, src_space, dst_space), out)
+        apply_packed_rgb(make_cpu_processor(src_config, src_space, dst_space), out)
         return out
 
     # Cross-config without shared interchange: try to finish on src_config
@@ -901,7 +925,7 @@ def bridge_scene_rgb_to_config(
     dst_on_src = find_equivalent_space(src_config, dst_space) or _cs_name(src_config, dst_space)
     if dst_on_src:
         if src_space != dst_on_src:
-            _apply_rgb_processor(make_cpu_processor(src_config, src_space, dst_on_src), out)
+            apply_packed_rgb(make_cpu_processor(src_config, src_space, dst_on_src), out)
         return out
 
     return out
@@ -959,13 +983,13 @@ def linearize_overlay(
     user_ix = get_interchange_space(config)
 
     # 1) App-owned: sRGB paint → AP0.
-    _apply_rgb_processor(make_cpu_processor(anchor, auth, ap0), rgb)
+    apply_packed_rgb(make_cpu_processor(anchor, auth, ap0), rgb)
 
     # 2) Bridge into user working / compositing space.
     if user_ix and user_target:
         # AP0 RGB is the aces_interchange encoding; identity when target is ix.
         if user_target != user_ix:
-            _apply_rgb_processor(make_cpu_processor(config, user_ix, user_target), rgb)
+            apply_packed_rgb(make_cpu_processor(config, user_ix, user_target), rgb)
     elif user_target and user_target != ap0:
         # No interchange on user config — try anchor→equivalent encoding.
         rgb = bridge_scene_rgb_to_config(

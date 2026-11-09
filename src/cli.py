@@ -23,6 +23,8 @@ from pathlib import Path
 
 from .core.constants import (
     APP_VERSION,
+    DECODER_AUTO,
+    DECODER_MODES,
     DEFAULT_DST_E2V,
     DEFAULT_DST_V2E,
     DEFAULT_EXR_COMPRESSION,
@@ -31,6 +33,8 @@ from .core.constants import (
     DEFAULT_SRC_V2E,
     DEFAULT_START_FRAME,
     DEFAULT_VIDEO_CODEC,
+    ENCODER_AUTO,
+    ENCODER_MODES,
     EXR_COMPRESSIONS,
     available_video_codecs,
     video_codec_by_key,
@@ -247,6 +251,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=_V2E_EPILOG,
     )
     v2e.add_argument("-i", "--input", required=True, help="Input video file")
+    _add_decoder_arg(v2e)
     v2e.add_argument(
         "-o",
         "--output-dir",
@@ -410,6 +415,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="TrustMark strength from 0.1 to 2.0 (default: 1.0)",
     )
+    _add_encoder_arg(e2v)
 
     from .core.proxy import (
         DEFAULT_PROXY_CODEC,
@@ -477,6 +483,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="TrustMark strength from 0.1 to 2.0 (default: 1.0)",
     )
+    _add_encoder_arg(px)
+    _add_decoder_arg(px)
     px.add_argument("--overwrite", action="store_true", help="Re-make proxies that already exist")
     px.add_argument(
         "--recursive", action="store_true", help="Include subfolders of input / watch folders"
@@ -505,6 +513,30 @@ def build_parser() -> argparse.ArgumentParser:
     _add_transcode_parser(sub)
 
     return p
+
+
+def _add_decoder_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--decoder",
+        default=DECODER_AUTO,
+        choices=[mode for mode, _label in DECODER_MODES],
+        help=(
+            "H.264 / HEVC / AV1 / VP9 decoder: auto uses the GPU (NVDEC, D3D11, VAAPI, "
+            "VideoToolbox) when it can and falls back to software (default: auto)"
+        ),
+    )
+
+
+def _add_encoder_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--encoder",
+        default=ENCODER_AUTO,
+        choices=[mode for mode, _label in ENCODER_MODES],
+        help=(
+            "H.264 / HEVC encoder: auto uses NVENC, Quick Sync, AMF or "
+            "VideoToolbox when available and falls back to software (default: auto)"
+        ),
+    )
 
 
 def _add_transcode_parser(sub) -> None:
@@ -614,6 +646,8 @@ def _add_transcode_parser(sub) -> None:
         default=1.0,
         help="TrustMark strength from 0.1 to 2.0 (default: 1.0)",
     )
+    _add_encoder_arg(tc)
+    _add_decoder_arg(tc)
     tc.add_argument("--recursive", action="store_true", help="Include subfolders of input folders")
 
 
@@ -689,6 +723,7 @@ def run_transcode_cli(args: argparse.Namespace) -> int:
                 config_path=config_path,
                 watermark_text=watermark_text,
                 watermark_strength=strength,
+                encoder=args.encoder,
             )
         )
     except ValueError as e:
@@ -799,6 +834,7 @@ def run_proxy_cli(args: argparse.Namespace) -> int:
                 audio=not args.no_audio,
                 watermark_text=watermark_text,
                 watermark_strength=args.watermark_strength,
+                encoder=args.encoder,
                 progress=_progress,
                 cancel_check=_cli_cancel.is_set,
                 log=_log,
@@ -1091,6 +1127,9 @@ def resolve_e2v_spaces(cfg, args: argparse.Namespace, log) -> tuple[str, str]:
 
 
 def run_cli(args: argparse.Namespace) -> int:
+    from .core.decoders import set_decode_mode
+
+    set_decode_mode(getattr(args, "decoder", DECODER_AUTO))
     if args.command == "proxy":
         return run_proxy_cli(args)
     if args.command == "transcode":
@@ -1215,6 +1254,7 @@ def run_cli(args: argparse.Namespace) -> int:
                 codec_opts=_codec_opts_from_args(args),
                 watermark_text=wm_text,
                 watermark_strength=wm_strength,
+                encoder=args.encoder,
             )
             _log(f"Done → {out_path}")
         print(file=sys.stderr)

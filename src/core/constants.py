@@ -419,6 +419,22 @@ CINEFORM_QUALITY_OPTIONS: list[tuple[str, str]] = [
 ]
 DEFAULT_CINEFORM_QUALITY = "film3"
 
+# Video encoder choice for H.264 / HEVC (see src/core/encoders.py).
+ENCODER_AUTO = "auto"  # hardware encoder when one works on this machine
+ENCODER_SOFTWARE = "software"
+ENCODER_MODES: tuple[tuple[str, str], ...] = (
+    (ENCODER_AUTO, "Hardware when available"),
+    (ENCODER_SOFTWARE, "Software only"),
+)
+
+# Video decoder choice for H.264 / HEVC / AV1 / VP9 (see src/core/decoders.py).
+DECODER_AUTO = "auto"  # GPU decode when this machine can do it
+DECODER_SOFTWARE = "software"
+DECODER_MODES: tuple[tuple[str, str], ...] = (
+    (DECODER_AUTO, "Hardware when available"),
+    (DECODER_SOFTWARE, "Software only"),
+)
+
 # x264 / x265 CRF presets (shared names).
 X26X_PRESETS = [
     "ultrafast",

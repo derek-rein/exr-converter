@@ -13,12 +13,21 @@ are left alone.
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
+from functools import cache
+
 import av
 import numpy as np
 
 KR = 0.2126
 KB = 0.0722
 KG = 1.0 - KR - KB
+
+# Pixels per conversion strip: small enough that a strip's float64 temporaries
+# stay in L2 cache (about 8 rows of 4K). Strips run on a thread pool because
+# NumPy releases the GIL inside each operation.
+_STRIP_PIXELS = 32_768
 
 # pix_fmt → (bit depth, horizontal chroma subsampling, has alpha plane)
 _EXACT_FORMATS: dict[str, tuple[int, int, bool]] = {
@@ -73,23 +82,74 @@ def rgb_to_ycbcr_codes(
     (64..940 / 64..960 at 10-bit, 256..3760 / 256..3840 at 12-bit), rounded to
     nearest. *chroma_step* 2 averages horizontal pairs for 4:2:2 before rounding.
     """
-    rgb = np.asarray(rgb_u16, dtype=np.float64) / 65535.0
+    rgb_u16 = np.asarray(rgb_u16)
+    h, w = rgb_u16.shape[:2]
+    cw = (w + 1) // 2 if chroma_step == 2 else w
+    y = np.empty((h, w), dtype=np.uint16)
+    cb = np.empty((h, cw), dtype=np.uint16)
+    cr = np.empty((h, cw), dtype=np.uint16)
+    rows = max(1, _STRIP_PIXELS // max(1, w))
+
+    def strip(r0: int) -> None:
+        r1 = r0 + rows
+        _codes_into(rgb_u16[r0:r1], bit_depth, chroma_step, y[r0:r1], cb[r0:r1], cr[r0:r1])
+
+    starts = range(0, h, rows)
+    if len(starts) <= 1:
+        for r0 in starts:
+            strip(r0)
+    else:
+        list(_strip_pool().map(strip, starts))
+    return y, cb, cr
+
+
+@cache
+def _strip_pool() -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(max_workers=min(16, os.cpu_count() or 4), thread_name_prefix="yuv")
+
+
+def _codes_into(
+    rgb_u16: np.ndarray,
+    bit_depth: int,
+    chroma_step: int,
+    y_out: np.ndarray,
+    cb_out: np.ndarray,
+    cr_out: np.ndarray,
+) -> None:
+    """One strip of :func:`rgb_to_ycbcr_codes`, in place where it can be.
+
+    The float operations and their order match the reference formula, so the
+    codes are bit-identical to an unstripped conversion.
+    """
+    rgb = rgb_u16.astype(np.float64)
+    rgb /= 65535.0
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
-    y = KR * r + KG * g + KB * b
-    cb = (b - y) / (2.0 * (1.0 - KB))
-    cr = (r - y) / (2.0 * (1.0 - KR))
-    scale = float(1 << (bit_depth - 8))
-    max_code = (1 << bit_depth) - 1
+    y = KR * r
+    y += KG * g
+    y += KB * b
+    cb = b - y
+    cb /= 2.0 * (1.0 - KB)
+    cr = r - y
+    cr /= 2.0 * (1.0 - KR)
     if chroma_step == 2:
         if cb.shape[1] % 2:
             cb = np.concatenate([cb, cb[:, -1:]], axis=1)
             cr = np.concatenate([cr, cr[:, -1:]], axis=1)
         cb = 0.5 * (cb[:, 0::2] + cb[:, 1::2])
         cr = 0.5 * (cr[:, 0::2] + cr[:, 1::2])
-    y_code = np.clip(np.rint((16.0 + 219.0 * y) * scale), 0, max_code).astype(np.uint16)
-    cb_code = np.clip(np.rint((128.0 + 224.0 * cb) * scale), 0, max_code).astype(np.uint16)
-    cr_code = np.clip(np.rint((128.0 + 224.0 * cr) * scale), 0, max_code).astype(np.uint16)
-    return y_code, cb_code, cr_code
+    scale = float(1 << (bit_depth - 8))
+    max_code = (1 << bit_depth) - 1
+    for plane, offset, gain, out in (
+        (y, 16.0, 219.0, y_out),
+        (cb, 128.0, 224.0, cb_out),
+        (cr, 128.0, 224.0, cr_out),
+    ):
+        plane *= gain
+        plane += offset
+        plane *= scale
+        np.rint(plane, out=plane)
+        np.clip(plane, 0, max_code, out=plane)
+        out[...] = plane
 
 
 def _fill_plane(plane, data: np.ndarray) -> None:
