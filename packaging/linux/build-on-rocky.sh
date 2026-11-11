@@ -24,7 +24,7 @@ cd "$ROOT"
 _r3d_token="${R3D_SDK_READ_TOKEN:-}"
 _braw_token="${BRAW_SDK_READ_TOKEN:-}"
 _camera_raw_token="${CAMERA_RAW_READ_TOKEN:-}"
-_arri_token="${ARRI_SDK_READ_TOKEN:-}"
+# Public release builds do not decode ARRIRAW. Drop that token if a caller set it.
 unset R3D_SDK_READ_TOKEN BRAW_SDK_READ_TOKEN CAMERA_RAW_READ_TOKEN ARRI_SDK_READ_TOKEN
 
 fix_owner() {
@@ -140,7 +140,7 @@ else
   echo "BRAW_SDK_READ_TOKEN not set — skipping BRAW bridge"
 fi
 
-if [ -n "$_camera_raw_token" ] || [ -n "$_arri_token" ]; then
+if [ -n "$_camera_raw_token" ]; then
   dnf -y install cmake ocl-icd
   if ! command -v git-lfs >/dev/null 2>&1; then
     curl -fsSL -o /tmp/git-lfs.tar.gz \
@@ -156,8 +156,8 @@ if [ -n "$_camera_raw_token" ]; then
 else
   echo "camera RAW plugin token not set; skipping"
 fi
-# ARRI plugin (prints its own skip line without ARRI_SDK_READ_TOKEN).
-ARRI_SDK_READ_TOKEN="$_arri_token" uv run python scripts/arri_plugin.py prepare
+# Public release builds do not include the ARRI plugin (token stays unset).
+uv run python scripts/arri_plugin.py prepare
 
 uv run python scripts/build_cinemadng.py
 

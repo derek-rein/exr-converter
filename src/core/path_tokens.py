@@ -105,7 +105,7 @@ _SEPARATORS = re.compile(r"[\\/]+")
 # Metadata keys (after ``_norm_key``) that hold a reel name, best first.
 _REEL_KEYS: tuple[str, ...] = ("reelname", "reel", "reelid", "tapename", "tape", "reelno")
 _TIMECODE_KEYS: tuple[str, ...] = ("timecode", "starttimecode", "tcstart")
-# ARRI ``A_0001C001…``, RED / Sony / Canon ``A001C003…`` / ``A001_C003…``.
+# ARRI ``A_0001C001…``, and other camera clip names ``A001C003…`` / ``A001_C003…``.
 _CAMERA_REEL_RE = re.compile(r"^([A-Za-z]_?\d{3,4})_?C\d{3}", re.ASCII)
 
 

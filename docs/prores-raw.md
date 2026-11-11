@@ -6,8 +6,7 @@ description: Convert Apple ProRes RAW clips (Atomos, Nikon, DJI and others) to s
 # ProRes RAW
 
 **Video → EXR** (`video2exr`) reads **Apple ProRes RAW** and **ProRes RAW HQ**
-`.mov` clips. These come from Atomos recorders behind Sony, Panasonic,
-Fujifilm, Canon and other cameras, and from cameras that record it
+`.mov` clips, from external recorders and from cameras that record it
 internally. The browser shows the codec as `ProRes RAW`, Inspect lists the
 recorder, white balance, gain and levels, and thumbnails and the player work
 as for any clip.

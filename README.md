@@ -80,7 +80,7 @@
 
 **Optional Blackmagic RAW:** when built with the official Blackmagic RAW SDK bridge, **Video to EXR** can decode `.braw` (Linear + ACES AP0 / `ACES2065-1` for OCIO). Without the SDK the extension is recognized but conversion fails with a clear missing-SDK message. Public Release binaries ship the runtime libraries in a private app folder when secret `BRAW_SDK_READ_TOKEN` is configured. See [docs/braw.md](docs/braw.md).
 
-**Apple ProRes RAW:** ProRes RAW and ProRes RAW HQ `.mov` clips (Atomos recorders behind Sony, Panasonic, Fujifilm, Canon and others) convert to EXR with no SDK. FFmpeg decodes them to a 16-bit linear Bayer mosaic; the app applies the clip's levels, white balance, color matrix and crop and writes scene-linear `ACES2065-1`. See [docs/prores-raw.md](docs/prores-raw.md).
+**Apple ProRes RAW:** ProRes RAW and ProRes RAW HQ `.mov` clips convert to EXR with no SDK. FFmpeg decodes them to a 16-bit linear Bayer mosaic; the app applies the clip's levels, white balance, color matrix and crop and writes scene-linear `ACES2065-1`. See [docs/prores-raw.md](docs/prores-raw.md).
 
 **CinemaDNG:** `.dng` frame sequences (uncompressed or lossless JPEG Bayer) convert to EXR or to a video proxy. DJI Inspire 3 / Zenmuse X9 is scene-linear **P3-D60** with the recommended **+1.4 stops** already applied (`Linear P3-D60`). Convert to `Linear D-Gamut` or `D-Log D-Gamut` with the bundled OCIO config. See [docs/cinemadng.md](docs/cinemadng.md).
 
