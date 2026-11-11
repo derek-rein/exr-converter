@@ -171,7 +171,7 @@ while IFS= read -r flag || [ -n "$flag" ]; do
   [ -n "$flag" ] || continue
   case " ${RAW_FLAGS[*]-} " in *" $flag "*) continue ;; esac
   RAW_FLAGS+=("$flag")
-done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags; uv run python scripts/arri_plugin.py nuitka-flags)
+done < <(uv run python scripts/prepare_nuitka_av.py nuitka-flags; uv run python scripts/camera_raw_plugin.py nuitka-flags; uv run python scripts/arri_plugin.py nuitka-flags)
 
 # Flags kept in sync with `make bundle` and the Release workflow Nuitka step.
 # NUITKA_JOBS caps C compile/LTO parallelism on small machines (default: all cores).
@@ -196,7 +196,6 @@ uv run python -m nuitka \
   --noinclude-dlls='*Qt6Pdf*' \
   --noinclude-dlls='*Qt6Positioning*' \
   --noinclude-dlls='*Qt6PrintSupport*' \
-  --include-package=av \
   --include-package-data=av \
   --include-package=OpenImageIO \
   --include-package-data=OpenImageIO \
