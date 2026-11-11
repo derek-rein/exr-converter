@@ -32,6 +32,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 - Software ProRes (`prores_ks`) and CineForm encode with frame threads, up to about 4 times faster at 4K. DNxHR and FFV1 keep slice threads, which are faster for them.
 - 10-bit 4:2:2 and 4:4:4 Y'CbCr conversion (ProRes, DNxHR HQX / 444) runs in parallel strips, about 8 times faster per frame, with identical output.
 
+### Fixed
+
+- Packaged builds start again. PyAV 19's logging module needs `av._cyutil`, and the frozen app left that module out, so launch stopped with `No module named 'av._cyutil'`.
+
 ### Removed
 
 - The Microsoft Store packages (`.msixupload` and `.msix`), the Store publish step, and the Store screenshot generator. Windows releases ship the setup `.exe` only.
