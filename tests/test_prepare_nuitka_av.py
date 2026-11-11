@@ -51,3 +51,4 @@ def test_hides_only_cython_sources_beside_extensions(tmp_path: Path) -> None:
         "utils.py.cython-src",
         "frame.py.cython-src",
     }
+    assert module.extension_modules(pkg) == ["av.audio.frame", "av.utils"]

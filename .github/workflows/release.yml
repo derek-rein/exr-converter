@@ -459,7 +459,7 @@ jobs:
             [ -n "$flag" ] || continue
             case " ${RAW_FLAGS[*]-} " in *" $flag "*) continue ;; esac
             RAW_FLAGS+=("$flag")
-          done < <(uv run python scripts/camera_raw_plugin.py nuitka-flags; uv run python scripts/arri_plugin.py nuitka-flags)
+          done < <(uv run python scripts/prepare_nuitka_av.py nuitka-flags; uv run python scripts/camera_raw_plugin.py nuitka-flags; uv run python scripts/arri_plugin.py nuitka-flags)
           uv run python -m nuitka \
             $MODE \
             --output-dir=dist \
@@ -480,7 +480,6 @@ jobs:
             --noinclude-dlls='*Qt6Pdf*' \
             --noinclude-dlls='*Qt6Positioning*' \
             --noinclude-dlls='*Qt6PrintSupport*' \
-            --include-package=av \
             --include-package-data=av \
             --include-package=OpenImageIO \
             --include-package-data=OpenImageIO \

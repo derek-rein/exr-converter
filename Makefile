@@ -154,8 +154,8 @@ bundle: resources
 	$(PYTHON) scripts/arri_plugin.py prepare
 	# macOS: align libonnxruntime's install id with its filename before Nuitka.
 	$(PYTHON) scripts/prepare_macos_onnxruntime.py
-	# PyAV ships Cython sources beside its extensions. Hide those so Nuitka
-	# bundles the compiled modules (--include-package=av).
+	# PyAV ships Cython sources beside its extensions. Hide those, then
+	# pass one --include-module per compiled extension.
 	$(PYTHON) scripts/prepare_nuitka_av.py
 	$(PYTHON) -m nuitka \
 		--standalone \
@@ -182,7 +182,6 @@ bundle: resources
 		--noinclude-dlls='*Qt6Pdf*' \
 		--noinclude-dlls='*Qt6Positioning*' \
 		--noinclude-dlls='*Qt6PrintSupport*' \
-		--include-package=av \
 		--include-package-data=av \
 		--include-package=OpenImageIO \
 		--include-package-data=OpenImageIO \
@@ -196,7 +195,7 @@ bundle: resources
 		--include-data-files=pyproject.toml=pyproject.toml \
 		--include-module=ssl \
 		--include-module=exr_prores \
-		$$( { $(PYTHON) scripts/camera_raw_plugin.py nuitka-flags; $(PYTHON) scripts/arri_plugin.py nuitka-flags; } | sort -u ) \
+		$$( { $(PYTHON) scripts/prepare_nuitka_av.py nuitka-flags; $(PYTHON) scripts/camera_raw_plugin.py nuitka-flags; $(PYTHON) scripts/arri_plugin.py nuitka-flags; } | sort -u ) \
 		$(ENTRY)
 	mv dist/main.app "dist/$(MACOS_BUNDLE_NAME).app"
 	# Nuitka can rewrite PyOpenColorIO away from the 2.5 library; put 2.5 back.

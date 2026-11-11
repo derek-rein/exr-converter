@@ -58,8 +58,33 @@ def hide_cython_companions(root: Path) -> list[Path]:
     return hidden
 
 
-def main() -> None:
+def extension_modules(root: Path) -> list[str]:
+    """Dotted module names for every compiled extension under ``root``."""
+    names: list[str] = []
+    directories = [root, *[path for path in root.rglob("*") if path.is_dir()]]
+    for directory in directories:
+        for path in directory.iterdir():
+            if not path.is_file() or path.suffix.lower() not in _EXT_SUFFIXES:
+                continue
+            parts = list(path.relative_to(root).parts)
+            parts[-1] = parts[-1].split(".", 1)[0]
+            names.append("av." + ".".join(parts))
+    return sorted(set(names))
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = sys.argv[1:] if argv is None else argv
     root = Path(av.__file__).resolve().parent
+    if args == ["nuitka-flags"]:
+        # One flag per line. Do not --include-package=av: on Windows that
+        # trips Nuitka's ``micro_passes == 0`` assertion. Listing each
+        # extension includes the compiled module without compiling the
+        # Cython source that used to sit beside it.
+        for name in extension_modules(root):
+            print(f"--include-module={name}")
+        return
+    if args:
+        raise SystemExit("usage: prepare_nuitka_av.py [nuitka-flags]")
     hidden = hide_cython_companions(root)
     print(f"prepare_nuitka_av: hid {len(hidden)} Cython source file(s) under {root}")
     for path in hidden:
