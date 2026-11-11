@@ -34,7 +34,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Fixed
 
-- Packaged builds start again. PyAV 19's logging module needs `av._cyutil`, and the frozen app left that module out, so launch stopped with `No module named 'av._cyutil'`.
+- Packaged builds include the whole PyAV package. Its extension modules import each other from C, and leaving one out stopped launch (`No module named 'av._cyutil'`, then `av.utils`).
 
 ### Removed
 
