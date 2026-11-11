@@ -20,9 +20,25 @@ runs:
       if: runner.os == 'Linux'
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-          libegl1 libgl1 libxkbcommon0 libdbus-1-3
+        # Runner DNS for the Ubuntu mirrors blips ("Temporary failure
+        # resolving"). Retry the update and the install. After a failure,
+        # point resolv.conf at public resolvers; the stub resolver is what
+        # stops answering.
+        installed=0
+        for i in 1 2 3; do
+          if sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+              libegl1 libgl1 libxkbcommon0 libdbus-1-3; then
+            installed=1
+            break
+          fi
+          echo "apt-get failed (attempt ${i}); refreshing DNS and waiting 20s" >&2
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/resolv.conf >/dev/null
+          sleep 20
+        done
+        if [ "$installed" -ne 1 ]; then
+          echo "apt-get failed after 3 attempts" >&2
+          exit 1
+        fi
 
     - name: Install dependencies
       shell: bash
