@@ -1,0 +1,48 @@
+name: Azure login check
+
+# Fast check (under a minute) that the AZURE_* secrets can authenticate and
+# get a token for Artifact Signing. Runs on manual dispatch, and automatically
+# when this file changes (so it works from a branch before it is merged).
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/azure-login-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request token with client secret
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          set -u
+          echo "tenant:    ${AZURE_TENANT_ID}"
+          echo "client id: ${AZURE_CLIENT_ID}"
+          len=${#AZURE_CLIENT_SECRET}
+          echo "secret length: ${len} (a real secret Value is about 40 chars; a GUID Secret ID is 36 with dashes)"
+          if [[ "$AZURE_CLIENT_SECRET" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+            echo "::error::AZURE_CLIENT_SECRET looks like a Secret ID (GUID). Copy the Value column instead."
+            exit 1
+          fi
+          if [[ "$AZURE_CLIENT_SECRET" =~ [[:space:]] ]]; then
+            echo "::error::AZURE_CLIENT_SECRET contains whitespace or a line break. Re-paste it with nothing around it."
+            exit 1
+          fi
+          resp=$(curl -sS -X POST "https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token" \
+            --data-urlencode "client_id=${AZURE_CLIENT_ID}" \
+            --data-urlencode "client_secret=${AZURE_CLIENT_SECRET}" \
+            --data-urlencode "scope=https://codesigning.azure.net/.default" \
+            --data-urlencode "grant_type=client_credentials")
+          if echo "$resp" | jq -e .access_token >/dev/null; then
+            echo "OK: Azure accepted the client secret and issued a token for Artifact Signing."
+          else
+            echo "$resp" | jq '{error, error_description}'
+            exit 1
+          fi
