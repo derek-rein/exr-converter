@@ -179,8 +179,8 @@ bundle: resources
 		--noinclude-dlls='*Qt6Pdf*' \
 		--noinclude-dlls='*Qt6Positioning*' \
 		--noinclude-dlls='*Qt6PrintSupport*' \
+		--include-package=av \
 		--include-package-data=av \
-		--include-module=av._cyutil \
 		--include-package=OpenImageIO \
 		--include-package-data=OpenImageIO \
 		--include-package=PyOpenColorIO \
