@@ -23,10 +23,16 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
+- The Windows setup `.exe` and the app executable inside it are signed with Azure Artifact Signing (publisher Medeu Global LLC) when the release has the `AZURE_*` signing secrets.
+
 - PyAV 19 (FFmpeg 9.0) is now required. FFmpeg 8 decoded ProRes RAW to 12 bits without linearizing it.
 - EXR → Video and Transcode run OCIO on every CPU core. ACES 2.0 display transforms were the bottleneck: a 4K EXR → H.264 / HEVC render is now 2 to 4 times faster, with identical pixels.
 - Software ProRes (`prores_ks`) and CineForm encode with frame threads, up to about 4 times faster at 4K. DNxHR and FFV1 keep slice threads, which are faster for them.
 - 10-bit 4:2:2 and 4:4:4 Y'CbCr conversion (ProRes, DNxHR HQX / 444) runs in parallel strips, about 8 times faster per frame, with identical output.
+
+### Removed
+
+- The Microsoft Store packages (`.msixupload` and `.msix`), the Store publish step, and the Store screenshot generator. Windows releases ship the setup `.exe` only.
 
 ## [0.12.14] - 2026-11-02
 
