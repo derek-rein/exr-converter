@@ -154,6 +154,9 @@ bundle: resources
 	$(PYTHON) scripts/arri_plugin.py prepare
 	# macOS: align libonnxruntime's install id with its filename before Nuitka.
 	$(PYTHON) scripts/prepare_macos_onnxruntime.py
+	# PyAV ships Cython sources beside its extensions. Hide those so Nuitka
+	# bundles the compiled modules (--include-package=av).
+	$(PYTHON) scripts/prepare_nuitka_av.py
 	$(PYTHON) -m nuitka \
 		--standalone \
 		--output-dir=dist \

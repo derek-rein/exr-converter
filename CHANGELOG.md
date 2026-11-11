@@ -34,7 +34,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Fixed
 
-- Packaged builds include the whole PyAV package. Its extension modules import each other from C, and leaving one out stopped launch (`No module named 'av._cyutil'`, then `av.utils`).
+- Packaged builds launch again. PyAV 19 ships Cython sources next to its compiled modules, so the freeze step either crashed or left a module out (`No module named 'av.utils'`). The build now keeps the compiled modules and includes the whole package.
 
 ### Removed
 

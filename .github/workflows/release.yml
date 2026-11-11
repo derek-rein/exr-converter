@@ -452,6 +452,7 @@ jobs:
           # (scripts/macos_codesign.py), so the dylib is signed and notarized
           # with the rest of the bundle.
           uv run python scripts/prepare_macos_onnxruntime.py
+          uv run python scripts/prepare_nuitka_av.py
           RAW_FLAGS=()
           while IFS= read -r flag || [ -n "$flag" ]; do
             flag="${flag%$'\r'}"

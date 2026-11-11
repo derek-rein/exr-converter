@@ -163,6 +163,7 @@ uv run python scripts/build_cinemadng.py
 
 uv run pyside6-rcc resources.qrc -o src/rc_resources.py
 uv run python scripts/prepare_macos_onnxruntime.py
+uv run python scripts/prepare_nuitka_av.py
 
 RAW_FLAGS=()
 while IFS= read -r flag || [ -n "$flag" ]; do
