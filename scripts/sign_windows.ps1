@@ -57,20 +57,46 @@ foreach ($f in $Files) {
 }
 
 # --- signtool (needs a recent Windows SDK) ----------------------------------
-$kitRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
-$signtool = Get-ChildItem -Path $kitRoot -Filter signtool.exe -Recurse -ErrorAction SilentlyContinue |
-  Where-Object { $_.FullName -match "\\x64\\signtool\.exe$" } |
-  ForEach-Object {
-    $v = $null
-    if ([version]::TryParse($_.VersionInfo.FileVersion.Split(" ")[0], [ref]$v)) {
-      [pscustomobject]@{ Path = $_.FullName; Version = $v }
+# Look in each kit's x64 folder directly. A deep recurse misses the current
+# SDK on some GitHub runners, and FileVersion is sometimes empty, so the
+# kit directory name (10.0.26100.0) is the fallback version.
+function Get-SignToolVersion([System.IO.FileInfo] $file) {
+  $raw = $file.VersionInfo.FileVersion
+  if ($raw) {
+    $token = ($raw -split "\s+")[0]
+    $parsed = $null
+    if ([version]::TryParse($token, [ref]$parsed)) { return $parsed }
+  }
+  $kit = Split-Path (Split-Path $file.FullName -Parent) -Leaf
+  $parsed = $null
+  if ([version]::TryParse($kit, [ref]$parsed)) { return $parsed }
+  return $null
+}
+
+$kitRoots = @(
+  (Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"),
+  (Join-Path $env:ProgramFiles "Windows Kits\10\bin")
+)
+$candidates = @()
+foreach ($kitRoot in $kitRoots) {
+  if (-not (Test-Path -LiteralPath $kitRoot)) {
+    Write-Host "signtool: no kit bin at $kitRoot"
+    continue
+  }
+  Get-ChildItem -Path $kitRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+    $exe = Join-Path $_.FullName "x64\signtool.exe"
+    if (-not (Test-Path -LiteralPath $exe)) { return }
+    $item = Get-Item -LiteralPath $exe
+    $ver = Get-SignToolVersion $item
+    Write-Host "signtool candidate: $exe version=$ver file=$($item.VersionInfo.FileVersion)"
+    if ($ver -and $ver -ge $MinSigntool) {
+      $candidates += [pscustomobject]@{ Path = $exe; Version = $ver }
     }
-  } |
-  Where-Object { $_.Version -ge $MinSigntool } |
-  Sort-Object Version -Descending |
-  Select-Object -First 1
+  }
+}
+$signtool = $candidates | Sort-Object Version -Descending | Select-Object -First 1
 if (-not $signtool) {
-  throw "signtool.exe $MinSigntool or newer (x64) not found under $kitRoot."
+  throw "signtool.exe $MinSigntool or newer (x64) not found under Windows Kits\10\bin."
 }
 Write-Host "signtool: $($signtool.Path) ($($signtool.Version))"
 

@@ -35,6 +35,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 ### Fixed
 
 - Packaged builds launch again. PyAV 19 ships Cython sources next to its compiled modules, so the freeze step either crashed or left a module out (`No module named 'av.utils'`). The build now keeps the compiled modules and includes each of them.
+- The Windows signing step uses the Windows SDK `signtool` from each kit's `x64` folder. The previous search missed that copy, so the signed setup was not produced.
 
 ### Removed
 
