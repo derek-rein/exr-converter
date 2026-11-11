@@ -25,7 +25,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Keep these in step with scripts/package_msix.py.
+# Pinned versions.
 $ClientVersion = "1.0.146"
 $NugetUrl = "https://dist.nuget.org/win-x86-commandline/v6.13.2/nuget.exe"
 $TimestampUrl = "http://timestamp.acs.microsoft.com"

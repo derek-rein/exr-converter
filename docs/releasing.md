@@ -86,15 +86,9 @@ spctl -a -vvv -t install exr_converter-macos-arm64.dmg
 codesign --verify --deep --strict --verbose=2 exr_converter-macos-arm64.dmg
 ```
 
-**Microsoft Store:** the Windows build can also publish
-`exr_converter-windows-x86_64.msixupload` (unsigned Partner Center upload)
-and `exr_converter-windows-x86_64.msix` (self-distribution). The loose
-`.msix` is signed with `signtool` when Azure Artifact Signing secrets are
-set, and left unsigned otherwise. An unsigned MSIX does not install. The
-upload's contents are never signed. A later release can also submit the
-`.msixupload` with `msstore` when the Store secrets and `MSSTORE_APP_ID`
-are set. The first submission is manual, and a publish failure does not
-block the GitHub Release. Steps: [msix.md](./msix.md).
+**Windows signing:** the app exe and the setup `.exe` are signed with Azure
+Artifact Signing (`scripts/sign_windows.ps1`) when the six `AZURE_*` secrets
+are set (see AGENTS.md). Without them the build warns and ships unsigned.
 
 **Docs site:** [vfx.systems/docs/exr-converter](https://vfx.systems/docs/exr-converter)
 loads the Markdown under `docs/` from this repo. It is independent of the

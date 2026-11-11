@@ -44,10 +44,6 @@ Get the latest build from
 | Windows x64 | [exr_converter-windows-x86_64-setup.exe](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe) |
 | Linux x86_64 | [AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage), [tarball](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz), or [RPM](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm) (RHEL / Rocky 8 and newer). See [Linux](./linux.md). |
 
-The Windows `.msix` and `.msixupload` files on a release are for the
-Microsoft Store ([details](./msix.md)). For a direct install, use the setup
-`.exe`.
-
 Every release file has a Sigstore Cosign `.sigstore.json` bundle and a GitHub
 build provenance attestation. The releases page lists the `cosign verify-blob`
 and `gh attestation verify` commands.
@@ -80,5 +76,4 @@ as the code (and [CHANGELOG.md](https://github.com/derek-rein/exr-converter/blob
 | [Blackmagic RAW](./braw.md) | Optional BRAW SDK (proprietary; Linear ACES AP0; Release CI feed) |
 | [CinemaDNG](./cinemadng.md) | `.dng` frame sequences, DJI Inspire 3 as Linear P3-D60 + 1.4 stops |
 | [Releasing](./releasing.md) | Pointer to maintainer release process |
-| [Microsoft Store](./msix.md) | Partner Center .msixupload and self-distribution .msix |
 | [12-bit ProRes (oxideav)](./plan-12bit-prores-oxideav.md) | Experimental RDD-36 ProRes 4444 and XQ (12-bit). 422 stays 10-bit |
