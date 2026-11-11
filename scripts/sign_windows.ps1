@@ -61,15 +61,21 @@ foreach ($f in $Files) {
 # SDK on some GitHub runners, and FileVersion is sometimes empty, so the
 # kit directory name (10.0.26100.0) is the fallback version.
 function Get-SignToolVersion([System.IO.FileInfo] $file) {
+  # signtool.exe from the 10.0.26100 kit reports FileVersion "4.00", which is
+  # not the SDK version. The parent folder name is the version that matters.
+  $kit = Split-Path (Split-Path $file.FullName -Parent) -Leaf
+  $kitVer = $null
+  if ([version]::TryParse($kit, [ref]$kitVer) -and $kitVer.Major -ge 10) {
+    return $kitVer
+  }
   $raw = $file.VersionInfo.FileVersion
   if ($raw) {
     $token = ($raw -split "\s+")[0]
     $parsed = $null
-    if ([version]::TryParse($token, [ref]$parsed)) { return $parsed }
+    if ([version]::TryParse($token, [ref]$parsed) -and $parsed.Major -ge 10) {
+      return $parsed
+    }
   }
-  $kit = Split-Path (Split-Path $file.FullName -Parent) -Leaf
-  $parsed = $null
-  if ([version]::TryParse($kit, [ref]$parsed)) { return $parsed }
   return $null
 }
 
