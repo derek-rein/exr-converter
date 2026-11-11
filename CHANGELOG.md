@@ -23,6 +23,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
+- The Windows setup `.exe` and the app executable inside it are signed with Azure Artifact Signing (publisher Medeu Global LLC) when the release has the `AZURE_*` signing secrets.
+
 - PyAV 19 (FFmpeg 9.0) is now required. FFmpeg 8 decoded ProRes RAW to 12 bits without linearizing it.
 - EXR → Video and Transcode run OCIO on every CPU core. ACES 2.0 display transforms were the bottleneck: a 4K EXR → H.264 / HEVC render is now 2 to 4 times faster, with identical pixels.
 - Software ProRes (`prores_ks`) and CineForm encode with frame threads, up to about 4 times faster at 4K. DNxHR and FFV1 keep slice threads, which are faster for them.

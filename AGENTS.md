@@ -386,6 +386,16 @@ configuration in the SignPath dashboard. When `SIGNPATH_PROJECT_SLUG` is empty,
 `sign-windows` is skipped and the unsigned Inno setup is published (Cosign still
 applies). SignPath is the setup `.exe` only. Do not send the MSIX through it.
 
+### Azure Artifact Signing (Windows setup `.exe`)
+
+`scripts/sign_windows.ps1` signs `dist\exr_converter\exr_converter.exe` before Inno
+packs it, then `exr_converter-windows-x86_64-setup.exe`, with signtool and the
+Artifact Signing dlib (SHA256, RFC 3161 timestamp). It uses the same six
+`AZURE_*` secrets as the MSIX step below. No secrets: warns and skips. A
+partial set fails the build. The Azure signer role is **Artifact Signing
+Certificate Profile Signer** on the account. SignPath, when configured, still
+runs afterwards on the setup `.exe`.
+
 ### Microsoft Store MSIX
 
 The Windows build job can pack two Release assets with `makeappx`

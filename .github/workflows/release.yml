@@ -1156,6 +1156,21 @@ jobs:
         shell: pwsh
         run: Rename-Item dist\main.dist exr_converter
 
+      # Azure Artifact Signing (signtool + dlib, scripts/sign_windows.ps1).
+      # Signs the app exe before Inno packs it, then the setup exe below. No
+      # AZURE_* secrets → warns and leaves both unsigned. A partial set fails.
+      - name: Sign app executable (Windows, Azure Artifact Signing)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+        run: ./scripts/sign_windows.ps1 dist\exr_converter\exr_converter.exe
+
       - name: Create installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -1178,6 +1193,18 @@ jobs:
           $isccPath = if ($iscc.Source) { $iscc.Source } else { $iscc.Path }
           & $isccPath "/DAppVersion=$version" installer.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit $LASTEXITCODE" }
+
+      - name: Sign installer (Windows, Azure Artifact Signing)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+        run: ./scripts/sign_windows.ps1 exr_converter-windows-x86_64-setup.exe
 
       # .msixupload for Partner Center ("MSIX or PWA app") and a loose .msix for
       # self-distribution. The upload is written first, from the unsigned
