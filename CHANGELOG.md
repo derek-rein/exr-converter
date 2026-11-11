@@ -13,9 +13,11 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-11
+
 ### Added
 
-- Apple ProRes RAW and ProRes RAW HQ (`.mov`, e.g. Atomos recorders behind Sony, Panasonic, Fujifilm and Canon cameras) on Video → EXR, Inspect, thumbnails and the player. FFmpeg decodes a 16-bit linear Bayer mosaic; the app applies the clip's black/white level, as-shot white balance, color matrix, gain and recommended crop, demosaics, and writes scene-linear `ACES2065-1`. Nothing is clipped. Half size and smaller converts bin 2x2 Bayer quads. See [docs/prores-raw.md](./docs/prores-raw.md).
+- Apple ProRes RAW and ProRes RAW HQ (`.mov`) on Video → EXR, Inspect, thumbnails and the player. FFmpeg decodes a 16-bit linear Bayer mosaic; the app applies the clip's black/white level, as-shot white balance, color matrix, gain and recommended crop, demosaics, and writes scene-linear `ACES2065-1`. Nothing is clipped. Half size and smaller converts bin 2x2 Bayer quads. See [docs/prores-raw.md](./docs/prores-raw.md).
 
 - Hardware H.264 / HEVC encoding on EXR → Video, Video → Proxy, and Transcode: NVIDIA NVENC, Intel Quick Sync, or AMD AMF on Windows and Linux, Windows Media Foundation (the OS encoder, as a last resort on Windows), and VideoToolbox on macOS, for 8- and 10-bit output. 10-bit AV1 on Transcode uses NVENC, Quick Sync, AMF, or Media Foundation when the GPU has an AV1 encoder. The app checks that the encoder opens at the output size, logs which one it used, and encodes again in software if the GPU encoder fails. **Preferences → Video encoding** and `--encoder software` (on `exr2video`, `proxy`, and `transcode`) turn it off. See [docs/gui.md](./docs/gui.md#preferences-file--preferences) and [docs/cli.md](./docs/cli.md).
 
@@ -33,6 +35,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 ### Removed
 
 - The Microsoft Store packages (`.msixupload` and `.msix`), the Store publish step, and the Store screenshot generator. Windows releases ship the setup `.exe` only.
+- Public release builds no longer decode ARRIRAW or ARRICORE (`.ari` sequences and ARRI `.mxf`). Those files report as unsupported camera RAW.
 
 ## [0.12.14] - 2026-11-02
 
@@ -1142,7 +1145,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.12.14...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/derek-rein/exr-converter/compare/v0.12.14...v0.13.0
 [0.12.14]: https://github.com/derek-rein/exr-converter/compare/v0.12.12...v0.12.14
 [0.12.12]: https://github.com/derek-rein/exr-converter/compare/v0.12.11...v0.12.12
 [0.12.11]: https://github.com/derek-rein/exr-converter/compare/v0.12.10...v0.12.11

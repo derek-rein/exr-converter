@@ -392,13 +392,10 @@ jobs:
           CAMERA_RAW_READ_TOKEN: ${{ secrets.CANON_SDK_READ_TOKEN }}
         run: uv run python scripts/camera_raw_plugin.py prepare
 
-      # Optional ARRI (ARRIRAW / ARRICORE) plugin from the private ARRI feed.
-      # Output stays hidden (SDK content is confidential). No token means skip.
-      - name: Build optional ARRI plugin
+      # Public release builds do not decode ARRIRAW. Do not pass the read
+      # token. prepare then logs a skip, and the later install is a no-op.
+      - name: Skip ARRI plugin (public release)
         shell: bash
-        env:
-          ARRI_SDK_READ_TOKEN: ${{ secrets.ARRI_SDK_READ_TOKEN }}
-          ARRI_BRIDGE_ARCH: ${{ runner.arch == 'ARM64' && 'arm64' || 'x86_64' }}
         run: uv run python scripts/arri_plugin.py prepare
 
       - name: Compile Qt resources
@@ -1234,7 +1231,6 @@ jobs:
           R3D_SDK_READ_TOKEN: ${{ secrets.R3D_SDK_READ_TOKEN }}
           BRAW_SDK_READ_TOKEN: ${{ secrets.BRAW_SDK_READ_TOKEN }}
           CAMERA_RAW_READ_TOKEN: ${{ secrets.CANON_SDK_READ_TOKEN }}
-          ARRI_SDK_READ_TOKEN: ${{ secrets.ARRI_SDK_READ_TOKEN }}
           R3D_BRIDGE_REF: bridge-v1
           BRAW_BRIDGE_REF: bridge-v1
         run: |
@@ -1250,7 +1246,6 @@ jobs:
             -e R3D_SDK_READ_TOKEN \
             -e BRAW_SDK_READ_TOKEN \
             -e CAMERA_RAW_READ_TOKEN \
-            -e ARRI_SDK_READ_TOKEN \
             -e R3D_BRIDGE_REF \
             -e BRAW_BRIDGE_REF \
             rockylinux:8 \
