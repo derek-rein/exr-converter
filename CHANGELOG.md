@@ -13,6 +13,14 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-11-11
+
+Published release. v0.13.1 was tagged but not published: Windows signing found `signtool.exe` and then rejected it. This build includes the 0.13.0 and 0.13.1 notes.
+
+### Fixed
+
+- Windows signing reads the SDK version from the kit folder above `x64` (for example `10.0.26100.0`). The previous check used the `x64` directory name, which is not a version, so the only `signtool` on the runner was skipped.
+
 ## [0.13.1] - 2026-11-11
 
 Published release. v0.13.0 was tagged but not published, because the Windows build stopped before it could sign. This build includes that section: ProRes RAW, hardware video encode and decode, faster OCIO and ProRes, signed Windows setup, and no Microsoft Store package.
@@ -1158,7 +1166,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.13.2...HEAD
+[0.13.2]: https://github.com/derek-rein/exr-converter/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/derek-rein/exr-converter/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/derek-rein/exr-converter/compare/v0.12.14...v0.13.0
 [0.12.14]: https://github.com/derek-rein/exr-converter/compare/v0.12.12...v0.12.14
