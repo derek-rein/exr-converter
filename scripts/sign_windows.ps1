@@ -62,8 +62,9 @@ foreach ($f in $Files) {
 # kit directory name (10.0.26100.0) is the fallback version.
 function Get-SignToolVersion([System.IO.FileInfo] $file) {
   # signtool.exe from the 10.0.26100 kit reports FileVersion "4.00", which is
-  # not the SDK version. The parent folder name is the version that matters.
-  $kit = Split-Path (Split-Path $file.FullName -Parent) -Leaf
+  # not the SDK version. The path is bin\<kit>\x64\signtool.exe, so the kit
+  # folder is two levels up. One level up is "x64", which does not parse.
+  $kit = Split-Path (Split-Path (Split-Path $file.FullName -Parent) -Parent) -Leaf
   $kitVer = $null
   if ([version]::TryParse($kit, [ref]$kitVer) -and $kitVer.Major -ge 10) {
     return $kitVer
