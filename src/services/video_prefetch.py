@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import weakref
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -138,6 +139,7 @@ class VideoPrefetchService(QObject):
 
     def shutdown(self) -> None:
         self._generation += 1
+        self._kick_timer.stop()
         self._queue.clear()
         self._queued.clear()
         for fut in self._inflight.values():
@@ -286,7 +288,16 @@ class VideoPrefetchService(QObject):
                 self._fps,
             )
             self._inflight[frame] = fut
-            fut.add_done_callback(lambda f, fr=frame, g=gen: self._on_done(fr, f, g))
+            # Weak ref: the pool thread must never hold the last reference, or the
+            # QObject (and its QTimer) is destroyed off the GUI thread and crashes.
+            ref = weakref.ref(self)
+
+            def _done(f: Future, fr: int = frame, g: int = gen, ref=ref) -> None:
+                svc = ref()
+                if svc is not None:
+                    svc._on_done(fr, f, g)
+
+            fut.add_done_callback(_done)
 
     def _on_done(self, frame: int, fut: Future, generation: int) -> None:
         if generation != self._generation:

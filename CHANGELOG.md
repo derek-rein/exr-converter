@@ -13,6 +13,14 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-12
+
+Published release. v0.13.3 was tagged but not published: the macOS test run crashed in the video player tests.
+
+### Fixed
+
+- The video player's frame prefetcher could be torn down on a decode thread, which crashed the app on macOS. It no longer holds a strong reference from the decode thread, and shutdown stops its timer.
+
 ## [0.13.3] - 2026-11-12
 
 ### Added
@@ -1172,7 +1180,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.13.3...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/derek-rein/exr-converter/compare/v0.13.3...v0.14.0
 [0.13.3]: https://github.com/derek-rein/exr-converter/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/derek-rein/exr-converter/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/derek-rein/exr-converter/compare/v0.13.0...v0.13.1
