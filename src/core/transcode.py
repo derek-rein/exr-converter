@@ -60,6 +60,16 @@ from .path_tokens import (
     needs_source_probe,
     probe_source_info,
 )
+from .pixel_aspect import (
+    SQUARE,
+    apply_override,
+    apply_stream_sample_aspect,
+    aspect_from_video_file,
+    describe,
+    merge_for_write,
+    pixel_aspect_of,
+    tagged_sample_aspect,
+)
 
 ProgressCallback = Callable[[int, int], None]
 LogCallback = Callable[[str], None]
@@ -472,6 +482,8 @@ class TranscodeSettings:
     # encode in software, since hardware encoders take different options.
     codec_opts: dict[str, str] | None = None
     encoder: str = ENCODER_AUTO  # or ENCODER_SOFTWARE
+    # None = read the clip. A number forces that optical squeeze on the output tag.
+    pixel_aspect: float | None = None
 
     @property
     def color_enabled(self) -> bool:
@@ -976,6 +988,7 @@ def _add_video_stream(
     width: int,
     height: int,
     settings: TranscodeSettings,
+    sample_aspect: float = 1.0,
 ) -> Any:
     if encoder.libav_codec == "libsvtav1":
         # SVT-AV1 prints a config banner on every encode unless told otherwise.
@@ -984,6 +997,7 @@ def _add_video_stream(
     out_v.width = width
     out_v.height = height
     encoder.configure(out_v)
+    apply_stream_sample_aspect(out_v, sample_aspect)
     if codec_family(settings.codec_key) == "hevc" and container in ("mp4", "mov"):
         # hvc1 (not hev1) so QuickTime and Apple apps play the file.
         try:
@@ -1093,6 +1107,11 @@ def _transcode_av(
     from .video import probe_video
 
     w, h, src_fps, total = probe_video(str(src))
+    try:
+        detected = aspect_from_video_file(str(src))
+    except Exception:
+        detected = SQUARE
+    sequence_aspect = apply_override(detected, settings.pixel_aspect)
     ow, oh = transcode_dims(
         w, h, settings.resolution, settings.custom_width, settings.custom_height
     )
@@ -1100,6 +1119,7 @@ def _transcode_av(
     conform = settings.fps > 0 and abs(settings.fps - float(src_rate)) > 1e-3
     rate = _as_fraction(_fps_to_rate(settings.fps)) if conform else src_rate
     _check_rate(container, rate)
+    sample_aspect = tagged_sample_aspect(sequence_aspect, w, h, ow, oh)
 
     processor = _color_processor(settings, log)
     watermark = _open_watermark(settings, log)
@@ -1108,6 +1128,7 @@ def _transcode_av(
         size = f"{w}×{h}" if (w, h) == (ow, oh) else f"{w}×{h} → {ow}×{oh}"
         fps_note = f", {float(src_rate):.3f} → {float(rate):.3f} fps" if conform else ""
         log(f"{label}: {src.name} {size} {spec.display_name} .{container}{fps_note}{_via(encoder)}")
+        log(describe(sequence_aspect))
 
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = _partial_path(out)
@@ -1122,6 +1143,7 @@ def _transcode_av(
             rate,
             conform,
             (ow, oh),
+            sample_aspect,
             processor,
             watermark,
             total,
@@ -1146,6 +1168,7 @@ def _encode_av(
     rate: Fraction,
     conform: bool,
     size: tuple[int, int],
+    sample_aspect: float,
     processor: Any,
     watermark: Any,
     total: int,
@@ -1167,10 +1190,13 @@ def _encode_av(
             tc = _timecode_for_rate(_source_timecode(in_c, in_v), rate)
             if tc:
                 out_c.metadata["timecode"] = tc
-            out_v = _add_video_stream(out_c, encoder, container, rate, ow, oh, settings)
+            out_v = _add_video_stream(
+                out_c, encoder, container, rate, ow, oh, settings, sample_aspect=sample_aspect
+            )
             if tc:
                 out_v.metadata["timecode"] = tc
             _copy_color_tags(out_v, in_v.codec_context, matrix_only=processor is not None)
+            apply_stream_sample_aspect(out_v, sample_aspect)
             open_encoder(out_v)
             audio = _open_audio(out_c, in_a, settings, container, conform, log)
             pipe = _Pipeline(
@@ -1239,6 +1265,7 @@ def _transcode_raw(
             settings.custom_width,
             settings.custom_height,
         )
+        sequence_aspect = apply_override(pixel_aspect_of(source), settings.pixel_aspect)
         src_rate = _as_fraction(_fps_to_rate(info.fps))
         rate = _as_fraction(_fps_to_rate(settings.fps)) if settings.fps > 0 else src_rate
         _check_rate(container, rate)
@@ -1262,17 +1289,31 @@ def _transcode_raw(
                 ow, oh, enc.pix_fmt, processor=processor, watermark=watermark, matrix=1
             )
             n = 0
+            frame_iter = source.iter_frames(cancel_check=cancel_check)
+            try:
+                first = next(frame_iter)
+            except StopIteration:
+                raise RuntimeError(f"No frames decoded from {src.name}") from None
+            _idx, first_rgb, first_attrs = first
+            final_aspect = merge_for_write(sequence_aspect, first_attrs)
+            sar = tagged_sample_aspect(final_aspect, info.width, info.height, ow, oh)
+            if log:
+                log(describe(final_aspect))
             out_c = _open_output(tmp, container, settings)
             ok = False
             try:
-                out_v = _add_video_stream(out_c, enc, container, rate, ow, oh, settings)
+                out_v = _add_video_stream(
+                    out_c, enc, container, rate, ow, oh, settings, sample_aspect=sar
+                )
                 try:
                     out_v.codec_context.colorspace = 1
                 except Exception:
                     pass
                 open_encoder(out_v)
                 time_base = Fraction(1, 1) / rate
-                for _idx, rgb, _attrs in source.iter_frames(cancel_check=cancel_check):
+
+                def _encode_rgb(rgb: Any) -> None:
+                    nonlocal n
                     if cancel_check and cancel_check():
                         raise ConversionCancelled()
                     vf = pipe.from_float(rgb)
@@ -1282,6 +1323,10 @@ def _transcode_raw(
                     out_c.mux(encode_frame(out_v, vf))
                     if progress:
                         progress(n, max(total, n))
+
+                _encode_rgb(first_rgb)
+                for _idx, rgb, _attrs in frame_iter:
+                    _encode_rgb(rgb)
                 out_c.mux(encode_frame(out_v, None))
                 if n == 0:
                     raise RuntimeError(f"No frames decoded from {src.name}")

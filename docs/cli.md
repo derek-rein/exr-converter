@@ -119,6 +119,7 @@ uv run python main.py video2exr -i /path/to/shot -o /tmp/exr_out \
 | `--dwa-level` | library | DWA level for `dwaa`/`dwab` (`0` = lossless) |
 | `--zip-level` | library | ZIP level 1–9 for `zip`/`zips` |
 | `--scale` | `1.0` | e.g. `0.5` half-res |
+| `--pixel-aspect` | `auto` | Lens squeeze or pixel aspect. See [Pixel aspect](#pixel-aspect). |
 | `--padding` | `4` | Frame zero-pad width |
 | `--start-frame` | `1001` | First output frame number |
 | `--frame-range` | all | Nuke-style, e.g. `1-100`, `1-50x2` |
@@ -178,6 +179,7 @@ uv run python main.py exr2video -i ./plate --codec h264 --crf 18
 | `--src` | format-aware | EXR/DPX: image metadata (EXR Converter tag, `colorInteropID`, then EXR `chromaticities`: Rec.709, ACES AP1, ACES AP0, P3-D65, and Rec.2020 primaries are recognised). With no usable metadata, the OCIO `scene_linear` role is assumed and a warning names that colour space. Pass `--src` when the warning appears. PNG/JPEG/WebP: sRGB-ish display space |
 | `--dst` | `Output - Rec.709` | Display / delivery space. On ACES 2.0 configs that name remaps to **Rec.1886 Rec.709 - Display**; convert then applies the viewing-rule default view (**ACES 2.0 - SDR 100 nits (Rec.709)** for ACEScg), not Un-tone-mapped. Pass a utility encoding (``sRGB Encoded Rec.709 (sRGB)``) for colorimetric-only. |
 | `--scale` | `1.0` | Output scale |
+| `--pixel-aspect` | `auto` | Lens squeeze or pixel aspect. See [Pixel aspect](#pixel-aspect). |
 | `--codec` | `prores` | Codec key. See the ladder below (default = ProRes 422 HQ, **10-bit** software) |
 | `--crf` | codec default | H.264 / HEVC quality |
 | `--preset` | codec default | x264 / x265 preset name |
@@ -307,6 +309,7 @@ appear on macOS only.
 | `-o`, `--output-dir DIR` | `Proxy` folder next to each clip | One folder for all proxies. Cannot be a watched folder itself |
 | `--codec KEY` | `prores_proxy` | `prores_proxy`, `prores_lt`, `prores_vt_proxy` / `prores_vt_lt` (macOS), `dnxhr_lb`, `dnxhr_sq`, `h264`, `hevc_8` |
 | `--resolution KEY` | `half` | `half`, `quarter`, `eighth`, `original`, `1080`, `720`, `540` (fit height). Never upscales |
+| `--pixel-aspect FACTOR` | `auto` | Lens squeeze or pixel aspect. See [Pixel aspect](#pixel-aspect). |
 | `--suffix TEXT` | none | Added to proxy filenames. Empty keeps the source name for relinking |
 | `--no-audio` | off | Drop audio (otherwise PCM in `.mov`, AAC in `.mp4`) |
 | `--overwrite` | off | Re-make proxies that already exist (default: skip them) |
@@ -375,6 +378,7 @@ uv run python main.py transcode -i log.mov --src "S-Log3 S-Gamut3.Cine" --dst "R
 | `-i`, `--input PATH …` | (required) | Clips and/or folders of clips |
 | `-o`, `--output-dir DIR` | next to each clip | One folder for all outputs. May use the same tokens as `--name`, for example `/dailies/<date>/<reel>`. `$VAR` / `${VAR}` / `${VAR:-default}` environment variables are expanded too (the shell does this in double quotes; in single quotes the app does it, and an unset variable is an error). See [Variables](./variables.md#environment-variables) |
 | `--codec KEY` | `prores` (ProRes 422 HQ) | See the codec table below. The list in `--help` is what this machine can encode |
+| `--pixel-aspect FACTOR` | `auto` | Lens squeeze or pixel aspect. See [Pixel aspect](#pixel-aspect). |
 | `--container EXT` | codec default | `mov`, `mxf`, `mp4`, or `mkv`, where the codec allows it (table below) |
 | `--resolution KEY` | `original` | `original`, `75`, `half`, `quarter`, `eighth` (scale), `2160`, `1080`, `720`, `540` (fit to that height), or `custom`. Scale and fit never upscale. Sizes round to even numbers |
 | `--width N` / `--height N` | `0` | Custom size (implies `--resolution custom`). Set one side to `0` to keep the source aspect ratio. Custom sizes can upscale |
@@ -434,6 +438,22 @@ without `--dst`, a bad watermark) exit with code `2` before anything is
 converted. Ctrl-C exits with `130`.
 
 ---
+
+## Pixel aspect
+
+Squeezed anamorphic footage stays squeezed. The app tags it so other software can unsqueeze it. It does not resample the pixels.
+
+OpenEXR `pixelAspectRatio` is a float, the same number Nuke uses. `2.0` means each stored pixel is twice as wide on screen. A string `"2.0"` is not written: OpenImageIO would drop that back to `1.0`. When the squeeze is not 1, the file also gets a float `exrconverter:opticalSqueeze` with the same factor.
+
+Video, proxy, and transcode output get a matching sample-aspect tag (QuickTime `pasp`, or the H.264 / HEVC VUI sample aspect). A tag that is already on the source is kept. `--pixel-aspect 2` forces the tag. `--pixel-aspect 1` forces square. `auto` is the default.
+
+The value comes from camera metadata when the decoder exposes it (ARRI lens squeeze, RED / N-RAW and Blackmagic RAW anamorphic keys, ProRes RAW and other QuickTime `pasp`, CinemaDNG `DefaultScale`, and an existing EXR or DPX `pixelAspectRatio`). A generic camera RAW plugin that already stores a squeeze as text is written as the float above.
+
+Broadcast sample aspect is not treated as a cinema lens. A 720x576 clip with a 16:9 sample aspect keeps that tag on video and does not copy it onto EXR `pixelAspectRatio`. The viewer still shows the picture at the right shape and labels it, for example `PAR 16:11` or `2x anamorphic`.
+
+The player, Inspect, the convert log, and the Pixel aspect row in the GUI all show the factor. Slate, burn-in, and watermark text are drawn so they stay round after that unsqueeze.
+
+12-bit oxideav ProRes does not write a pixel-aspect tag. Use a PyAV ProRes preset when the tag has to travel with the file.
 
 ## Exit codes
 

@@ -18,6 +18,8 @@ import numpy as np
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QImage, QPainter
 
+from .storage_paint import paint_storage_image
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -52,16 +54,18 @@ def render_burnin_overlay(
     width: int,
     height: int,
     fields: dict[str, str],
+    pixel_aspect: float = 1.0,
 ) -> np.ndarray:
-    """Paint the six burn-in text cells and return a uint8 RGBA overlay."""
-    img = QImage(int(width), int(height), QImage.Format.Format_RGBA8888)
-    img.fill(QColor(0, 0, 0, 0))
+    """Paint the six burn-in text cells and return a uint8 RGBA overlay.
 
-    p = QPainter(img)
-    try:
-        _paint_burnin(p, int(width), int(height), fields)
-    finally:
-        p.end()
+    *pixel_aspect* above 1 draws the type in display space and squeezes it
+    back so it stays round when the plate is unsqueezed.
+    """
+
+    def _paint(painter: QPainter, disp_w: int, disp_h: int) -> None:
+        _paint_burnin(painter, disp_w, disp_h, fields)
+
+    img = paint_storage_image(int(width), int(height), pixel_aspect, QColor(0, 0, 0, 0), _paint)
 
     img = img.convertToFormat(QImage.Format.Format_RGBA8888)
     ptr = img.constBits()

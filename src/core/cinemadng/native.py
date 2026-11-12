@@ -40,6 +40,9 @@ class _Meta(ctypes.Structure):
         ("make", ctypes.c_char * 96),
         ("model", ctypes.c_char * 96),
         ("unique_model", ctypes.c_char * 128),
+        ("default_scale_h", ctypes.c_double),
+        ("default_scale_v", ctypes.c_double),
+        ("has_default_scale", ctypes.c_int32),
     ]
 
 
@@ -141,6 +144,8 @@ def _meta_from_struct(meta: _Meta) -> FrameMeta:
         make=_text(bytes(meta.make)),
         model=_text(bytes(meta.model)),
         unique_model=_text(bytes(meta.unique_model)),
+        default_scale=(float(meta.default_scale_h), float(meta.default_scale_v)),
+        has_default_scale=bool(meta.has_default_scale),
     )
 
 

@@ -45,6 +45,7 @@ from ..core.constants import (
 )
 from ..core.decoders import set_decode_mode
 from ..core.ocio_utils import color_space_families, config_source_info
+from ..core.pixel_aspect import SQUARE, apply_override, probe_media_aspect
 from ..core.quicklook_prefs import schedule_quicklook_view_lut
 from ..core.video import is_ignored_media_filename
 from ..services.presets import delete_preset, list_presets, load_preset, save_preset
@@ -853,6 +854,7 @@ class MainWindow(QMainWindow):
                 from ..render.slate import render_slate_frame
 
                 sw, sh = self._detect_slate_resolution(mode, inp)
+                slate_par = self._output_pixel_aspect(inp, tab)
                 thumb_b64 = tab.get_slate_thumbnail_b64()
                 # If the slate dialog was never opened, still extract a thumb
                 # from the known EXR frame list (first / mid / last).
@@ -874,7 +876,9 @@ class MainWindow(QMainWindow):
                         self._append_log(f"Slate thumbnail extract skipped: {e}")
                 self._append_log(f"Rendering slate frame ({sw}\u00d7{sh})\u2026")
                 try:
-                    slate_np = render_slate_frame(slate_data, sw, sh, thumbnail_b64=thumb_b64)
+                    slate_np = render_slate_frame(
+                        slate_data, sw, sh, thumbnail_b64=thumb_b64, pixel_aspect=slate_par
+                    )
                     if thumb_b64:
                         self._append_log("Slate frame rendered (with thumbnail)")
                     else:
@@ -925,6 +929,7 @@ class MainWindow(QMainWindow):
                 frame_set=frame_set,
                 exr_opts=tab.get_exr_opts() or None,
                 output_name=out_name,
+                pixel_aspect=tab.pixel_aspect_override(),
             )
         else:
             _codec_key, _codec, _pix = tab.get_video_codec_info()
@@ -947,6 +952,7 @@ class MainWindow(QMainWindow):
                 overlay_provider=overlay_provider,
                 codec_opts=tab.get_codec_opts() or None,
                 encoder=encoder_mode(self._settings),
+                pixel_aspect=tab.pixel_aspect_override(),
             )
             if tab.invisible_watermark_enabled():
                 wm_text, wm_strength = resolve_invisible_watermark(
@@ -1284,6 +1290,7 @@ class MainWindow(QMainWindow):
         from ..render.watermark import render_watermark_overlay
 
         bw, bh = self._detect_slate_resolution("exr2video", inp)
+        overlay_par = self._output_pixel_aspect(inp, tab)
 
         burnin_on = tab.burnin_enabled()
         raw_fields = (tab.get_effective_burnin_fields(inp) or {}) if burnin_on else {}
@@ -1330,12 +1337,12 @@ class MainWindow(QMainWindow):
             burnin_ov = None
             if burnin_on:
                 fields = {k: tok.substitute(v, values) for k, v in raw_fields.items()}
-                burnin_ov = render_burnin_overlay(bw, bh, fields)
+                burnin_ov = render_burnin_overlay(bw, bh, fields, pixel_aspect=overlay_par)
             wm_ov = None
             if wm_on:
                 p = dict(wm_params)
                 p["text"] = tok.substitute(p.get("text", ""), values)
-                wm_ov = render_watermark_overlay(bw, bh, p)
+                wm_ov = render_watermark_overlay(bw, bh, p, pixel_aspect=overlay_par)
             return _composite(burnin_ov, wm_ov), wm_ov
 
         per_frame = tok.any_per_frame_token(raw_fields) or (
@@ -1401,6 +1408,16 @@ class MainWindow(QMainWindow):
         return result
 
     @staticmethod
+    def _output_pixel_aspect(inp: str, tab) -> float:
+        """Display pixel aspect for slate and burn-in (override or the clip)."""
+        override = tab.pixel_aspect_override() if hasattr(tab, "pixel_aspect_override") else None
+        try:
+            detected = probe_media_aspect(inp) if inp else SQUARE
+        except Exception:
+            detected = SQUARE
+        return apply_override(detected, override).factor
+
+    @staticmethod
     def _detect_slate_resolution(mode: str, inp: str) -> tuple[int, int]:
         """Probe the input to determine the resolution for the slate frame."""
         try:
@@ -1440,12 +1457,14 @@ class MainWindow(QMainWindow):
             "v2e_dst_space": self._v2e_tab.dst_btn.current_space(),
             "v2e_compression": self._v2e_tab.get_compression(),
             "v2e_scale": self._v2e_tab.get_scale(),
+            "v2e_pixel_aspect": str(self._v2e_tab._pixel_aspect_combo.currentData() or "auto"),
             "v2e_padding": self._v2e_tab.get_padding(),
             "v2e_start_frame": self._v2e_tab.get_start_frame(),
             "e2v_src_space": self._e2v_tab.src_btn.current_space(),
             "e2v_dst_space": self._e2v_tab.dst_btn.current_space(),
             "e2v_fps": self._e2v_tab.get_fps(),
             "e2v_scale": self._e2v_tab.get_scale(),
+            "e2v_pixel_aspect": str(self._e2v_tab._pixel_aspect_combo.currentData() or "auto"),
             "e2v_codec": self._e2v_tab.get_video_codec_info()[0],
         }
 
@@ -1496,6 +1515,11 @@ class MainWindow(QMainWindow):
                     if abs(tab_widget.scale_combo.itemData(i) - data[scale_key]) < 0.01:
                         tab_widget.scale_combo.setCurrentIndex(i)
                         break
+            par_key = f"{tab_prefix}_pixel_aspect"
+            if par_key in data and getattr(tab_widget, "_pixel_aspect_combo", None) is not None:
+                idx = tab_widget._pixel_aspect_combo.findData(str(data[par_key]))
+                if idx >= 0:
+                    tab_widget._pixel_aspect_combo.setCurrentIndex(idx)
         if "e2v_codec" in data and self._e2v_tab.codec_combo:
             _select_video_codec_combo_key(
                 self._e2v_tab.codec_combo,

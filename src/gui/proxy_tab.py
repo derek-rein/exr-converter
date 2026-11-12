@@ -46,6 +46,7 @@ from ..core.watch_folder import DEFAULT_SETTLE_SECONDS, WatchFolder
 from ..services.proxy_queue import ProxyJob, ProxyQueue, WatchPoller
 from .color_widgets import lock_form_row_height
 from .convert_tab import _ConvertFormBody, _form_scroll_area
+from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import encoder_mode
 
 LOCATION_BESIDE = "beside"
@@ -177,6 +178,10 @@ class ProxyTab(QWidget):
         grid.addWidget(_field_label("Resolution"), 1, 2)
         grid.addWidget(self.resolution_combo, 1, 3)
         grid.addWidget(self.audio_cb, 1, 4)
+
+        self.pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{_K}/pixel_aspect", self)
+        grid.addWidget(_field_label("Pixel aspect"), 5, 0)
+        grid.addWidget(self.pixel_aspect_combo, 5, 1, 1, 2)
 
         self.suffix_edit = QLineEdit(str(settings.value(f"{_K}/suffix", "") or ""))
         self.suffix_edit.setPlaceholderText("empty keeps the source name")
@@ -505,6 +510,7 @@ class ProxyTab(QWidget):
             watermark_text=watermark_text,
             watermark_strength=float(self.watermark_strength.value()),
             encoder=encoder_mode(self._settings),
+            pixel_aspect=combo_override(self.pixel_aspect_combo),
         )
 
     def enqueue(self, sources: list[str]) -> int:

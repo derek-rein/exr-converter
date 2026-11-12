@@ -34,6 +34,7 @@ class ProxyJob(NamedTuple):
     watermark_text: str = ""
     watermark_strength: float = 1.0
     encoder: str = ENCODER_AUTO
+    pixel_aspect: float | None = None
 
 
 class TranscodeJob(NamedTuple):
@@ -61,6 +62,7 @@ def run_proxy_job(job: ProxyJob, progress, cancel_check, log) -> None:
         watermark_text=job.watermark_text,
         watermark_strength=job.watermark_strength,
         encoder=job.encoder,
+        pixel_aspect=job.pixel_aspect,
         progress=progress,
         cancel_check=cancel_check,
         log=log,

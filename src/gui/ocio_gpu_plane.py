@@ -243,6 +243,8 @@ class OcioGpuImagePlane(QOpenGLWidget):
         self._gpu_dead = False
         self._image: np.ndarray | None = None
         self._image_w = 1
+        self._pixel_aspect = 1.0
+        self._aspect_label = ""
         self._image_h = 1
         self._format_w = 0
         self._format_h = 0
@@ -399,17 +401,36 @@ class OcioGpuImagePlane(QOpenGLWidget):
         self._format_h = max(0, int(h))
         self.update()
 
+    def set_pixel_aspect(self, factor: float, label: str = "") -> None:
+        """Widen the plate for display. The texture stays at storage resolution."""
+        factor = float(factor) if factor and factor > 0 else 1.0
+        label = label or ""
+        if abs(factor - self._pixel_aspect) < 1e-6 and label == self._aspect_label:
+            self.update()
+            return
+        self._pixel_aspect = factor
+        self._aspect_label = label
+        if not self._user_navigated:
+            self.fit_in_view()
+        self.update()
+
     def format_text(self) -> str:
         if self._format_w <= 0 or self._format_h <= 0:
             return ""
-        return f"{self._format_w} \u00d7 {self._format_h}"
+        text = f"{self._format_w} \u00d7 {self._format_h}"
+        if self._aspect_label:
+            text = f"{text}  {self._aspect_label}"
+        return text
+
+    def _display_width(self) -> float:
+        return float(self._image_w) * max(self._pixel_aspect, 1e-6)
 
     def fit_in_view(self) -> None:
         if self._image_w <= 0 or self._image_h <= 0:
             return
         vw = max(1, self.width())
         vh = max(1, self.height())
-        self._zoom = min(vw / self._image_w, vh / self._image_h)
+        self._zoom = min(vw / self._display_width(), vh / self._image_h)
         self._pan_x = 0.0
         self._pan_y = 0.0
         self.update()
@@ -835,11 +856,12 @@ class OcioGpuImagePlane(QOpenGLWidget):
         z = max(self._zoom, 1e-6)
         half_w = vw / (2.0 * z)
         half_h = vh / (2.0 * z)
-        cx = self._image_w * 0.5 - self._pan_x
+        display_w = self._display_width()
+        cx = display_w * 0.5 - self._pan_x
         cy = self._image_h * 0.5 - self._pan_y
         left, right = cx - half_w, cx + half_w
         bottom, top = cy - half_h, cy + half_h
-        sx = float(self._image_w)
+        sx = display_w
         sy = float(self._image_h)
         a = 2.0 * sx / max(right - left, 1e-12)
         c = 2.0 * sy / max(top - bottom, 1e-12)

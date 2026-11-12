@@ -47,6 +47,8 @@ class ImagePreviewView(QGraphicsView):
         self._frame_rect = QRectF(0, 0, 1920, 1080)
         self._format_w = 1920
         self._format_h = 1080
+        self._pixel_aspect = 1.0
+        self._aspect_label = ""
         self._border: QGraphicsRectItem | None = None
         self._ensure_border()
 
@@ -55,17 +57,34 @@ class ImagePreviewView(QGraphicsView):
         self._last_pos: QPointF | None = None
         self._zoom_anchor_view: QPointF | None = None
 
-    def set_frame_size(self, w: int, h: int) -> None:
-        """Set the logical fit rect (maps source aspect to a 1080-tall canvas)."""
+    def set_frame_size(
+        self,
+        w: int,
+        h: int,
+        pixel_aspect: float = 1.0,
+        aspect_label: str = "",
+    ) -> None:
+        """Set the logical fit rect (maps display aspect to a 1080-tall canvas).
+
+        *pixel_aspect* widens the fit rect so a squeezed plate is shown
+        unsqueezed. The stored pixels are not resampled.
+        """
         self._format_w = max(1, int(w))
         self._format_h = max(1, int(h))
+        self._pixel_aspect = float(pixel_aspect) if pixel_aspect and pixel_aspect > 0 else 1.0
+        self._aspect_label = aspect_label or ""
         preview_h = 1080
-        preview_w = int(preview_h * w / max(h, 1))
+        display_w = self._format_w * self._pixel_aspect
+        preview_w = max(1, int(preview_h * display_w / max(self._format_h, 1)))
         self._frame_rect = QRectF(0, 0, preview_w, preview_h)
         self._ensure_border()
+        self.viewport().update()
 
     def format_text(self) -> str:
-        return f"{self._format_w} \u00d7 {self._format_h}"
+        text = f"{self._format_w} \u00d7 {self._format_h}"
+        if self._aspect_label:
+            text = f"{text}  {self._aspect_label}"
+        return text
 
     def _ensure_border(self) -> None:
         """Nuke-style 1px white format box (cosmetic — stays 1 screen pixel)."""

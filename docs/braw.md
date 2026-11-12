@@ -22,6 +22,7 @@ Related: [CLI](./cli.md) · [GUI](./gui.md) · [R3D / N-RAW](./r3d.md) ·
 | Decode | Official **OpenEXRTranscode** default: **Linear** gamma + **ACES AP0** gamut, post-3D LUT **disabled**, `RGBF32` |
 | OCIO | Auto-detect source space prefers **ACES2065-1** (`lin_ap0`) on the bundled ACES Studio config |
 | Output | Same video→EXR pipeline (EXR compression, scale ladder, frame range, workers) |
+| Pixel aspect | The metadata key `anamorphic` (values such as `2x`, `1.33x`, or `off`) is the optical squeeze when the SDK 6 bridge returns it. It is written as a float `pixelAspectRatio`. |
 | GPU | **macOS Metal** (then OpenCL if Metal is unavailable). **Windows / Linux:** CUDA, then OpenCL. CPU fallback if GPU setup fails or decoder libs are missing. Force CPU with `EXR_CONVERTER_BRAW_CPU=1`. |
 | Preview | Sequence player + video browser (half-res decode for scrub) |
 | Thumbnails | Grid thumbs via eighth-res decode |

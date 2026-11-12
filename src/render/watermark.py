@@ -22,6 +22,8 @@ import numpy as np
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QImage, QPainter
 
+from .storage_paint import paint_storage_image
+
 # Default values surface on every preview/conversion when the user hasn't
 # explicitly set anything yet.  Anglе is a typical 30° upward sweep across
 # the frame; opacity / size are tuned to match the muted look of common
@@ -56,6 +58,7 @@ def render_watermark_overlay(
     width: int,
     height: int,
     params: dict | None = None,
+    pixel_aspect: float = 1.0,
 ) -> np.ndarray:
     """Paint the watermark and return a uint8 RGBA buffer ``(h, w, 4)``.
 
@@ -66,15 +69,11 @@ def render_watermark_overlay(
     if params:
         p.update(params)
 
-    img = QImage(int(width), int(height), QImage.Format.Format_RGBA8888)
-    img.fill(QColor(0, 0, 0, 0))
+    def _paint(painter: QPainter, disp_w: int, disp_h: int) -> None:
+        if p.get("enabled") and (p.get("text") or "").strip():
+            _paint_watermark(painter, disp_w, disp_h, p)
 
-    if p.get("enabled") and (p.get("text") or "").strip():
-        painter = QPainter(img)
-        try:
-            _paint_watermark(painter, int(width), int(height), p)
-        finally:
-            painter.end()
+    img = paint_storage_image(int(width), int(height), pixel_aspect, QColor(0, 0, 0, 0), _paint)
 
     img = img.convertToFormat(QImage.Format.Format_RGBA8888)
     ptr = img.constBits()

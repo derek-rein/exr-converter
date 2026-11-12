@@ -13,6 +13,18 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- Anamorphic footage keeps its squeezed pixels and is tagged so other apps can unsqueeze it. OpenEXR `pixelAspectRatio` is a real float (2.0 means each pixel is twice as wide, the same number Nuke uses). Video, proxy, and transcode output get a matching sample-aspect tag. Auto reads the factor from camera metadata, QuickTime pixel aspect, CinemaDNG `DefaultScale`, and existing EXR or DPX headers. `--pixel-aspect` and the Pixel aspect menu can force it.
+- The viewer stretches anamorphic and non-square pictures for display and labels the factor (for example `2x anamorphic` or `PAR 16:11`) on the frame, in Inspect, and in the convert log.
+- Slate, burn-in, and watermark text is drawn so it stays round after that unsqueeze.
+
+### Fixed
+
+- A text `pixelAspectRatio` of `2.0` no longer collapses to 1.0 in the EXR header.
+- Transcoding a clip that already has a pixel-aspect tag no longer drops that tag.
+- Broadcast 16:9 sample aspect (for example 720x576) is not written as a cinema lens squeeze.
+
 ## [0.14.0] - 2026-11-12
 
 Published release. v0.13.3 was tagged but not published: the macOS test run crashed in the video player tests.

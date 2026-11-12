@@ -190,6 +190,29 @@ def _resolve_config_source(ocio_arg: str | None) -> tuple[str, str]:
     return (name, "")
 
 
+def _add_pixel_aspect_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--pixel-aspect",
+        default="auto",
+        metavar="FACTOR",
+        help=(
+            "Pixel aspect / lens squeeze. auto reads the clip (default). "
+            "A number such as 1.3 or 2 forces that tag and leaves the pixels squeezed. "
+            "1 is square."
+        ),
+    )
+
+
+def _pixel_aspect_override(args: argparse.Namespace) -> float | None:
+    from .core.pixel_aspect import parse_pixel_aspect_choice
+
+    try:
+        return parse_pixel_aspect_choice(getattr(args, "pixel_aspect", "auto"))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
@@ -293,6 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="Output scale (e.g. 0.5). Default: 1.0",
     )
+    _add_pixel_aspect_arg(v2e)
     v2e.add_argument(
         "--padding",
         type=int,
@@ -375,6 +399,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="Output scale (e.g. 0.5). Default: 1.0",
     )
+    _add_pixel_aspect_arg(e2v)
     e2v.add_argument(
         "--codec",
         default=DEFAULT_VIDEO_CODEC,
@@ -467,6 +492,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[r.key for r in PROXY_RESOLUTIONS],
         help=f"Proxy size (default: {DEFAULT_PROXY_RESOLUTION}). Never upscales.",
     )
+    _add_pixel_aspect_arg(px)
     px.add_argument("--suffix", default="", help="Text added to proxy filenames (default: none)")
     px.add_argument("--no-audio", action="store_true", help="Drop audio from proxies")
     px.add_argument(
@@ -592,6 +618,7 @@ def _add_transcode_parser(sub) -> None:
             "sizes never upscale. --width / --height imply custom."
         ),
     )
+    _add_pixel_aspect_arg(tc)
     tc.add_argument("--width", type=int, default=0, help="Custom width (0 = keep aspect)")
     tc.add_argument("--height", type=int, default=0, help="Custom height (0 = keep aspect)")
     tc.add_argument(
@@ -717,6 +744,7 @@ def run_transcode_cli(args: argparse.Namespace) -> int:
                 crf=args.crf,
                 bitrate_mbps=args.bitrate,
                 preset=args.preset,
+                pixel_aspect=_pixel_aspect_override(args),
                 color_src=color_src,
                 color_dst=color_dst,
                 config_source=config_source,
@@ -835,6 +863,7 @@ def run_proxy_cli(args: argparse.Namespace) -> int:
                 watermark_text=watermark_text,
                 watermark_strength=args.watermark_strength,
                 encoder=args.encoder,
+                pixel_aspect=_pixel_aspect_override(args),
                 progress=_progress,
                 cancel_check=_cli_cancel.is_set,
                 log=_log,
@@ -1198,6 +1227,7 @@ def run_cli(args: argparse.Namespace) -> int:
                 frame_set=frame_set,
                 exr_opts=_exr_opts_from_args(args),
                 deinterlace=getattr(args, "deinterlace", "auto"),
+                pixel_aspect=_pixel_aspect_override(args),
             )
             _log(f"Done → {out_dir}")
         else:
@@ -1255,6 +1285,7 @@ def run_cli(args: argparse.Namespace) -> int:
                 watermark_text=wm_text,
                 watermark_strength=wm_strength,
                 encoder=args.encoder,
+                pixel_aspect=_pixel_aspect_override(args),
             )
             _log(f"Done → {out_path}")
         print(file=sys.stderr)

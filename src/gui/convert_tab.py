@@ -76,6 +76,7 @@ from ..core.constants import (
 from ..core.convert import default_codec_opts
 from ..core.framerange import format_frame_range
 from ..core.ocio_utils import find_equivalent_space, resolve_alias
+from ..core.pixel_aspect import PixelAspect, probe_media_aspect
 from ..core.sequence import (
     find_exr_sequence_info,
     looks_like_sequence_pattern,
@@ -90,6 +91,7 @@ from .browser_chrome import _VIDEO_EXTS, _add_copy_path_actions, _folder_path_fo
 from .browser_path import clean_path_string
 from .browser_state import BrowserPreviewContext
 from .color_widgets import ColorSpaceButton, FpsCombo, lock_form_row_height
+from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import file_manager_label, path_is_revealable
 from .sequence_browser import SequenceBrowserDialog
 from .style import DESC_STYLE, HINT_STYLE
@@ -806,6 +808,19 @@ class ConvertTab(QWidget):
 
         opts_layout.addRow("Scale", scale_row)
 
+        self._pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{mode}/pixel_aspect", self)
+        self._pixel_aspect_note = QLabel("Clip: square pixels")
+        self._pixel_aspect_note.setToolTip(
+            "What Auto will tag. A fixed pixel aspect above replaces it."
+        )
+        par_row = QHBoxLayout()
+        par_row.addWidget(self._pixel_aspect_combo, 1)
+        par_row.addWidget(self._pixel_aspect_note, 2)
+        opts_layout.addRow("Pixel aspect", par_row)
+        self._pixel_aspect_combo.currentIndexChanged.connect(
+            lambda _i: self._refresh_pixel_aspect_note()
+        )
+
         if mode == "video2exr":
             self.compression_combo = QComboBox()
             for c in EXR_COMPRESSIONS:
@@ -1210,6 +1225,36 @@ class ConvertTab(QWidget):
     def get_scale(self) -> float:
         return float(self.scale_combo.currentData() or DEFAULT_SCALE)
 
+    def pixel_aspect_override(self) -> float | None:
+        """``None`` means Auto (read the clip)."""
+        combo = getattr(self, "_pixel_aspect_combo", None)
+        if combo is None:
+            return None
+        return combo_override(combo)
+
+    def _refresh_pixel_aspect_note(self) -> None:
+        note = getattr(self, "_pixel_aspect_note", None)
+        if note is None:
+            return
+        override = self.pixel_aspect_override()
+        if override is not None:
+            label = PixelAspect(override, "override").label() or "square pixels"
+            note.setText(f"Output: {label}")
+            return
+        path = ""
+        try:
+            path = self.get_input_path()
+        except Exception:
+            path = ""
+        if not path:
+            note.setText("Clip: square pixels")
+            return
+        try:
+            label = probe_media_aspect(path).label() or "square pixels"
+        except Exception:
+            label = "not read"
+        note.setText(f"Clip: {label}")
+
     def get_padding(self) -> int:
         if self.padding_spin:
             return self.padding_spin.value()
@@ -1382,6 +1427,7 @@ class ConvertTab(QWidget):
             ocio_cfg=self._ocio_cfg,
             src_colorspace=src_cs,
             parent=self,
+            pixel_aspect_override=self.pixel_aspect_override(),
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.log_message.emit("Slate & overlay data updated")
@@ -2031,6 +2077,7 @@ class ConvertTab(QWidget):
         # selected sequence (directory alone always re-resolves to sorted[0]).
         self._persist_input_path(self.get_input_path())
 
+        self._refresh_pixel_aspect_note()
         self._emit_readiness()
         return True
 

@@ -11,6 +11,7 @@ import math
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QTransform
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.constants import APP_NAME, APP_ORG
+from ...core.pixel_aspect import probe_media_aspect
 from ...services.cache_prefs import cache_budget_bytes
 from ...services.exr_prefetch import ExrPrefetchService
 from ...services.frame_cache import FrameCache
@@ -122,6 +124,8 @@ class SequencePlayer(QWidget):
         self._current_frame: int = 1
         self._width: int = 1920
         self._height: int = 1080
+        self._pixel_aspect = 1.0
+        self._pixel_aspect_label = ""
         self._fps: float = 24.0
         self._in_point: int | None = None
         self._out_point: int | None = None
@@ -309,10 +313,25 @@ class SequencePlayer(QWidget):
 
         paths, _name, frames, _pad, seq = find_exr_sequence_info(input_path)
         src = ""
+        aspect_factor = 1.0
+        aspect_label = ""
         if frames:
             probe_path = paths[0] if paths else input_path
             src = resolve_sequence_src_colorspace(probe_path, ocio_cfg, preferred=src_colorspace)
-        return {"frames": list(frames), "seq": seq, "src_colorspace": src}
+            try:
+                aspect = probe_media_aspect(probe_path)
+                aspect_factor = aspect.factor
+                aspect_label = aspect.label()
+            except Exception:
+                aspect_factor = 1.0
+                aspect_label = ""
+        return {
+            "frames": list(frames),
+            "seq": seq,
+            "src_colorspace": src,
+            "pixel_aspect": aspect_factor,
+            "pixel_aspect_label": aspect_label,
+        }
 
     @staticmethod
     def prepare_video(
@@ -323,7 +342,24 @@ class SequencePlayer(QWidget):
 
         w, h, fps, n_frames = probe_video(path)
         src = resolve_video_src_colorspace(path, ocio_cfg, preferred=src_colorspace)
-        return {"w": w, "h": h, "fps": fps, "n_frames": n_frames, "src_colorspace": src}
+        aspect_factor = 1.0
+        aspect_label = ""
+        try:
+            aspect = probe_media_aspect(path)
+            aspect_factor = aspect.factor
+            aspect_label = aspect.label()
+        except Exception:
+            aspect_factor = 1.0
+            aspect_label = ""
+        return {
+            "w": w,
+            "h": h,
+            "fps": fps,
+            "n_frames": n_frames,
+            "src_colorspace": src,
+            "pixel_aspect": aspect_factor,
+            "pixel_aspect_label": aspect_label,
+        }
 
     def load_sequence(
         self,
@@ -381,6 +417,10 @@ class SequencePlayer(QWidget):
             self._last_shot = self._shot_frames[-1]
             self._exr_seq = info["seq"]
             self._src_colorspace = str(info.get("src_colorspace") or "")
+            self.set_pixel_aspect(
+                float(info.get("pixel_aspect") or 1.0),
+                str(info.get("pixel_aspect_label") or ""),
+            )
             log.info(
                 "SequencePlayer load: src=%r working=%r frames=%s–%s",
                 self._src_colorspace,
@@ -498,6 +538,10 @@ class SequencePlayer(QWidget):
         self._last_shot = n_frames
 
         self._src_colorspace = str(info.get("src_colorspace") or "")
+        self.set_pixel_aspect(
+            float(info.get("pixel_aspect") or 1.0),
+            str(info.get("pixel_aspect_label") or ""),
+        )
         log.info(
             "SequencePlayer load_video: %s frames=%s fps=%.3f src=%r working=%r",
             path,
@@ -657,9 +701,24 @@ class SequencePlayer(QWidget):
     def set_resolution(self, w: int, h: int) -> None:
         self._width = max(1, int(w))
         self._height = max(1, int(h))
-        self._preview.set_frame_size(self._width, self._height)
+        self._apply_pixel_aspect_views()
+
+    def pixel_aspect(self) -> float:
+        return float(self._pixel_aspect)
+
+    def set_pixel_aspect(self, factor: float, label: str = "") -> None:
+        """Display squeeze. ``label`` is the HUD text (empty hides it)."""
+        self._pixel_aspect = float(factor) if factor and factor > 0 else 1.0
+        self._pixel_aspect_label = label or ""
+        self._apply_pixel_aspect_views()
+
+    def _apply_pixel_aspect_views(self) -> None:
+        self._preview.set_frame_size(
+            self._width, self._height, self._pixel_aspect, self._pixel_aspect_label
+        )
         if self._gpu_plane is not None:
             self._gpu_plane.set_format(self._width, self._height)
+            self._gpu_plane.set_pixel_aspect(self._pixel_aspect, self._pixel_aspect_label)
 
     def resolution(self) -> tuple[int, int]:
         return self._width, self._height
@@ -1573,20 +1632,18 @@ class SequencePlayer(QWidget):
         self._preview_pixmap_item = scene.addPixmap(pix)
         self._preview_pixmap_item.setZValue(0)
 
-        w, h = self.resolution()
-        preview_h = 1080
-        preview_w = int(preview_h * w / max(h, 1))
+        rect = self._preview._frame_rect
+        preview_w = max(1.0, float(rect.width()))
+        preview_h = max(1.0, float(rect.height()))
         lw = max(1, int(round(pix.width() / max(dpr, 1.0))))
         lh = max(1, int(round(pix.height() / max(dpr, 1.0))))
         if lw > 0 and lh > 0:
-            sx = preview_w / lw
-            sy = preview_h / lh
-            s = min(sx, sy)
-            self._preview_pixmap_item.setScale(s)
-            self._preview_pixmap_item.setPos(
-                (preview_w - lw * s) / 2,
-                (preview_h - lh * s) / 2,
+            # Non-uniform scale: the fit rect is the display aspect, so a
+            # squeezed plate is stretched for viewing and the pixels stay put.
+            self._preview_pixmap_item.setTransform(
+                QTransform.fromScale(preview_w / lw, preview_h / lh)
             )
+            self._preview_pixmap_item.setPos(0, 0)
 
     def _reapply_display_with_ec(self) -> None:
         import numpy as np

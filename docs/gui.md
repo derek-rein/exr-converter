@@ -259,6 +259,16 @@ cover **Video → EXR** and **EXR → Video**. The **Video → Proxy** and
 
 ---
 
+## Pixel aspect
+
+**Video → EXR**, **EXR → Video**, **Video → Proxy**, and **Transcode** each have a **Pixel aspect** menu. **Auto** reads the clip. The other choices (`1.0 square`, `1.3x anamorphic`, `2x anamorphic`, and the rest) force the tag. The stored pixels stay squeezed either way.
+
+The row next to the menu names what Auto found (`Clip: 2x anamorphic`, `Clip: square pixels`, or a `PAR` fraction). The player shows the same label under the frame and stretches the picture for display. Inspect lists **Pixel aspect** when it is not square. The convert log prints the OpenEXR value and the video tag.
+
+Slate, burn-in, and watermark text are laid out in the unsqueezed shape and squeezed back onto the plate, so letters stay round when the file is viewed with that pixel aspect.
+
+Broadcast 16:9 sample aspect (for example 720x576) is labeled as pixel aspect, not as a lens squeeze, and is not written as OpenEXR `pixelAspectRatio`.
+
 ## Slate / burn-in / watermark
 
 Available on **EXR → Video** only (checkboxes on that tab). Proxies never get

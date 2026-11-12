@@ -4,6 +4,14 @@ import numpy as np
 import OpenImageIO as oiio
 
 from .cinemadng import read_rgb
+from .pixel_aspect import (
+    ATTR_OPTICAL_SQUEEZE,
+    ATTR_PIXEL_ASPECT,
+    ATTR_SAMPLE_ASPECT,
+    PixelAspect,
+    is_square,
+    merge_for_write,
+)
 
 
 def _display_window(spec) -> tuple[int, int, int, int]:
@@ -160,6 +168,28 @@ def read_exr_safe(path: str, w: int, h: int) -> np.ndarray:
         return np.zeros((h, w, 3), dtype=np.float32)
 
 
+def _set_float_attribute(spec: oiio.ImageSpec, key: str, value: float) -> None:
+    """Store *value* as a float. A string is the wrong type for these keys."""
+    spec.attribute(key, float(value))
+
+
+def _apply_pixel_aspect(spec: oiio.ImageSpec, aspect: object) -> None:
+    """Write OpenEXR pixel aspect as a real float, plus the named squeeze field.
+
+    A string ``"2.0"`` is ignored and the file stays at 1.0. This OpenImageIO
+    binding has no ``pixelAspectRatio`` field; ``attribute(name, float)`` is
+    the call that writes the header float.
+    """
+    if not isinstance(aspect, PixelAspect):
+        return
+    exr_factor = float(aspect.exr_factor)
+    _set_float_attribute(spec, ATTR_PIXEL_ASPECT, exr_factor)
+    if not is_square(exr_factor):
+        _set_float_attribute(spec, ATTR_OPTICAL_SQUEEZE, exr_factor)
+    if aspect.kind == "broadcast" and not is_square(aspect.factor):
+        _set_float_attribute(spec, ATTR_SAMPLE_ASPECT, float(aspect.factor))
+
+
 def write_exr(
     path: str,
     rgb: np.ndarray,
@@ -168,6 +198,7 @@ def write_exr(
     dst_space: str = "",
     exr_opts: dict[str, str] | None = None,
     extra_attrs: dict[str, str] | None = None,
+    aspect: object | None = None,
 ) -> None:
     """Write a float32 (H, W, 3) array as half-float EXR.
 
@@ -180,7 +211,11 @@ def write_exr(
     of the samples; ``oiio:ColorSpace`` is only a coarse “scene-linear” hint.
 
     *extra_attrs* are optional string attributes (e.g. R3D camera metadata
-    under ``exrconverter:r3d:*``).
+    under ``exrconverter:r3d:*``). ``pixelAspectRatio`` is the exception:
+    OpenImageIO drops a string ``"2.0"`` and writes 1.0, so that key (and the
+    optical-squeeze field) is stored as a float. *aspect* is a
+    :class:`~src.core.pixel_aspect.PixelAspect`. When it is omitted, a
+    ``pixelAspectRatio`` entry in *extra_attrs* is used.
 
     Raises
     ------
@@ -204,13 +239,16 @@ def write_exr(
             spec.attribute("oiio:ColorSpace", str(dst_space))
         except Exception:
             pass
+    final = merge_for_write(aspect if isinstance(aspect, PixelAspect) else None, extra_attrs)
+    _apply_pixel_aspect(spec, final)
+    skip = {ATTR_PIXEL_ASPECT, ATTR_OPTICAL_SQUEEZE, ATTR_SAMPLE_ASPECT}
     if extra_attrs:
         for key, val in extra_attrs.items():
             if key is None or val is None:
                 continue
             k = str(key).strip()
             v = str(val).strip()
-            if not k or not v:
+            if not k or not v or k in skip:
                 continue
             try:
                 spec.attribute(k, v)

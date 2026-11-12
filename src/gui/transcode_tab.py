@@ -74,6 +74,7 @@ from ..core.trustmark.payload import (
 from ..services.proxy_queue import TranscodeJob, TranscodeQueue
 from .color_widgets import ColorSpaceButton, lock_form_row_height
 from .convert_tab import _ConvertFormBody, _form_scroll_area
+from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import encoder_mode
 from .proxy_tab import _field_label, _limit_combo_width
 from .style import HINT_STYLE
@@ -330,6 +331,9 @@ class TranscodeTab(QWidget):
         grid.addWidget(self._folder_label, 6, 0)
         grid.addWidget(self.output_dir, 6, 1, 1, 3)
         grid.addWidget(self._browse_out, 6, 4)
+        self.pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{_K}/pixel_aspect", self)
+        grid.addWidget(_field_label("Pixel aspect"), 7, 0)
+        grid.addWidget(self.pixel_aspect_combo, 7, 1, 1, 2)
         self._naming_hint = QLabel(
             "Right-click Name or Folder to insert variables such as <reel>, <name> "
             "or <srcresolution>. Use / in Name for sub-folders, and $VAR or ${VAR} "
@@ -757,6 +761,7 @@ class TranscodeTab(QWidget):
             config_path=self._config_path,
             watermark_text=watermark_text,
             watermark_strength=float(self.watermark_strength.value()),
+            pixel_aspect=combo_override(self.pixel_aspect_combo),
             encoder=encoder_mode(self._settings),
         )
         return validate_settings(settings)

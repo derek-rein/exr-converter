@@ -40,6 +40,17 @@ from .ocio_utils import (
 )
 from .oxideav_prores import is_available as oxideav_prores_available
 from .oxideav_prores import open_writer, unavailable_reason, write_rgb48_frame
+from .pixel_aspect import (
+    SQUARE,
+    PixelAspect,
+    apply_override,
+    apply_stream_sample_aspect,
+    aspect_from_still,
+    describe,
+    merge_for_write,
+    pixel_aspect_of,
+    tagged_sample_aspect,
+)
 from .pool import _alpha_over_rgb, process_frame_e2v, process_frame_v2e, quantize_u16
 from .sequence import find_exr_sequence
 from .yuv import is_ycbcr_pix_fmt, pix_fmt_has_alpha, pix_fmt_without_alpha, rgb48_to_video_frame
@@ -342,11 +353,13 @@ def _setup_video_stream(
     width: int,
     height: int,
     tags: ColorTags,
+    sample_aspect: float = 1.0,
 ):
     stream = container.add_stream(encoder.libav_codec, rate=rate)
     stream.width = width
     stream.height = height
     encoder.configure(stream)
+    apply_stream_sample_aspect(stream, sample_aspect)
     if is_ycbcr_pix_fmt(encoder.pix_fmt):
         apply_to_codec_context(stream.codec_context, tags)
     return stream
@@ -685,6 +698,7 @@ def _e2v_libav(
     progress: ProgressCallback | None,
     cancel_check: Callable[[], bool] | None,
     log: LogCallback | None,
+    sample_aspect: float = 1.0,
 ) -> None:
     """EXR→video through a PyAV (FFmpeg) encoder, software or hardware."""
     ow, oh = out_size
@@ -706,7 +720,9 @@ def _e2v_libav(
         container = _open_output_container(output_video, enc.pix_fmt)
         container.metadata.update(_video_metadata(frames.src_space, frames.dst_space, codec_key))
         try:
-            stream = _setup_video_stream(container, enc, rate, ow, oh, tags)
+            stream = _setup_video_stream(
+                container, enc, rate, ow, oh, tags, sample_aspect=sample_aspect
+            )
             open_encoder(stream)
             if slate_display is not None:
                 _encode_slate_video_frame(
@@ -753,6 +769,7 @@ def run_video_to_exr(
     exr_opts: dict[str, str] | None = None,
     deinterlace: str = "auto",
     output_name: str = "",
+    pixel_aspect: float | None = None,
 ) -> None:
     """Decode video / R3D / BRAW / CinemaDNG → OCIO → EXR sequence (ingest).
 
@@ -788,6 +805,7 @@ def run_video_to_exr(
                 stem = hint
         info = src.info
         ow, oh = src.output_size
+        base_aspect = apply_override(pixel_aspect_of(src), pixel_aspect)
         total = info.frame_count
         render_total = len(frame_set) if frame_set else total
         if log:
@@ -822,6 +840,7 @@ def run_video_to_exr(
                 exr_opts=exr_opts,
                 output_name=stem,
                 render_total=render_total,
+                aspect=base_aspect,
             )
             return
 
@@ -846,6 +865,7 @@ def run_video_to_exr(
             exr_opts=exr_opts,
             output_name=stem,
             render_total=render_total,
+            aspect=base_aspect,
         )
 
 
@@ -866,6 +886,7 @@ def _v2e_serial_from_source(
     exr_opts: dict[str, str] | None = None,
     output_name: str = "",
     render_total: int = 0,
+    aspect: object | None = None,
 ) -> None:
     cpu = make_cpu_processor(ocio_cfg, src_space, dst_space)
     if log:
@@ -874,12 +895,18 @@ def _v2e_serial_from_source(
     stem = output_name
     fmt = f"0{padding}d"
     written = 0
+    base = aspect if isinstance(aspect, PixelAspect) else None
+    logged = False
     for idx_1based, rgb, extra_attrs in src.iter_frames(frame_set, cancel_check=cancel_check):
         h, w = rgb.shape[:2]
         buf = np.ascontiguousarray(rgb, dtype=np.float32)
         apply_packed_rgb(cpu, buf)
         frame_num = start_frame + idx_1based - 1
         out_path = output_dir / f"{stem}.{frame_num:{fmt}}.exr"
+        final_aspect = merge_for_write(base, extra_attrs)
+        if log and not logged:
+            log(describe(final_aspect))
+            logged = True
         write_exr(
             str(out_path),
             buf,
@@ -888,6 +915,7 @@ def _v2e_serial_from_source(
             dst_space=dst_space,
             exr_opts=exr_opts,
             extra_attrs=extra_attrs or None,
+            aspect=final_aspect,
         )
         written += 1
         if progress:
@@ -919,6 +947,7 @@ def _v2e_parallel_from_source(
     exr_opts: dict[str, str] | None = None,
     output_name: str = "",
     render_total: int = 0,
+    aspect: object | None = None,
 ) -> None:
     """Parallel Video→EXR using a thread pool (no RGB frame pickling)."""
     stem = output_name
@@ -926,6 +955,8 @@ def _v2e_parallel_from_source(
     max_inflight = n_workers * 2
     finished = 0
     pending_bytes = 0
+    base = aspect if isinstance(aspect, PixelAspect) else None
+    logged = False
 
     # Threads share memory with the decoder — OCIO apply releases the GIL.
     with _thread_pool(n_workers) as pool:
@@ -934,7 +965,7 @@ def _v2e_parallel_from_source(
         all_submitted = False
 
         def _submit_batch() -> None:
-            nonlocal all_submitted, pending_bytes
+            nonlocal all_submitted, pending_bytes, logged
             if all_submitted:
                 return
             while len(pending) < max_inflight and pending_bytes < _READY_BYTES_BUDGET:
@@ -948,6 +979,10 @@ def _v2e_parallel_from_source(
                     raise ConversionCancelled()
                 frame_num = start_frame + idx_1based - 1
                 out_path = str(output_dir / f"{stem}.{frame_num:{fmt}}.exr")
+                final_aspect = merge_for_write(base, extra_attrs)
+                if log and not logged:
+                    log(describe(final_aspect))
+                    logged = True
                 nbytes = _array_nbytes(rgb)
                 fut = pool.submit(
                     process_frame_v2e,
@@ -961,6 +996,7 @@ def _v2e_parallel_from_source(
                     dst_space,
                     exr_opts,
                     extra_attrs or None,
+                    final_aspect,
                 )
                 pending[fut] = nbytes
                 pending_bytes += nbytes
@@ -1027,6 +1063,7 @@ def run_exr_to_video(
     watermark_text: str = "",
     watermark_strength: float = 1.0,
     encoder: str = ENCODER_AUTO,
+    pixel_aspect: float | None = None,
 ) -> None:
     """Encode an image sequence (EXR/PNG/JPG/… with optional slate / overlays) to video.
 
@@ -1083,9 +1120,16 @@ def run_exr_to_video(
     first = read_image(paths[0])
     h, w = first.shape[:2]
     ow, oh = _scaled_dims(w, h, scale)
+    try:
+        detected = aspect_from_still(paths[0])
+    except Exception:
+        detected = SQUARE
+    sequence_aspect = apply_override(detected, pixel_aspect)
+    sample_aspect = tagged_sample_aspect(sequence_aspect, w, h, ow, oh)
     if log:
         res_info = f"{w}x{h}" if scale >= 1.0 else f"{w}x{h} \u2192 {ow}x{oh}"
         log(f"Sequence: {basename} ({total} frames, {res_info})")
+        log(describe(sequence_aspect))
 
     # Resolve compositing colorspace and pre-linearise overlays --------------
     # User frames: ocio_cfg src → working → dst (user config only).
@@ -1138,6 +1182,11 @@ def run_exr_to_video(
         )
 
     if codec_key in OXIDEAV_PRORES_KEYS:
+        if log and abs(sample_aspect - 1.0) > 0.005:
+            log(
+                "12-bit oxideav ProRes does not write a pixel-aspect tag. "
+                "Use a PyAV ProRes preset when the tag has to travel with the file."
+            )
         _e2v_oxideav(
             frames,
             output_video,
@@ -1166,4 +1215,5 @@ def run_exr_to_video(
         progress=progress,
         cancel_check=cancel_check,
         log=log,
+        sample_aspect=sample_aspect,
     )
