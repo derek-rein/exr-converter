@@ -133,9 +133,10 @@ support for `.crm` and is never opened with PyAV. Without a source plugin, the c
 **Camera RAW (plugin not installed)**, and Metadata and convert report
 **Camera RAW plugin not installed**. Release builds can include the optional
 plugin; its runtime notices stay inside the app bundle. **ARRIRAW** (`.ari`
-sequences and ARRIRAW / ARRICORE `.mxf`) is not decoded in public release
-builds. Those files list as unsupported camera RAW. Other `.mxf` files still
-open with PyAV.
+sequences and ARRIRAW / ARRICORE `.mxf`) works the same way: builds that
+include the ARRI plugin decode it with the ARRI Image SDK and show the SDK and
+MXF Library versions in **Help → About**. Other builds list `.ari` as
+unsupported camera RAW, and other `.mxf` files still open with PyAV.
 
 **Cloud placeholders (Dropbox / iCloud / OneDrive):** folders managed by a
 cloud client often contain “online-only” stubs (macOS File Provider dataless

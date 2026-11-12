@@ -13,6 +13,12 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-11-12
+
+### Added
+
+- ARRIRAW and ARRICORE (`.ari` sequences and ARRI `.mxf`) decode again in the release builds for macOS, Windows and Linux, through the ARRI Image SDK, on the GPU when one is available. Help → About shows the ARRI Image SDK and MXF Library versions, and ARRI's notices ship inside the app.
+
 ## [0.13.2] - 2026-11-11
 
 Published release. v0.13.1 was tagged but not published: Windows signing found `signtool.exe` and then rejected it. This build includes the 0.13.0 and 0.13.1 notes.
@@ -1166,7 +1172,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.13.2...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.13.3...HEAD
+[0.13.3]: https://github.com/derek-rein/exr-converter/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/derek-rein/exr-converter/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/derek-rein/exr-converter/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/derek-rein/exr-converter/compare/v0.12.14...v0.13.0
