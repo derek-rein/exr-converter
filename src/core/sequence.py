@@ -12,6 +12,13 @@ from .constants import (
     is_scene_referred_image_ext,
 )
 from .local_fs import can_probe_media, path_is_dir, path_is_file
+from .pixel_aspect import (
+    SQUARE,
+    PixelAspect,
+    is_broadcast_sample_aspect,
+    is_square,
+    read_spec_pixel_aspect,
+)
 
 # **Writes** use ``name.####.ext`` (dot frame pad only). **Reads** accept both
 # common pads: ``name.####.ext`` (fileseq basename ends with ``.``) and
@@ -414,6 +421,15 @@ def probe_exr_metadata(filepath: str) -> dict[str, str]:
         fw = spec.full_width if spec.full_width > 0 else spec.width
         fh = spec.full_height if spec.full_height > 0 else spec.height
         result["Resolution"] = f"{fw} \u00d7 {fh}"
+        par = read_spec_pixel_aspect(spec)
+        if is_square(par):
+            aspect = SQUARE
+        elif is_broadcast_sample_aspect(par, int(spec.width or 0), int(spec.height or 0)):
+            aspect = PixelAspect(par, "broadcast")
+        else:
+            aspect = PixelAspect(par, "lens")
+        if aspect.label():
+            result["Pixel aspect"] = aspect.label()
         if spec.width != fw or spec.height != fh:
             result["Data Window"] = f"{spec.width} \u00d7 {spec.height} (offset {spec.x}, {spec.y})"
         result["Channels"] = str(spec.nchannels)

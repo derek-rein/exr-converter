@@ -39,6 +39,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
+from .storage_paint import paint_storage_image
+
 log = logging.getLogger(__name__)
 
 
@@ -503,6 +505,7 @@ def render_slate_frame(
     template_path: object | None = None,  # accepted for backwards compat; unused
     linearize: bool = False,
     thumbnail_b64: str = "",
+    pixel_aspect: float = 1.0,
 ) -> np.ndarray:
     """Paint the slate at ``(width, height)`` and return a float32 RGBA buffer.
 
@@ -514,22 +517,20 @@ def render_slate_frame(
     The ``template_path`` argument is accepted but ignored — kept only so that
     callers from the previous HTML-template implementation continue to work.
 
+    *pixel_aspect* above 1 paints the slate wider, then squeezes it back into
+    ``width`` x ``height`` so type stays round when the file is unsqueezed.
+
     Returns
     -------
     np.ndarray
         ``float32`` array of shape ``(height, width, 4)`` in [0, 1].
     """
-    img = QImage(int(width), int(height), QImage.Format.Format_RGBA8888)
-    img.fill(_BG)
-
     thumbnail = decode_thumbnail_b64(thumbnail_b64) if thumbnail_b64 else None
 
-    p = QPainter(img)
-    try:
-        _paint_slate(p, int(width), int(height), slate_data, thumbnail)
-    finally:
-        p.end()
+    def _paint(painter: QPainter, disp_w: int, disp_h: int) -> None:
+        _paint_slate(painter, disp_w, disp_h, slate_data, thumbnail)
 
+    img = paint_storage_image(int(width), int(height), pixel_aspect, _BG, _paint)
     pixels = _qimage_to_numpy_rgba(img).astype(np.float32) / 255.0
     if linearize:
         pixels = _srgb_to_linear(pixels)

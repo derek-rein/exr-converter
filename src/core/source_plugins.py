@@ -102,6 +102,10 @@ class SourcePlugin(Protocol):
 #                               listed once in the video browser (display name).
 # Optional ingest-source attribute:
 #   output_stem: str            default EXR sequence name when none is given.
+#   pixel_aspect: PixelAspect   display pixel aspect when metadata is not on MediaInfo.
+# Optional plugin method:
+#   pixel_aspect_info(path) -> PixelAspect
+#                               optical squeeze or container sample aspect.
 
 
 _lock = threading.Lock()

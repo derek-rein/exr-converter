@@ -11,6 +11,13 @@ from .local_fs import (
     is_incomplete_download_name,
     iter_dir_entries,
 )
+from .pixel_aspect import (
+    SQUARE,
+    PixelAspect,
+    optical_from_mapping,
+    resolve_detected,
+    stream_sample_aspect,
+)
 
 # libavformat probe limits used when av.open()'s defaults (≈5 MB / 5 s) miss
 # stream parameters — typical for vendor-tagged MXFs (e.g. Sony Venice
@@ -808,8 +815,10 @@ def _probe_r3d_metadata(path: str) -> dict[str, str]:
                 result["Video colorspace"] = info.colorspace_hint
             if info.sdk_version:
                 result["SDK"] = info.sdk_version
-            for key, val in clip.clip_metadata_dict().items():
+            meta = clip.clip_metadata_dict()
+            for key, val in meta.items():
                 result[f"meta:{key}"] = val
+            _put_pixel_aspect(result, _aspect_from_optical(optical_from_mapping(meta)))
     except Exception as exc:
         result["error"] = str(exc)
     return result
@@ -845,11 +854,25 @@ def _probe_braw_metadata(path: str) -> dict[str, str]:
                 result["Camera"] = info.camera_type
             if info.sdk_version:
                 result["SDK"] = info.sdk_version
-            for key, val in clip.clip_metadata_dict().items():
+            meta = clip.clip_metadata_dict()
+            for key, val in meta.items():
                 result[f"meta:{key}"] = val
+            _put_pixel_aspect(result, _aspect_from_optical(optical_from_mapping(meta)))
     except Exception as exc:
         result["error"] = str(exc)
     return result
+
+
+def _aspect_from_optical(optical: float | None) -> PixelAspect:
+    if optical is None or abs(optical - 1.0) <= 0.005:
+        return SQUARE
+    return PixelAspect(optical, "lens")
+
+
+def _put_pixel_aspect(result: dict[str, str], aspect: PixelAspect) -> None:
+    label = aspect.label()
+    if label:
+        result["Pixel aspect"] = label
 
 
 def _fill_plugin_row(plugin: object, path: str, row: dict[str, str]) -> None:
@@ -975,6 +998,25 @@ def probe_video_metadata(path: str) -> dict[str, str]:
 
             if sw and sh:
                 result[f"{pfx} resolution"] = f"{sw}\u00d7{sh}"
+                if i == 0:
+                    meta = {}
+                    try:
+                        meta.update({str(k): str(v) for k, v in (container.metadata or {}).items()})
+                    except Exception:
+                        pass
+                    try:
+                        meta.update({str(k): str(v) for k, v in (stream.metadata or {}).items()})
+                    except Exception:
+                        pass
+                    _put_pixel_aspect(
+                        result,
+                        resolve_detected(
+                            optical_from_mapping(meta),
+                            stream_sample_aspect(stream),
+                            int(sw),
+                            int(sh),
+                        ),
+                    )
             if pix_fmt:
                 result[f"{pfx} pix_fmt"] = pix_fmt
             if fps:

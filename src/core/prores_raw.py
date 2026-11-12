@@ -34,6 +34,12 @@ from pathlib import Path
 import numpy as np
 
 from .errors import ConversionCancelled
+from .pixel_aspect import (
+    PixelAspect,
+    optical_from_mapping,
+    resolve_detected,
+    stream_sample_aspect,
+)
 
 log = logging.getLogger(__name__)
 
@@ -485,6 +491,8 @@ class ClipInfo:
     codec_label: str
     header: FrameHeader
     timecode: str
+    pixel_aspect: float = 1.0
+    pixel_aspect_kind: str = "square"
 
 
 class ProResRawClip:
@@ -534,6 +542,13 @@ class ProResRawClip:
             tc = str(meta.get("timecode") or meta_c.get("timecode") or "")
             fourcc = prores_raw_fourcc(path) or b"aprn"
             w, h = header.cropped_size
+            meta_all = {str(k): str(v) for k, v in {**meta_c, **meta}.items()}
+            aspect = resolve_detected(
+                optical_from_mapping(meta_all),
+                stream_sample_aspect(self._stream),
+                w,
+                h,
+            )
             self.info = ClipInfo(
                 width=w,
                 height=h,
@@ -544,6 +559,8 @@ class ProResRawClip:
                 codec_label=FOURCCS.get(fourcc, "ProRes RAW"),
                 header=header,
                 timecode=tc,
+                pixel_aspect=aspect.factor,
+                pixel_aspect_kind=aspect.kind,
             )
         except Exception:
             self._container.close()
@@ -739,6 +756,8 @@ class ProResRawIngestSource:
         self._half = self._scale <= 0.5 + 1e-6
         self._clip = ProResRawClip(path)
         i = self._clip.info
+        aspect = PixelAspect(i.pixel_aspect, i.pixel_aspect_kind)  # type: ignore[arg-type]
+        self.pixel_aspect = aspect
         self._info = MediaInfo(
             path=path,
             width=i.width,
@@ -747,6 +766,8 @@ class ProResRawIngestSource:
             frame_count=i.frame_count,
             kind="prores_raw",
             colorspace_hint=OUTPUT_COLORSPACE,
+            pixel_aspect=aspect.factor,
+            pixel_aspect_kind=aspect.kind,
         )
         self._out_w, self._out_h = scaled_dims(i.width, i.height, self._scale)
 
@@ -786,6 +807,9 @@ class ProResRawIngestSource:
         )
         for warning in self._clip.warnings():
             log_fn(f"WARNING: {warning}")
+        label = self.pixel_aspect.label()
+        if label:
+            log_fn(f"ProRes RAW pixel aspect: {label}")
 
     def iter_frames(
         self,
@@ -861,6 +885,9 @@ class ProResRawSource:
                     "Decoded color space": OUTPUT_COLORSPACE,
                 }
             )
+            aspect = PixelAspect(i.pixel_aspect, i.pixel_aspect_kind)  # type: ignore[arg-type]
+            if aspect.label():
+                result["Pixel aspect"] = aspect.label()
             if i.timecode:
                 result["Start timecode"] = i.timecode
             try:
@@ -884,6 +911,11 @@ class ProResRawSource:
 
     def open_ingest(self, path: str, *, scale: float = 1.0) -> ProResRawIngestSource:
         return ProResRawIngestSource(path, scale=scale)
+
+    def pixel_aspect_info(self, path: str) -> PixelAspect:
+        """Display pixel aspect of *path* (container pasp, or square)."""
+        with ProResRawClip(path) as clip:
+            return PixelAspect(clip.info.pixel_aspect, clip.info.pixel_aspect_kind)  # type: ignore[arg-type]
 
     def thumbnail_rgb(self, path: str) -> np.ndarray | None:
         with ProResRawClip(path) as clip:

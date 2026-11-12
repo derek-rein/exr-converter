@@ -97,6 +97,10 @@ uv run python main.py video2exr -i /path/to/shot -o /tmp/exr_out \
 Written EXRs carry `exrconverter:cinemadng:make`, `model`, `colorspace`, and the
 exposure scale that was baked into the pixels.
 
+## Pixel aspect
+
+`DefaultScale` in the DNG header is the scale that makes the photosites square. The ratio of the two values is the optical squeeze. It is written as OpenEXR `pixelAspectRatio` (a float) and shown in the viewer. The Bayer samples are not resampled.
+
 ## Build
 
 The reader is one C file, `native/cinemadng/cinemadng.c`, linked only to the C

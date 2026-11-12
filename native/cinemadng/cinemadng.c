@@ -48,6 +48,9 @@ typedef struct cinemadng_meta {
     char make[96];
     char model[96];
     char unique_model[128];
+    double default_scale_h;
+    double default_scale_v;
+    int32_t has_default_scale;
 } cinemadng_meta;
 
 typedef struct {
@@ -86,6 +89,9 @@ typedef struct {
     double crop_origin[2];
     double crop_size[2];
     int has_crop;
+    double default_scale_h;
+    double default_scale_v;
+    int has_default_scale;
 } RawIfd;
 
 static CDNG_TLS char g_err[512];
@@ -519,6 +525,11 @@ static int parse_ifd(const Tiff *t, uint32_t off, RawIfd *out, uint32_t *sub_off
             out->active[2] = (uint32_t)d[2];
             out->active[3] = (uint32_t)d[3];
             out->has_active = 1;
+        } else if (tag == 50718 && (nd = read_doubles(t, type, count, val, d, 2)) >= 2) {
+            /* DefaultScale: horizontal, vertical. Scale to square pixels. */
+            out->default_scale_h = d[0];
+            out->default_scale_v = d[1];
+            out->has_default_scale = 1;
         } else if (tag == 50719 && (nd = read_doubles(t, type, count, val, d, 2)) >= 2) {
             out->crop_origin[0] = d[0];
             out->crop_origin[1] = d[1];
@@ -1121,6 +1132,9 @@ static void fill_meta(const RawIfd *r, cinemadng_meta *meta, uint32_t left, uint
     memcpy(meta->make, r->make, sizeof meta->make);
     memcpy(meta->model, r->model, sizeof meta->model);
     memcpy(meta->unique_model, r->unique, sizeof meta->unique_model);
+    meta->default_scale_h = r->has_default_scale ? r->default_scale_h : 1.0;
+    meta->default_scale_v = r->has_default_scale ? r->default_scale_v : 1.0;
+    meta->has_default_scale = r->has_default_scale ? 1 : 0;
 }
 
 static int crop_rect(const RawIfd *r, uint32_t *left, uint32_t *top, uint32_t *cw, uint32_t *ch) {

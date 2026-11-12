@@ -47,6 +47,9 @@ def frame_exr_attrs(meta: FrameMeta, colorspace: str) -> dict[str, str]:
     attrs["exrconverter:cinemadng:compression"] = (
         "uncompressed" if meta.compression == 1 else "lossless-jpeg"
     )
+    if meta.has_default_scale:
+        h, v = meta.default_scale
+        attrs["exrconverter:cinemadng:default_scale"] = f"{h:.6g} {v:.6g}"
     return attrs
 
 

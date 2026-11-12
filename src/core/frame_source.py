@@ -17,6 +17,13 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 
 from .errors import ConversionCancelled
+from .pixel_aspect import (
+    SQUARE,
+    PixelAspect,
+    aspect_from_video_file,
+    note_plugin_aspect,
+    optical_from_mapping,
+)
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +45,8 @@ class MediaInfo:
     frame_count: int
     kind: str  # "video" | "r3d" | "braw" | "cinemadng" | source-plugin kind
     colorspace_hint: str = ""
+    pixel_aspect: float = 1.0
+    pixel_aspect_kind: str = "square"
 
 
 @runtime_checkable
@@ -152,7 +161,9 @@ def open_ingest_source(
     plugin = plugin_for_path(path_s)
     if plugin is not None:
         require_available(plugin)
-        return plugin.open_ingest(path_s, scale=scale)
+        source = plugin.open_ingest(path_s, scale=scale)
+        note_plugin_aspect(source, plugin, path_s)
+        return source
     if is_cinemadng_input(path_s):
         return CinemaDNGIngestSource(path_s, scale=scale)
     if is_r3d_path(path_s):
@@ -476,6 +487,11 @@ class VideoIngestSource:
         self._deinterlace = deinterlace
         self._log_fn = log_fn
         w, h, fps, total = probe_video(path)
+        try:
+            aspect = aspect_from_video_file(path)
+        except Exception:
+            aspect = SQUARE
+        self.pixel_aspect = aspect
         self._info = MediaInfo(
             path=path,
             width=int(w),
@@ -483,6 +499,8 @@ class VideoIngestSource:
             fps=float(fps) if fps else 24.0,
             frame_count=max(1, int(total)),
             kind="video",
+            pixel_aspect=aspect.factor,
+            pixel_aspect_kind=aspect.kind,
         )
         self._out_w, self._out_h = scaled_dims(self._info.width, self._info.height, self._scale)
         self._container = None
@@ -574,6 +592,13 @@ class R3DIngestSource:
         self._need_extra_resize = abs(self._extra_scale - 1.0) > 0.02
         self._clip = R3DClip(path)
         info = self._clip.info
+        optical = optical_from_mapping(self._clip.clip_metadata_dict())
+        aspect = (
+            PixelAspect(optical, "lens")
+            if optical is not None and abs(optical - 1.0) > 0.005
+            else SQUARE
+        )
+        self.pixel_aspect = aspect
         self._info = MediaInfo(
             path=path,
             width=int(info.width),
@@ -582,6 +607,8 @@ class R3DIngestSource:
             frame_count=max(1, int(info.frame_count)),
             kind="r3d",
             colorspace_hint=info.colorspace_hint or "",
+            pixel_aspect=aspect.factor,
+            pixel_aspect_kind=aspect.kind,
         )
         self._out_w, self._out_h = scaled_dims(self._info.width, self._info.height, self._scale)
         self._base_attrs: dict[str, str] = {
@@ -734,6 +761,13 @@ class BRAWIngestSource:
         self._need_extra_resize = abs(self._extra_scale - 1.0) > 0.02
         self._clip = BRAWClip(path)
         info = self._clip.info
+        optical = optical_from_mapping(self._clip.clip_metadata_dict())
+        aspect = (
+            PixelAspect(optical, "lens")
+            if optical is not None and abs(optical - 1.0) > 0.005
+            else SQUARE
+        )
+        self.pixel_aspect = aspect
         self._info = MediaInfo(
             path=path,
             width=int(info.width),
@@ -742,6 +776,8 @@ class BRAWIngestSource:
             frame_count=max(1, int(info.frame_count)),
             kind="braw",
             colorspace_hint=info.colorspace_hint or "",
+            pixel_aspect=aspect.factor,
+            pixel_aspect_kind=aspect.kind,
         )
         self._out_w, self._out_h = scaled_dims(self._info.width, self._info.height, self._scale)
         self._base_attrs: dict[str, str] = {

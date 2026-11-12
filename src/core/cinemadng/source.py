@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 import numpy as np
 
 from ..frame_source import MediaInfo, resize_rgb_f32, scaled_dims
+from ..pixel_aspect import aspect_from_default_scale
 from .color import LINEAR_P3_D60
 from .input import frame_paths, probe_sequence, read_sequence_frame
 from .native import probe_meta
@@ -47,6 +48,13 @@ class CinemaDNGIngestSource:
         self._scale = float(scale)
         width, height, fps, count, colorspace = probe_sequence(path)
         self._colorspace = colorspace
+        self._header_meta = probe_meta(frame_paths(path)[0])
+        aspect = aspect_from_default_scale(
+            self._header_meta.default_scale[0],
+            self._header_meta.default_scale[1],
+            present=self._header_meta.has_default_scale,
+        )
+        self.pixel_aspect = aspect
         self._info = MediaInfo(
             path=path,
             width=width,
@@ -55,9 +63,10 @@ class CinemaDNGIngestSource:
             frame_count=count,
             kind="cinemadng",
             colorspace_hint=colorspace,
+            pixel_aspect=aspect.factor,
+            pixel_aspect_kind=aspect.kind,
         )
         self._out_w, self._out_h = scaled_dims(width, height, self._scale)
-        self._header_meta = probe_meta(frame_paths(path)[0])
 
     @property
     def info(self) -> MediaInfo:
@@ -86,6 +95,9 @@ class CinemaDNGIngestSource:
         log_fn(f"CinemaDNG source color space: {self._colorspace}")
         if self._colorspace == LINEAR_P3_D60:
             log_fn("DJI exposure: BaselineExposure plus 1.4 stops is already in the pixels")
+        label = self.pixel_aspect.label()
+        if label:
+            log_fn(f"CinemaDNG pixel aspect: {label}")
 
     def iter_frames(
         self,

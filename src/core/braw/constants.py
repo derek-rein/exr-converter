@@ -52,6 +52,9 @@ CLIP_META_KEYS: tuple[str, ...] = (
     "lens_type",
     "crop_origin",
     "sensor_area_wh",
+    # SDK 6 metadata iterator key reported for anamorphic clips ("2x", "1.33x", "off").
+    "anamorphic",
+    "anamorphic_ratio",
 )
 
 BMD_REDISTRIBUTABLE_NOTICE = """\

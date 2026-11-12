@@ -15,6 +15,7 @@ import PyOpenColorIO as OCIO
 
 from .exr_io import read_image, read_image_alpha, write_exr
 from .ocio_utils import apply_packed_rgb, load_config_from_source_info, make_export_processor
+from .pixel_aspect import PixelAspect
 
 # Workers cache up to two CPUProcessors: one for src→working (OCIO load
 # stage) and one for working→display (OCIO display stage).  Each is keyed
@@ -93,6 +94,7 @@ def process_frame_v2e(
     dst_space: str,
     exr_opts: dict[str, str] | None = None,
     extra_attrs: dict[str, str] | None = None,
+    aspect: PixelAspect | None = None,
 ) -> int:
     """OCIO transform + write one EXR frame. Returns frame index."""
     cpu = _ensure_cpu(config_source, config_path, src_space, dst_space)
@@ -107,6 +109,7 @@ def process_frame_v2e(
         dst_space=dst_space,
         exr_opts=exr_opts,
         extra_attrs=extra_attrs,
+        aspect=aspect,
     )
     return idx
 

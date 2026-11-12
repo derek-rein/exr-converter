@@ -149,6 +149,7 @@ def run_video_to_proxy(
     watermark_text: str = "",
     watermark_strength: float = 1.0,
     encoder: str = ENCODER_AUTO,
+    pixel_aspect: float | None = None,
     progress: ProgressCallback | None = None,
     cancel_check: Callable[[], bool] | None = None,
     log: LogCallback | None = None,
@@ -196,6 +197,7 @@ def run_video_to_proxy(
         preset=preset,
         codec_opts=dict(codec_opts) if codec_opts else None,
         encoder=encoder,
+        pixel_aspect=pixel_aspect,
     )
     return run_transcode(
         src,

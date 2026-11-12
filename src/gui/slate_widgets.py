@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.pixel_aspect import PixelAspect, is_square
 from ..render.slate import SLATE_COLORSPACE, render_slate_frame
 from .nuke_slider import NukeSlider
 from .player.preview_view import ZOOM_MAX, ZOOM_MIN
@@ -913,6 +914,7 @@ class SlateDialog(QDialog):
         ocio_cfg: object | None = None,
         src_colorspace: str = "",
         parent: QWidget | None = None,
+        pixel_aspect_override: float | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Slate & Overlay Editor")
@@ -924,6 +926,7 @@ class SlateDialog(QDialog):
         self._ocio_cfg = ocio_cfg
         self._src_colorspace = src_colorspace
         self._dst_colorspace = dst_colorspace
+        self._pixel_aspect_override = pixel_aspect_override
 
         # Output metadata seeds the model once when the dialog opens.
         init_fields: dict[str, str] = {}
@@ -1013,6 +1016,7 @@ class SlateDialog(QDialog):
                 self._last_shot = self._player.last_shot_frame()
                 if self._first_shot is not None:
                     self._slate_frame = self._first_shot - 1
+            self._apply_pixel_aspect_override()
         else:
             # Still pass OCIO so slate-only preview gets a proper display transform.
             self._player.load_sequence(
@@ -1022,6 +1026,7 @@ class SlateDialog(QDialog):
                 src_colorspace=self._src_colorspace or "",
                 resolution=(w, h),
             )
+            self._apply_pixel_aspect_override()
 
         splitter.addWidget(self._player)
 
@@ -1156,6 +1161,14 @@ class SlateDialog(QDialog):
                 self._player.set_frame(first)
         self._player.refresh()
 
+    def _apply_pixel_aspect_override(self) -> None:
+        override = self._pixel_aspect_override
+        if override is None:
+            return
+        factor = 1.0 if is_square(float(override)) else float(override)
+        aspect = PixelAspect(factor, "override")
+        self._player.set_pixel_aspect(aspect.factor, aspect.label())
+
     def done(self, result: int) -> None:
         self._player.shutdown()
         super().done(result)
@@ -1175,6 +1188,7 @@ class SlateDialog(QDialog):
                 preview_w,
                 preview_h,
                 thumbnail_b64=self._form.thumbnail_b64(),
+                pixel_aspect=self._player.pixel_aspect(),
             )
         except Exception:
             log.exception("Slate preview render failed")
@@ -1280,10 +1294,11 @@ class SlateDialog(QDialog):
         burnin_on = self._model is None or self._model.burnin_enabled
         values = self._token_values()
         fields = {k: tok.substitute(v, values) for k, v in self._effective_burnin_fields().items()}
+        par = self._player.pixel_aspect()
         if not burnin_on or not any((v or "").strip() for v in fields.values()):
-            sig = ("burnin", w, h, None)
+            sig = ("burnin", w, h, par, None)
         else:
-            sig = ("burnin", w, h, tuple(sorted(fields.items())))
+            sig = ("burnin", w, h, par, tuple(sorted(fields.items())))
         if self._overlay_lin_cache.get("burnin_sig") == sig:
             return self._overlay_lin_cache.get("burnin_lin")
 
@@ -1291,7 +1306,7 @@ class SlateDialog(QDialog):
             lin = None
         else:
             try:
-                rgba = render_burnin_overlay(w, h, fields)
+                rgba = render_burnin_overlay(w, h, fields, pixel_aspect=par)
             except RuntimeError:
                 rgba = None
             lin = self._linearise_overlay_cached(rgba)
@@ -1307,10 +1322,11 @@ class SlateDialog(QDialog):
         params["text"] = tok.substitute(params.get("text", ""), self._token_values())
         text = (params.get("text") or "").strip()
         wm_on = self._model is None or self._model.watermark_enabled
+        par = self._player.pixel_aspect()
         if not (wm_on and text):
-            sig = ("wm", w, h, None)
+            sig = ("wm", w, h, par, None)
         else:
-            sig = ("wm", w, h, tuple(sorted(params.items())))
+            sig = ("wm", w, h, par, tuple(sorted(params.items())))
         if self._overlay_lin_cache.get("wm_sig") == sig:
             return self._overlay_lin_cache.get("wm_lin")
 
@@ -1318,7 +1334,7 @@ class SlateDialog(QDialog):
             lin = None
         else:
             try:
-                rgba = render_watermark_overlay(w, h, params)
+                rgba = render_watermark_overlay(w, h, params, pixel_aspect=par)
             except Exception:
                 rgba = None
             lin = self._linearise_overlay_cached(rgba)

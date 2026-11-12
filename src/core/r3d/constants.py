@@ -61,6 +61,13 @@ CLIP_META_KEYS: tuple[str, ...] = (
     "lens_focal_length",
     "lens_aperture_label",
     "lens_mount",
+    # Optical squeeze when the SDK exposes it (SDK 9.2.1 passes metadata
+    # through by key; names vary by RMD vintage).
+    "anamorphic",
+    "anamorphic_ratio",
+    "pixel_aspect_ratio",
+    "pixel_aspect",
+    "lens_squeeze_factor",
     "gmt_date",
     "gmt_time",
     "hdr_mode",

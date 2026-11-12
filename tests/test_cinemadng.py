@@ -224,6 +224,7 @@ def _write_uncompressed(
     bits: int = 16,
     compression_bytes: bytes | None = None,
     subfile: bool = False,
+    default_scale: tuple[float, float] | None = None,
 ) -> None:
     height, width = samples.shape
     if compression_bytes is not None:
@@ -252,6 +253,8 @@ def _write_uncompressed(
     tiff.add_long(50717, [white])
     tiff.add_rational(50728, list(neutral))
     tiff.add_rational(50730, [baseline], signed=True)
+    if default_scale is not None:
+        tiff.add_rational(50718, [float(default_scale[0]), float(default_scale[1])])
     tiff.add_rational(51044, [fps])
     tiff.add_ascii(271, make)
     tiff.add_ascii(272, model)
@@ -591,3 +594,16 @@ def test_two_frame_sequence_probe(cinemadng_library: Path, tmp_path: Path) -> No
     assert float(frames[0][2]["exrconverter:cinemadng:exposure_scale"]) == pytest.approx(
         2.0**DJI_EXPOSURE_STOPS, abs=1e-4
     )
+
+
+def test_default_scale_is_optical_squeeze(cinemadng_library: Path, tmp_path: Path) -> None:
+    folder = tmp_path / "wide"
+    folder.mkdir()
+    path = folder / "wide.1001.dng"
+    _dji_file(path, _pixels(8, 4, 1800), default_scale=(2.0, 1.0))
+    meta = probe_meta(str(path))
+    assert meta.has_default_scale
+    assert meta.default_scale == pytest.approx((2.0, 1.0))
+    with open_ingest_source(folder) as src:
+        assert src.pixel_aspect.factor == pytest.approx(2.0)
+        assert src.pixel_aspect.kind == "lens"

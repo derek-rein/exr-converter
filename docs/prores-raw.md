@@ -42,6 +42,10 @@ The develop steps:
 Everything after the decoder is float32. The EXRs are half float, as for
 every other source.
 
+A QuickTime pixel-aspect tag (`pasp`) on the clip is kept. It is written as
+OpenEXR `pixelAspectRatio` when it is a lens squeeze, and the viewer unsqueezes
+for display. The Bayer mosaic is not resampled to square pixels.
+
 Each EXR carries `exrconverter:proresraw:*` attributes: codec, recorder,
 white balance (CCT and red/blue gains), gain, black/white level and start
 timecode.

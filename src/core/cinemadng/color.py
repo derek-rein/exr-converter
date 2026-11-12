@@ -84,6 +84,8 @@ class FrameMeta:
     make: str
     model: str
     unique_model: str
+    default_scale: tuple[float, float] = (1.0, 1.0)
+    has_default_scale: bool = False
 
 
 def _xy_to_xyz(xy: tuple[float, float]) -> np.ndarray:
