@@ -13,6 +13,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-11-12
+
 ### Added
 
 - Anamorphic footage keeps its squeezed pixels and is tagged so other apps can unsqueeze it. OpenEXR `pixelAspectRatio` is a real float (2.0 means each pixel is twice as wide, the same number Nuke uses). Video, proxy, and transcode output get a matching sample-aspect tag. Auto reads the factor from camera metadata, QuickTime pixel aspect, CinemaDNG `DefaultScale`, and existing EXR or DPX headers. `--pixel-aspect` and the Pixel aspect menu can force it.
@@ -1192,7 +1194,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/derek-rein/exr-converter/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/derek-rein/exr-converter/compare/v0.13.3...v0.14.0
 [0.13.3]: https://github.com/derek-rein/exr-converter/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/derek-rein/exr-converter/compare/v0.13.1...v0.13.2
