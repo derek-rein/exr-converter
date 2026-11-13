@@ -20,6 +20,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 ### Fixed
 
 - HDR (PQ, HLG), Rec.2020, sRGB, and linear video clips get the right source colour space guess. They were all read as Rec.709.
+- Transcode and proxy no longer overwrite the source when the output name differs only in letter case on a case-insensitive macOS volume (for example `C0001.MOV` to `C0001.mov`).
 
 ## [0.14.1] - 2026-11-12
 

@@ -661,7 +661,7 @@ def plan_output(
     def _busy(p: Path) -> bool:
         return p.exists() or _norm(p) in taken_norm
 
-    if _norm(out) == _norm(src):
+    if _same_file(out, src):
         if overwrite != OVERWRITE_RENAME:
             raise ValueError(
                 f"Output would replace the source {src.name}. Change the name pattern or folder."
@@ -669,7 +669,7 @@ def plan_output(
     if overwrite == OVERWRITE_RENAME:
         n = 1
         cand = out
-        while _busy(cand) or _norm(cand) == _norm(src):
+        while _busy(cand) or _same_file(cand, src):
             cand = folder / f"{stem}_{n}.{container}"
             n += 1
         return cand
@@ -693,6 +693,21 @@ def output_geometry(
 
 def _norm(p: str | os.PathLike[str]) -> str:
     return os.path.normcase(os.path.abspath(os.fspath(p)))
+
+
+def _same_file(a: str | os.PathLike[str], b: str | os.PathLike[str]) -> bool:
+    """True when *a* and *b* name one file.
+
+    :func:`os.path.normcase` does nothing on POSIX, so on a case-insensitive
+    macOS volume ``C0001.MOV`` and ``C0001.mov`` differ by name only. When
+    both exist, ask the filesystem.
+    """
+    if _norm(a) == _norm(b):
+        return True
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -951,7 +966,7 @@ def run_transcode(
     out = Path(output_path)
     if not is_transcode_source(src):
         raise RuntimeError(f"Not a supported video source: {src.name}")
-    if _norm(src) == _norm(out):
+    if _same_file(src, out):
         raise RuntimeError("The output cannot replace the source file.")
     spec = transcode_codec_spec(settings.codec_key)
     if spec is None or not spec.is_available() or not encoder_available(spec.libav_codec):

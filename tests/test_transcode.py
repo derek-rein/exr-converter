@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 from fractions import Fraction
 from pathlib import Path
 
@@ -336,6 +337,25 @@ class TestNaming:
         assert plan_output(src, s, pattern="<name>", overwrite=OVERWRITE_RENAME) == (
             tmp_path / "clip_1.mov"
         )
+
+    def test_plan_output_never_replaces_source_under_another_name(self, tmp_path):
+        # A case-insensitive volume maps C0001.MOV and C0001.mov to one file.
+        # A hard link gives the same "two names, one file" on any filesystem.
+        src = tmp_path / "C0001.MOV"
+        src.write_bytes(b"x")
+        os.link(src, tmp_path / "other.mov")
+        s = TranscodeSettings(codec_key="prores")
+        with pytest.raises(ValueError, match="replace the source"):
+            plan_output(src, s, pattern="other", overwrite=OVERWRITE_REPLACE)
+
+    def test_run_never_replaces_source_under_another_name(self, tmp_path):
+        src = tmp_path / "C0001.MOV"
+        src.write_bytes(b"x")
+        out = tmp_path / "other.mov"
+        os.link(src, out)
+        with pytest.raises(RuntimeError, match="cannot replace the source"):
+            run_transcode(src, out, TranscodeSettings(codec_key="prores"))
+        assert src.read_bytes() == b"x"
 
     def test_timecode_drop_frame_only_at_ntsc_rates(self):
         assert _timecode_for_rate("01:00:00;00", Fraction(30000, 1001)) == "01:00:00;00"
