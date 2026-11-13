@@ -23,6 +23,7 @@ from src.core.braw.paths import (
     _has_runtime_api,
     find_redistributable_dir,
 )
+from src.core.local_fs import path_is_file
 
 
 def test_is_braw_path_extensions() -> None:
@@ -346,14 +347,14 @@ def _sample_braw_path() -> Path | None:
     env = os.environ.get("BRAW_SAMPLE", "").strip()
     if env:
         p = Path(env).expanduser()
-        if p.is_file():
+        if path_is_file(p):
             return p
     for cand in (
         Path.home() / ".braw-sdk" / "slim" / "profile.braw",
         Path.home() / ".braw-sdk" / "profile.braw",
         Path("/home/ubuntu/.braw-sdk/slim/profile.braw"),
     ):
-        if cand.is_file():
+        if path_is_file(cand):
             return cand
     return None
 
