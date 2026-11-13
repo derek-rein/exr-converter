@@ -446,14 +446,13 @@ QTabBar::tab {
     margin-right: 4px;
     color: @FG_DIM;
 }
+/* The accent underline is painted by SlidingTabBar so it can travel. */
 QTabBar::tab:selected {
     color: @SEL_FG;
-    border-bottom: 2px solid @ACCENT;
     font-weight: 600;
 }
 QTabBar::tab:hover:!selected {
     color: @FG;
-    border-bottom: 2px solid @BORDER_STRONG;
 }
 QScrollArea#convertTabScroll, QWidget#convertTabBody {
     background-color: @BG;
@@ -491,10 +490,11 @@ QProgressBar {
     color: @FG;
     min-height: 14px;
 }
+/* #convertProgress is a ProgressLine: it paints itself (3 px, animated). */
 QProgressBar#convertProgress {
-    /* Match convert form row (32px widget; Python lock_form_row_height). */
-    min-height: 22px;
-    max-height: 32px;
+    min-height: 0;
+    border: none;
+    background: transparent;
 }
 QProgressBar::chunk {
     background-color: @ACCENT_DARK;
@@ -733,6 +733,23 @@ QRadioButton::indicator:focus {
 /* ---- Dialog buttons ---- */
 QDialogButtonBox QPushButton {
     min-width: 70px;
+}
+
+/* ---- Log drawer ---- */
+QWidget#logDrawer {
+    border-top: 1px solid @BORDER;
+}
+QPushButton#logToggle {
+    padding: 2px 8px 2px 4px;
+    min-height: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: left;
+}
+QPushButton#logToggle:checked {
+    background-color: transparent;
+    border-color: transparent;
+    color: @FG;
 }
 
 /* ---- Log pane ---- */

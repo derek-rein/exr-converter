@@ -32,14 +32,27 @@ from a Read. See [nuke.md](./nuke.md).
 Dragging the **Log** splitter up does not squash Input / Output / Options
 fields. Those controls keep a fixed readable height, and the convert form
 scrolls if the pane is short. **Convert** and **Cancel** share that height.
-The Log starts small, and the height you drag it to is remembered.
+
+The **Log** is a drawer at the bottom of the window. Closed, it is one line
+showing the latest status. Click **Log** to open it; drag its top edge to
+resize, and the height is remembered.
+
+On Video → EXR and EXR → Video the input is a **source card**. Drop a file or
+folder on it, or click it to browse. Once a source loads it shows a thumbnail,
+the name, and what was probed: resolution, frame count, frame rate, duration,
+or for a sequence the file type, frame count, range, and how many frames are
+missing. The path field under it still accepts typed or pasted paths.
+
+Interface motion (sliding tab underline, fades, progress) is short and can be
+turned off with **Reduce motion** in Preferences, or by setting the environment
+variable `EXR_CONVERTER_REDUCE_MOTION=1`.
 
 The **OCIO config** menu is one row above the tabs and applies to all of
 them. The status beside it shows how many color spaces loaded; hover it for
 the config name, or for the error when a config fails to load.
 
 The row under the tabs holds the **When done** options, then **Cancel** and
-**Convert**. A progress bar appears in that row while a job runs.
+**Convert**. A thin progress line appears above that row while a job runs.
 
 Keyboard: **Ctrl+Return** (⌘Return on macOS) starts the conversion when
 Convert is enabled. **Ctrl+1** to **Ctrl+4** (⌘1 to ⌘4) switch tabs.
@@ -610,6 +623,7 @@ hidden on the **Video → Proxy** and **Transcode** tabs, which run batches:
 | **Decoding** | **Hardware when available** (default) decodes 8- and 10-bit 4:2:0 H.264, HEVC, AV1, and VP9 files on the GPU on Video → EXR, Transcode, Video → Proxy, and the player. Devices tried, in order: NVIDIA NVDEC, Direct3D 11, DXVA2 (Windows), VAAPI, Intel Quick Sync (Linux), Apple VideoToolbox (macOS). The app decodes one frame with a device first, and decodes in software if it fails. Pixels match software decode exactly. 4:2:2, 4:4:4, 12-bit, ProRes, DNxHR, and everything else always decode in software. GPU decode helps most on high-bitrate camera files. On a many-core CPU with light, low-bitrate files, **Software only** can be a little faster. Same as `--decoder` on the CLI |
 | **Playback cache budget** | % of system RAM for decoded frames (slate, browser Preview, post-convert built-in player) |
 | **Invisible watermark** | Payload template (default `{user}`) and strength for **Invisible WM** on EXR → Video. See [Invisible watermark](#invisible-watermark). |
+| **Interface** | **Reduce motion** turns off interface animation (sliding tab underline, fades, gliding progress). It applies as soon as you press OK. |
 
 Settings org/app: `QSettings("VFXTools", "EXRConverter")`.
 

@@ -55,3 +55,11 @@ def set_button_icon(
     button.setText("")
     button.setIcon(icon(name, token))
     button.setIconSize(QSize(size, size))
+
+
+def set_button_icon_keep_text(
+    button: QAbstractButton, name: str, token: str = "FG_DIM", size: int = 12
+) -> None:
+    """Put icon *name* beside the button's label (disclosure chevrons)."""
+    button.setIcon(icon(name, token))
+    button.setIconSize(QSize(size, size))

@@ -85,6 +85,7 @@ from ..core.sequence import (
     probe_pixel_colorspace,
     sequence_looks_scene_referred,
 )
+from ..core.source_summary import sequence_details, video_details
 from ..core.video import is_ignored_media_filename, probe_video, resolve_video_src_colorspace
 from ..services.slate_model import SlateModel
 from .browser_chrome import _VIDEO_EXTS, _add_copy_path_actions, _folder_path_for_copy
@@ -96,6 +97,7 @@ from .picker_button import PickerButton
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import file_manager_label, path_is_revealable
 from .sequence_browser import SequenceBrowserDialog
+from .source_card import SourceCard
 from .style import DESC_STYLE, HINT_STYLE, set_style_property
 from .video_browser import VideoBrowserDialog
 
@@ -659,6 +661,17 @@ class ConvertTab(QWidget):
         in_main = QVBoxLayout(in_group)
         in_main.setSpacing(4)
 
+        # The source as an object: drop target when empty, clip card when set.
+        if mode == "video2exr":
+            self.source_card = SourceCard("Drop a video here", empty_icon="film")
+        else:
+            self.source_card = SourceCard(
+                "Drop a frame or a folder of frames here", empty_icon="folder-open"
+            )
+        self.source_card.clicked.connect(lambda: self._on_browse_clicked(is_input=True))
+        in_main.addWidget(self.source_card)
+        in_main.addSpacing(4)
+
         in_row = QHBoxLayout()
         in_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.input_path = QLineEdit()
@@ -1136,7 +1149,33 @@ class ConvertTab(QWidget):
         self._emit_readiness()
 
     def _emit_readiness(self) -> None:
+        self._refresh_source_card()
         self.readiness_changed.emit(self.is_ready())
+
+    def _refresh_source_card(self) -> None:
+        """Mirror the probed input model (never the raw text field) on the card."""
+        video = self._video_info
+        seq = self._input_seq
+        if video is not None:
+            self.source_card.set_source(
+                Path(video.path).name,
+                video_details(video.width, video.height, video.frame_count, video.fps),
+                video.path,
+            )
+        elif seq is not None:
+            try:
+                frames = sorted(seq.frameSet())
+            except Exception:
+                frames = []
+            pad = "#" * max(1, seq.zfill())
+            first, last = (frames[0], frames[-1]) if frames else (0, 0)
+            self.source_card.set_source(
+                f"{seq.basename()}{pad}{seq.extension()}",
+                sequence_details(len(frames), first, last, str(seq.extension())),
+                str(seq.frame(first)) if frames else "",
+            )
+        else:
+            self.source_card.set_empty()
 
     def is_ready(self) -> bool:
         """True when all required fields are populated with validated inputs."""

@@ -13,6 +13,7 @@ from PySide6.QtCore import QRegularExpression, QSettings, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -48,6 +49,7 @@ from ..services.cache_prefs import (
     save_cache_budget_pct,
     total_ram_bytes,
 )
+from . import motion
 from .style import set_style_property
 
 # QSettings keys (canonical registry: app_settings.Keys)
@@ -584,6 +586,17 @@ class PreferencesDialog(QDialog):
 
         root.addWidget(self._build_invisible_wm_box(settings))
 
+        interface_box = QGroupBox("Interface")
+        interface_layout = QVBoxLayout(interface_box)
+        self._reduce_motion_cb = QCheckBox("Reduce motion")
+        self._reduce_motion_cb.setToolTip(
+            "Turn off interface animation: the sliding tab underline, fades, "
+            "and the gliding progress line. Changes apply at once."
+        )
+        self._reduce_motion_cb.setChecked(settings.value(motion.SETTINGS_KEY, False, type=bool))
+        interface_layout.addWidget(self._reduce_motion_cb)
+        root.addWidget(interface_box)
+
         # Boxes keep their natural height; spare space goes below them, not inside.
         for box in (player_box, slate_box, encode_box, cache_box):
             box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
@@ -678,6 +691,8 @@ class PreferencesDialog(QDialog):
             int(thumb_data) if thumb_data is not None else THUMBNAIL_FRAME_MID,
         )
         save_cache_budget_pct(self._settings, int(self._cache_slider.value()))
+        self._settings.setValue(motion.SETTINGS_KEY, self._reduce_motion_cb.isChecked())
+        motion.apply_saved_preference(self._settings)
         self._settings.setValue(Keys.ENCODER_MODE, self._encoder_combo.currentData())
         self._settings.setValue(Keys.DECODER_MODE, self._decoder_combo.currentData())
         set_decode_mode(decoder_mode(self._settings))

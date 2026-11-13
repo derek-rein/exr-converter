@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -36,6 +37,7 @@ from .batch_rules import (
     watermark_payload,
 )
 from .color_widgets import lock_form_row_height
+from .empty_hint import EmptyHint
 from .preferences import STRENGTH_DECIMALS, STRENGTH_STEP
 
 
@@ -196,6 +198,10 @@ class SourceClipsPanel(QGroupBox):
         main = QVBoxLayout(self)
         main.setSpacing(4)
         main.addWidget(clip_view)
+        if isinstance(clip_view, QAbstractItemView):
+            self.empty_hint = EmptyHint(
+                clip_view, "Drop clips or folders here", "or use Add Clips… / Add Folder…"
+            )
         if hint is not None:
             main.addWidget(hint)
         btn_row = QHBoxLayout()

@@ -15,6 +15,11 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Added
 
+- The input of Video → EXR and EXR → Video is shown as a card: a drop target while empty, then a thumbnail with the clip or sequence name, resolution, frame count, frame rate, and range. It flags missing frames in a sequence. Click it to browse. The path field stays below it.
+- Motion: the tab underline slides, tab pages fade in, progress glides between values, Convert reacts to hover and press. All of it is under 300 ms. Turn it off with **Reduce motion** in Preferences, or by setting `EXR_CONVERTER_REDUCE_MOTION=1`.
+- The log is a drawer. Closed, it is one line with the latest status; click **Log** to open it. It opens by itself when a conversion fails. The height is remembered.
+- Browse dialogs: drawn icons for places, volumes, favorites, and search in place of emoji; a compact folder tree; a table without grid lines; and Open as the accent button.
+- Video → Proxy and Transcode show a hint in the empty clip list: drop clips or folders, or use Add Clips… / Add Folder….
 - Keyboard shortcuts: Ctrl+Return (⌘Return on macOS) starts the conversion, and Ctrl+1 to Ctrl+4 switch tabs.
 
 ### Changed

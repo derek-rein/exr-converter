@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 import src.rc_resources  # noqa: F401 — register :/style.qss
 from src.core.constants import APP_VERSION
+from src.gui.action_bar import PROGRESS_LINE_HEIGHT
 from src.gui.color_widgets import FORM_ROW_MIN_HEIGHT
 from src.gui.convert_tab import ConvertTab
 from src.gui.style import load_stylesheet
@@ -121,7 +122,8 @@ def test_launch_floors_and_splitter_not_collapsible(main_window: MainWindow) -> 
     assert win._tabs.minimumHeight() == CONVERT_TABS_MIN_HEIGHT
     ocio = win._ocio_panel._source_combo
     assert ocio.height() == FORM_ROW_MIN_HEIGHT
-    assert win._progress.height() == FORM_ROW_MIN_HEIGHT
+    # The progress line is a thin strip above the buttons, not a form row.
+    assert win._progress.height() == PROGRESS_LINE_HEIGHT
     assert win._go.height() == FORM_ROW_MIN_HEIGHT
     assert win._cancel_btn.height() == FORM_ROW_MIN_HEIGHT
     assert win._go.height() == win._cancel_btn.height()
@@ -141,8 +143,11 @@ def test_short_window_scrolls_and_fields_still_type(main_window: MainWindow) -> 
 
     splitter = win.findChild(QSplitter, "logSplitter")
     assert splitter is not None
-    total = sum(splitter.sizes()) or splitter.height()
     before_top = splitter.sizes()[0]
+    # The log drawer is one fixed line while closed; open it to drag.
+    win._set_log_open(True, animate=False)
+    QTest.qWait(20)
+    total = sum(splitter.sizes()) or splitter.height()
     splitter.setSizes([CONVERT_TABS_MIN_HEIGHT, max(total - CONVERT_TABS_MIN_HEIGHT, 80)])
     QTest.qWait(20)
     after_top = splitter.sizes()[0]
