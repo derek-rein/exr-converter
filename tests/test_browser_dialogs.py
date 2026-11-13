@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication, QKeyEvent
 from PySide6.QtWidgets import QDialog, QMenu
 
+from src.gui import media_browser
 from src.gui.browser_state import VIEW_LIST, VIEW_PREVIEW
 from src.gui.widgets import (
     SequenceBrowserDialog,
@@ -224,5 +225,44 @@ class TestBrowserCopyPathMenu:
             assert QGuiApplication.clipboard().text() == str(empty_dir)
         finally:
             dlg.close()
+            dlg.deleteLater()
+            qapp.processEvents()
+
+
+class TestBrowserContextMenu:
+    """The real context menu: Preview, Open, then the copy actions."""
+
+    @pytest.mark.parametrize("cls", [SequenceBrowserDialog, VideoBrowserDialog])
+    def test_context_menu_actions(
+        self, qapp, empty_dir: Path, monkeypatch: pytest.MonkeyPatch, cls
+    ) -> None:
+        monkeypatch.setattr(cls, "_scan_directory", lambda self, d: None)
+        monkeypatch.setattr(cls, "_save_browser_layout", lambda self: None)
+        shown: list[list[tuple[str, bool]]] = []
+
+        class _RecordingMenu(QMenu):
+            def exec(self, *_args) -> None:  # type: ignore[override]
+                shown.append([(a.text(), a.isEnabled()) for a in self.actions()])
+
+        monkeypatch.setattr(media_browser, "QMenu", _RecordingMenu)
+        dlg = cls(start_dir=str(empty_dir))
+        try:
+            if cls is SequenceBrowserDialog:
+                dlg._selected_frame_path = str(empty_dir / "shot.1001.exr")
+                dlg._selected_dir = str(empty_dir)
+            else:
+                dlg._selected_path = str(empty_dir / "clip.mov")
+            dlg._on_table_context_menu(dlg._table.rect().center())
+            assert shown == [
+                [
+                    ("Preview", True),
+                    ("Open", False),
+                    ("", True),
+                    ("Copy File Path", True),
+                    ("Copy Folder Path", True),
+                ]
+            ]
+        finally:
+            dlg.reject()
             dlg.deleteLater()
             qapp.processEvents()

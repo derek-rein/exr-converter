@@ -6,6 +6,7 @@ and folder resolution for Copy Folder Path / reveal-in-finder actions.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from urllib.parse import unquote
@@ -147,3 +148,10 @@ def resolve_video_browser_path(
     if not directory:
         return None
     return directory, select_path
+
+
+def same_dir(a: str, b: str) -> bool:
+    """Path equality without touching the disk (no resolve / stat on the GUI thread)."""
+    if not a or not b:
+        return False
+    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))

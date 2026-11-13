@@ -9,6 +9,7 @@ from src.gui.browser_path import (
     folder_path_for_copy,
     resolve_sequence_browser_path,
     resolve_video_browser_path,
+    same_dir,
 )
 
 _VIDEO = frozenset({".mov", ".mp4", ".r3d", ".nev"})
@@ -57,3 +58,14 @@ def test_resolve_video_browser_path_skips_appledouble(tmp_path: Path) -> None:
     directory, select_path = got
     assert Path(directory) == tmp_path
     assert select_path == ""
+
+
+def test_same_dir_compares_text_only() -> None:
+    assert same_dir("/a/b", "/a/b/")
+    assert same_dir("/a/./b", "/a/b")
+    assert same_dir("/a/c/../b", "/a/b")
+    assert not same_dir("/a/b", "/a/c")
+    assert not same_dir("", "/a/b")
+    assert not same_dir("/a/b", "")
+    # No disk access: a path that does not exist still compares.
+    assert same_dir("/no/such/dir", "/no/such/dir/")
