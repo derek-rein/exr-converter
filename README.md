@@ -25,6 +25,7 @@
   <a href="https://opencolorio.org/"><img alt="OpenColorIO 2.5" src="https://img.shields.io/badge/OpenColorIO-2.5-1a73b8?style=for-the-badge"></a>
   <a href="https://openexr.com/"><img alt="OpenEXR 3.4" src="https://img.shields.io/badge/OpenEXR-3.4-6e4bff?style=for-the-badge"></a>
   <a href="#running-on-macos"><img alt="macOS signed and notarized" src="https://img.shields.io/badge/macOS-signed%20%26%20notarized-2ea44f?style=for-the-badge&amp;logo=apple&amp;logoColor=white"></a>
+  <a href="#running-on-windows"><img alt="Windows artifact code signing" src="https://img.shields.io/badge/Windows-artifact%20code%20signing-2ea44f?style=for-the-badge&amp;logo=windows&amp;logoColor=white"></a>
 </p>
 
 <p align="center">
@@ -108,6 +109,10 @@ The macOS build is signed and notarized, so it opens normally. First launch may 
 Release DMGs are signed with a Developer ID Application certificate for **Medeu Global LLC**, then notarized and stapled.
 
 Release builds also include Quick Look and Finder thumbnail extensions for OpenEXR and DPX. Spacebar uses the app’s default OCIO display view, and numbered frames play when the folder can be read. They are off by default; turn them on and choose formats in **File → Quick Look…**. See [Quick Look on macOS](docs/quicklook.md).
+
+### Running on Windows
+
+The Windows installer and the app executable inside it are signed with Azure Artifact Signing for **Medeu Global LLC**. First launch may still show a SmartScreen prompt until the certificate builds reputation.
 
 ### Install by platform
 
@@ -200,6 +205,7 @@ Packaged apps use the same flags. Per-platform launch commands are in [Install b
 - [Features](#features)
 - [Downloads](#downloads)
   - [Running on macOS](#running-on-macos)
+  - [Running on Windows](#running-on-windows)
   - [Install by platform](#install-by-platform)
 - [Screenshot](#screenshot)
 - [Quick start](#quick-start)
@@ -487,7 +493,7 @@ MIT. See [`LICENSE`](LICENSE). Copyright Derek Rein.
 
 Adobe TrustMark and ONNX Runtime, both MIT, are credited in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-macOS release DMGs are signed and notarized under **Medeu Global LLC**.
+macOS release DMGs are signed and notarized under **Medeu Global LLC**. Windows setup `.exe` files are signed with Azure Artifact Signing under the same publisher.
 
 [derekvfx.ca](https://derekvfx.ca)
 
