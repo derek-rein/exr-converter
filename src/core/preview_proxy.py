@@ -109,11 +109,11 @@ def proxy_storage_target(
     storage_w = min(src_w, max(1, int(math.ceil(fit_w / par - 1e-9))))
     storage_h = min(src_h, fit_h)
     bucket = bucket_edge(max(storage_w, storage_h))
-    width, height = _canonical_storage(src_w, src_h, bucket)
+    width, height = _bucketed_storage_size(src_w, src_h, bucket)
     return ProxyTarget(bucket=bucket, width=width, height=height)
 
 
-def _canonical_storage(src_w: int, src_h: int, bucket: int) -> tuple[int, int]:
+def _bucketed_storage_size(src_w: int, src_h: int, bucket: int) -> tuple[int, int]:
     """Source aspect at *bucket* on the long edge, capped at the source."""
     edge = min(int(bucket), max(src_w, src_h))
     if src_w >= src_h:
