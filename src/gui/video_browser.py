@@ -114,7 +114,7 @@ class VideoBrowserDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("Browse Video Files")
-        self.resize(1060, 520)
+        self.resize(1360, 760)
         self._keys = VID_BROWSER_KEYS
         self._preview_ctx = preview or BrowserPreviewContext()
         self._selected_path: str = ""
@@ -328,7 +328,10 @@ class VideoBrowserDialog(QDialog):
         self._outer_splitter.setStretchFactor(1, 1)
         self._outer_splitter.setCollapsible(0, False)
         self._outer_splitter.setCollapsible(1, False)
-        self._outer_splitter.setSizes([240, 820])
+        # Places sidebar is 150 px fixed, so the folder tree gets the rest:
+        # 240 left it about 90 px, too narrow to read a folder name. The dialog is
+        # wide enough that the Name column still gets room beside Metadata.
+        self._outer_splitter.setSizes([360, 1000])
         layout.addWidget(self._outer_splitter, 1)
 
         # Debounced layout save (mirrors sequence browser).

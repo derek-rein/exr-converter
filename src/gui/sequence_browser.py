@@ -137,7 +137,7 @@ class SequenceBrowserDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("Browse Image Sequences")
-        self.resize(1120, 560)
+        self.resize(1360, 760)
         self._keys = SEQ_BROWSER_KEYS
         self._preview_ctx = preview or BrowserPreviewContext()
         self._selected_dir: str = ""
@@ -395,7 +395,10 @@ class SequenceBrowserDialog(QDialog):
         layout.addLayout(bottom_row)
 
         # Default proportions (overridden by QSettings when present).
-        self._outer_splitter.setSizes([240, 880])
+        # Places sidebar is 150 px fixed, so the folder tree gets the rest:
+        # 240 left it about 90 px, too narrow to read a folder name. The dialog is
+        # wide enough that the Name column still gets room beside Metadata.
+        self._outer_splitter.setSizes([360, 1000])
         self._outer_splitter.splitterMoved.connect(lambda *_: self._schedule_layout_save())
         self._content_splitter.splitterMoved.connect(lambda *_: self._schedule_layout_save())
         self._tree.clicked.connect(self._on_tree_clicked)

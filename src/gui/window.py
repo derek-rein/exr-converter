@@ -40,10 +40,10 @@ from ..core.constants import (
     APP_VERSION,
     DOCS_URL,
     GITHUB_REPO,
-    IMAGE_SEQUENCE_EXTS,
-    is_image_sequence_ext,
 )
 from ..core.decoders import set_decode_mode
+from ..core.drop_routing import DropTarget, drop_target
+from ..core.fs_skip import VIDEO_EXTS
 from ..core.ocio_utils import color_space_families, config_source_info
 from ..core.pixel_aspect import SQUARE, apply_override, probe_media_aspect
 from ..core.quicklook_prefs import schedule_quicklook_view_lut
@@ -1528,38 +1528,25 @@ class MainWindow(QMainWindow):
 
     # -- Drag and drop --
 
-    _VIDEO_EXTS = {
-        ".mp4",
-        ".mov",
-        ".mkv",
-        ".avi",
-        ".mxf",
-        ".webm",
-        ".m4v",
-        ".ts",
-        ".r3d",
-        ".nev",
-        ".braw",
-    }
-
-    @classmethod
-    def _video_exts(cls) -> set[str]:
+    @staticmethod
+    def _video_exts() -> set[str]:
+        """Every video suffix the app reads: the core list plus decoder plugins."""
         from ..core.source_plugins import plugin_suffixes
 
-        return cls._VIDEO_EXTS | set(plugin_suffixes())
+        return set(VIDEO_EXTS) | set(plugin_suffixes())
+
+    @staticmethod
+    def _drop_target(path: Path) -> DropTarget | None:
+        from ..core.source_plugins import plugin_suffixes
+
+        return drop_target(path.name, is_dir=path.is_dir(), extra_video_exts=plugin_suffixes())
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         mime = event.mimeData()
         if mime is not None and mime.hasUrls():
             for url in mime.urls():
                 if url.isLocalFile():
-                    p = Path(url.toLocalFile())
-                    if p.is_dir():
-                        event.acceptProposedAction()
-                        return
-                    if is_ignored_media_filename(p.name):
-                        continue
-                    if p.suffix.lower() in (self._video_exts() | IMAGE_SEQUENCE_EXTS):
+                    if self._drop_target(Path(url.toLocalFile())) is not None:
                         event.acceptProposedAction()
                         return
         event.ignore()
@@ -1578,21 +1565,14 @@ class MainWindow(QMainWindow):
             if not url.isLocalFile():
                 continue
             p = Path(url.toLocalFile())
-            if (
-                p.is_file()
-                and p.suffix.lower() in self._video_exts()
-                and not is_ignored_media_filename(p.name)
-            ):
+            target = self._drop_target(p)
+            if target is DropTarget.VIDEO and p.is_file():
                 self._tabs.setCurrentIndex(0)
                 self._v2e_tab.handle_dropped_path(str(p))
                 self._append_log(f"Dropped video: {p.name}")
                 event.acceptProposedAction()
                 return
-            if p.is_dir() or (
-                p.is_file()
-                and is_image_sequence_ext(p.suffix)
-                and not is_ignored_media_filename(p.name)
-            ):
+            if target is DropTarget.SEQUENCE and (p.is_dir() or p.is_file()):
                 self._tabs.setCurrentIndex(1)
                 self._e2v_tab.handle_dropped_path(str(p))
                 self._append_log(f"Dropped: {p.name}")

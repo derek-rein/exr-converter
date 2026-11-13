@@ -928,6 +928,10 @@ class SlateDialog(QDialog):
         self._dst_colorspace = dst_colorspace
         self._pixel_aspect_override = pixel_aspect_override
 
+        # Taken before the dialog seeds fps / resolution / range, so Cancel
+        # returns the document exactly as it was when the editor opened.
+        self._opening_document = model.capture_document()
+
         # Output metadata seeds the model once when the dialog opens.
         init_fields: dict[str, str] = {}
         if frame_range:
@@ -1168,6 +1172,11 @@ class SlateDialog(QDialog):
         factor = 1.0 if is_square(float(override)) else float(override)
         aspect = PixelAspect(factor, "override")
         self._player.set_pixel_aspect(aspect.factor, aspect.label())
+
+    def reject(self) -> None:
+        """Cancel / Esc: edits were written through as typed, so put them back."""
+        self._model.restore_document(self._opening_document)
+        super().reject()
 
     def done(self, result: int) -> None:
         self._player.shutdown()

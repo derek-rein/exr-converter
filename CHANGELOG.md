@@ -17,6 +17,15 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 - Browser Preview decodes the frame on screen at a size that covers the pane, including screen pixel density and anamorphic squeeze. R3D, N-RAW, and Blackmagic RAW use the SDK reduced-resolution decode. OpenEXR uses a mip or ripmap when the file has one, and reads RGB only. CinemaDNG uses a smaller embedded preview when one covers the pane, or a half-size debayer when the pane fits in half the frame. Video scales in the decoder. The full viewer and convert output are unchanged.
 
+### Fixed
+
+- Transcode: the naming hint no longer draws over the Pixel aspect menu.
+- Dropping a file on the window accepts every video type the app reads (for example `.mts`, `.m2ts`, `.mpg`, `.dv`), not a shorter list of eleven.
+- Slate & Overlay Editor: Cancel (or Esc) now discards the edits made in that session. Before, every keystroke was already saved, so Cancel kept them.
+- OCIO config: choosing the Custom file row again opens the file picker, so you can switch to another `.ocio` file without selecting a different config first.
+- Choosing an input no longer updates the window from a background thread. The async probe applied its result (path, frame range, color space) from the worker thread, which Qt does not allow and which could stall or crash the interface.
+- Browse dialogs open wide enough to read folder names and the Name column.
+
 ## [0.14.1] - 2026-11-12
 
 ### Added
@@ -181,8 +190,6 @@ Published release. v0.12.5, v0.12.6, v0.12.7, and v0.12.8 were tagged but not pu
 
 ### Fixed
 
-- Windows release packages pass the camera RAW plugin to the packager with normal line endings, so the plugin is included in the app.
-- macOS no longer quits at launch while publishing Quick Look preferences. The App Group folder lookup passed a null string into Foundation and aborted the app before the window opened.
 - Linux packages for RHEL 8 leave out RED's OpenCL library, which needs glibc 2.29. R3D decode on Linux uses CUDA when an NVIDIA driver is present, and the CPU otherwise.
 
 ---
@@ -193,8 +200,6 @@ Published release. v0.12.5, v0.12.6, and v0.12.7 were tagged but not published. 
 
 ### Fixed
 
-- Windows release packages pass the camera RAW plugin to the packager with normal line endings, so the plugin is included in the app.
-- macOS no longer quits at launch while publishing Quick Look preferences. The App Group folder lookup passed a null string into Foundation and aborted the app before the window opened.
 
 ---
 

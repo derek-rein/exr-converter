@@ -331,9 +331,6 @@ class TranscodeTab(QWidget):
         grid.addWidget(self._folder_label, 6, 0)
         grid.addWidget(self.output_dir, 6, 1, 1, 3)
         grid.addWidget(self._browse_out, 6, 4)
-        self.pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{_K}/pixel_aspect", self)
-        grid.addWidget(_field_label("Pixel aspect"), 7, 0)
-        grid.addWidget(self.pixel_aspect_combo, 7, 1, 1, 2)
         self._naming_hint = QLabel(
             "Right-click Name or Folder to insert variables such as <reel>, <name> "
             "or <srcresolution>. Use / in Name for sub-folders, and $VAR or ${VAR} "
@@ -341,7 +338,11 @@ class TranscodeTab(QWidget):
         )
         self._naming_hint.setStyleSheet(HINT_STYLE)
         self._naming_hint.setWordWrap(True)
+        # The hint explains Name / Folder, so it sits right under them.
         grid.addWidget(self._naming_hint, 7, 1, 1, 4)
+        self.pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{_K}/pixel_aspect", self)
+        grid.addWidget(_field_label("Pixel aspect"), 8, 0)
+        grid.addWidget(self.pixel_aspect_combo, 8, 1, 1, 2)
         layout.addWidget(out_group)
 
         # -- Color and watermark --

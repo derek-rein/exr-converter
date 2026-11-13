@@ -519,6 +519,10 @@ class OcioConfigPanel(QGroupBox):
         self._prev_index = self._source_combo.currentIndex()
 
         self._source_combo.currentIndexChanged.connect(self._on_source_changed)
+        # currentIndexChanged does not fire for the row that is already
+        # current, so choosing "Custom: x.ocio" again could not pick a new file.
+        self._change_handled = False
+        self._source_combo.activated.connect(self._on_source_activated)
 
     def _update_custom_label(self) -> None:
         if self._file_path:
@@ -640,7 +644,25 @@ class OcioConfigPanel(QGroupBox):
         self._status.setStyleSheet(STATUS_OK)
         return cfg
 
+    def _clear_change_handled(self) -> None:
+        self._change_handled = False
+
+    def _on_source_activated(self, idx: int) -> None:
+        """The user chose a row. Re-open the file picker for the current custom row."""
+        if self._change_handled:
+            # This activation belongs to an index change already dealt with.
+            self._change_handled = False
+            return
+        if self._source_combo.itemData(idx) == OCIO_SOURCE_FILE:
+            self._on_source_changed(idx)
+            self._change_handled = False
+
     def _on_source_changed(self, _idx: int) -> None:
+        # Qt emits activated right after this for a user pick. A programmatic
+        # change has no activation to consume the flag, so it expires on the
+        # next event-loop turn.
+        self._change_handled = True
+        QTimer.singleShot(0, self, self._clear_change_handled)
         # Disabled (incompatible) rows should not be selectable; if Qt still
         # delivers the change, bounce back to the previous enabled index.
         if not self._combo_item_is_enabled(_idx):

@@ -625,6 +625,12 @@ def _form_scroll_area(body: QWidget) -> QScrollArea:
 class ConvertTab(QWidget):
     log_message = Signal(str)
     readiness_changed = Signal(bool)
+    # Probe results cross from the worker thread on these. The slots are bound
+    # methods of this widget, so Qt queues them onto the GUI thread. A plain
+    # closure connected to the worker's signal runs in the worker's thread,
+    # even with QueuedConnection.
+    _probe_succeeded = Signal(int, object)
+    _probe_failed = Signal(int, str)
 
     def __init__(self, mode: str, settings: QSettings, parent: QWidget | None = None):
         super().__init__(parent)
@@ -992,6 +998,8 @@ class ConvertTab(QWidget):
                 self.setTabOrder(tab_chain[i], tab_chain[i + 1])
 
         # -- Connections --
+        self._probe_succeeded.connect(self._on_probe_succeeded)
+        self._probe_failed.connect(self._on_probe_failed)
         self._browse_in.clicked.connect(lambda: self._on_browse_clicked(is_input=True))
         self._browse_out.clicked.connect(lambda: self._on_browse_clicked(is_input=False))
         self._install_path_field_menus()
@@ -1892,37 +1900,16 @@ class ConvertTab(QWidget):
         worker.moveToThread(thr)
         thr.started.connect(worker.run)
 
-        def _apply_range() -> None:
-            if frame_range and self._full_input_range:
-                self._frame_range_edit.setText(frame_range)
-
-        def _ok(result: object) -> None:
-            if gen != getattr(self, "_probe_gen", 0):
-                return
-            self._apply_probe_result(result)
-            _apply_range()
-
-        def _fail(err: str) -> None:
-            if gen != getattr(self, "_probe_gen", 0):
-                return
-            self.log_message.emit(f"Could not open input: {err}")
-            # Sync fallback: directory/file probes are usually fast; try once
-            # on the GUI thread so a restored path is not left "shown but
-            # unaccepted" after a transient async failure.
-            try:
-                if self.set_input(path):
-                    _apply_range()
-                    self.log_message.emit(f"Opened (retry): {path}")
-            except Exception:
-                pass
+        self._probe_request = (gen, path, frame_range)
 
         def _cleanup() -> None:
             if getattr(self, "_probe_thread", None) is thr:
                 self._probe_thread = None
                 self._probe_worker = None
 
-        worker.finished.connect(_ok, Qt.ConnectionType.QueuedConnection)
-        worker.failed.connect(_fail, Qt.ConnectionType.QueuedConnection)
+        # These lambdas run in the worker thread and only re-emit.
+        worker.finished.connect(lambda result, g=gen: self._probe_succeeded.emit(g, result))
+        worker.failed.connect(lambda err, g=gen: self._probe_failed.emit(g, err))
         worker.finished.connect(thr.quit)
         worker.failed.connect(thr.quit)
         thr.finished.connect(worker.deleteLater)
@@ -1931,6 +1918,34 @@ class ConvertTab(QWidget):
         self._probe_thread = thr
         self._probe_worker = worker
         thr.start()
+
+    def _apply_requested_range(self, frame_range: str) -> None:
+        if frame_range and self._full_input_range:
+            self._frame_range_edit.setText(frame_range)
+
+    def _on_probe_succeeded(self, gen: int, result: object) -> None:
+        """GUI thread: adopt the probe result unless a newer probe replaced it."""
+        request = getattr(self, "_probe_request", None)
+        if request is None or gen != request[0] or gen != getattr(self, "_probe_gen", 0):
+            return
+        self._apply_probe_result(result)
+        self._apply_requested_range(request[2])
+
+    def _on_probe_failed(self, gen: int, err: str) -> None:
+        request = getattr(self, "_probe_request", None)
+        if request is None or gen != request[0] or gen != getattr(self, "_probe_gen", 0):
+            return
+        _gen, path, frame_range = request
+        self.log_message.emit(f"Could not open input: {err}")
+        # Sync fallback: directory/file probes are usually fast; try once
+        # on the GUI thread so a restored path is not left "shown but
+        # unaccepted" after a transient async failure.
+        try:
+            if self.set_input(path):
+                self._apply_requested_range(frame_range)
+                self.log_message.emit(f"Opened (retry): {path}")
+        except Exception:
+            pass
 
     def _apply_probe_result(self, result: object) -> None:
         """Apply a successful async probe result on the GUI thread."""
