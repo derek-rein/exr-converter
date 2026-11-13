@@ -23,7 +23,14 @@ import PyOpenColorIO as OCIO
 
 from .color_tags import ColorTags, apply_to_codec_context, color_tags_for_destination
 from .constants import ENCODER_AUTO, OXIDEAV_PRORES_KEYS, video_codec_by_key
-from .encoders import EncoderChoice, encode_frame, open_encoder, pick_encoder, run_with_fallback
+from .encoders import (
+    EncoderChoice,
+    encode_frame,
+    open_encoder,
+    partial_output_path,
+    pick_encoder,
+    run_with_fallback,
+)
 from .errors import ConversionCancelled
 from .exr_io import image_has_alpha, read_image, read_image_alpha, write_exr
 from .fps import FpsValue, format_fps
@@ -661,22 +668,28 @@ def _e2v_oxideav(
     frames.log_ocio(log, f"oxideav-prores {codec_key}, in-process")
     tags = color_tags_for_destination(frames.ocio_cfg, frames.working_space, frames.dst_space)
     _log_color_tags(log, tags)
-    writer = open_writer(output_video, ow, oh, fps_num, fps_den, codec_key, color_tags=tags)
+    tmp = partial_output_path(output_video)
+    writer = open_writer(tmp, ow, oh, fps_num, fps_den, codec_key, color_tags=tags)
     total = len(frames.paths)
     finished = 0
     try:
-        if slate_display is not None:
-            write_rgb48_frame(writer, _fit_u16(quantize_u16(slate_display), ow, oh, watermark))
-            if log:
-                log("Slate frame encoded as first video frame (oxideav)")
-        with closing(frames.iter(with_alpha=False, cancel_check=cancel_check)) as it:
-            for rgb_u16 in it:
-                write_rgb48_frame(writer, _fit_u16(rgb_u16, ow, oh, watermark))
-                finished += 1
-                if progress:
-                    progress(finished, total)
-    finally:
-        writer.close()
+        try:
+            if slate_display is not None:
+                write_rgb48_frame(writer, _fit_u16(quantize_u16(slate_display), ow, oh, watermark))
+                if log:
+                    log("Slate frame encoded as first video frame (oxideav)")
+            with closing(frames.iter(with_alpha=False, cancel_check=cancel_check)) as it:
+                for rgb_u16 in it:
+                    write_rgb48_frame(writer, _fit_u16(rgb_u16, ow, oh, watermark))
+                    finished += 1
+                    if progress:
+                        progress(finished, total)
+        finally:
+            writer.close()
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, output_video)
 
     if log:
         log(f"Wrote {output_video} ({finished} frames, {format_fps(fps)} fps, oxideav)")
@@ -716,8 +729,10 @@ def _e2v_libav(
     rate = _fps_to_rate(fps)
     total = len(frames.paths)
 
+    tmp = partial_output_path(output_video)
+
     def attempt(enc: EncoderChoice) -> None:
-        container = _open_output_container(output_video, enc.pix_fmt)
+        container = _open_output_container(tmp, enc.pix_fmt)
         container.metadata.update(_video_metadata(frames.src_space, frames.dst_space, codec_key))
         try:
             stream = _setup_video_stream(
@@ -741,7 +756,12 @@ def _e2v_libav(
         finally:
             container.close()
 
-    run_with_fallback(encoder, attempt, log)
+    try:
+        run_with_fallback(encoder, attempt, log)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, output_video)
     if log:
         log(f"Wrote {output_video} ({total} frames, {format_fps(fps)} fps)")
 

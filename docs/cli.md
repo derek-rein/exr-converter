@@ -199,6 +199,9 @@ named after the folder, with a codec-appropriate extension:
 | `dnxhr_*` | `.mxf` |
 | `ffv1`, `ffv1_12` | `.mkv` |
 
+The video is written to a hidden `.name.partial.ext` file and renamed when
+complete, so a failed or cancelled encode leaves no truncated file.
+
 ### Codecs (honest bit depths)
 
 Keys match `exr2video --codec`. Software ProRes is **always 10-bit** encode

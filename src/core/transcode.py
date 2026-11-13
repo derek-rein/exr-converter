@@ -46,6 +46,7 @@ from .encoders import (
     EncoderChoice,
     encode_frame,
     open_encoder,
+    partial_output_path,
     pick_encoder,
     run_with_fallback,
 )
@@ -777,11 +778,6 @@ def collect_transcode_sources(
 # ---------------------------------------------------------------------------
 
 
-def _partial_path(output: Path) -> Path:
-    """Hidden sibling written during encode, renamed on success."""
-    return output.with_name(f".{output.stem}.partial{output.suffix}")
-
-
 def _source_timecode(container: Any, stream: Any) -> str:
     for meta in (getattr(stream, "metadata", None), getattr(container, "metadata", None)):
         tc = (meta or {}).get("timecode")
@@ -1146,7 +1142,7 @@ def _transcode_av(
         log(describe(sequence_aspect))
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _partial_path(out)
+    tmp = partial_output_path(out)
 
     def attempt(enc: EncoderChoice) -> int:
         return _encode_av(
@@ -1296,7 +1292,7 @@ def _transcode_raw(
                 f"{spec.display_name} .{container} (camera RAW, no audio){_via(encoder)}"
             )
         out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _partial_path(out)
+        tmp = partial_output_path(out)
         total = info.frame_count
 
         def attempt(enc: EncoderChoice) -> int:
