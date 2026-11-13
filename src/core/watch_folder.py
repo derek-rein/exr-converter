@@ -51,6 +51,8 @@ class WatchFolder:
         self._pending: dict[str, tuple[int, int, float]] = {}
         # path → signature already reported
         self._done: dict[str, tuple[int, int]] = {}
+        # Folders the last scan could not list (network share hiccup).
+        self._unreadable: list[str] = []
         if not include_existing:
             for path, sig in self._scan():
                 self._done[path] = sig
@@ -65,6 +67,7 @@ class WatchFolder:
         return self._norm(path) in self._exclude
 
     def _iter_files(self) -> Iterator[os.DirEntry[str]]:
+        self._unreadable = []
         stack = [str(self.folder)]
         while stack:
             current = stack.pop()
@@ -72,6 +75,7 @@ class WatchFolder:
                 with os.scandir(current) as it:
                     entries = list(it)
             except OSError:
+                self._unreadable.append(current)
                 continue
             for entry in entries:
                 try:
@@ -118,12 +122,17 @@ class WatchFolder:
             del self._pending[path]
             self._done[path] = sig
             ready.append(Path(path))
-        # Forget files that disappeared so a re-copy is picked up again.
-        for gone in [p for p in self._pending if p not in seen]:
+        # Forget files that disappeared so a re-copy is picked up again. A
+        # folder that could not be listed says nothing about its files.
+        for gone in [p for p in self._pending if p not in seen and self._listed(p)]:
             del self._pending[gone]
-        for gone in [p for p in self._done if p not in seen]:
+        for gone in [p for p in self._done if p not in seen and self._listed(p)]:
             del self._done[gone]
         return sorted(ready)
+
+    def _listed(self, path: str) -> bool:
+        """False when *path* is under a folder the last scan could not list."""
+        return not any(path.startswith(d.rstrip(os.sep) + os.sep) for d in self._unreadable)
 
     @property
     def pending_count(self) -> int:

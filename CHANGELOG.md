@@ -42,6 +42,12 @@ rolling the `[Unreleased]` section into a versioned heading.
 - OCIO config: choosing the Custom file row again opens the file picker, so you can switch to another `.ocio` file without selecting a different config first.
 - Choosing an input no longer updates the window from a background thread. The async probe applied its result (path, frame range, color space) from the worker thread, which Qt does not allow and which could stall or crash the interface.
 - Browse dialogs open wide enough to read folder names and the Name column.
+- HDR (PQ, HLG), Rec.2020, sRGB, and linear video clips get the right source colour space guess. They were all read as Rec.709.
+- Transcode and proxy no longer overwrite the source when the output name differs only in letter case on a case-insensitive macOS volume (for example `C0001.MOV` to `C0001.mov`).
+- `proxy` CLI: clips with the same name in one run (`clip.mov` and `clip.mxf`, or `A/clip.mov` and `B/clip.mov` into one output folder) each get their own proxy, numbered `_1`, `_2`, …. Before, the second was skipped as existing or overwrote the first.
+- Watch folders no longer reprocess every clip after a network share drops out for one scan.
+- Resizing the browser Preview while a frame decodes no longer stops video prefetch for good, or slows EXR prefetch a little more on each resize.
+- EXR → Video writes to a hidden `.name.partial.ext` file and renames it when done. A cancelled or failed encode no longer leaves a truncated video that looks playable.
 
 ## [0.14.1] - 2026-11-12
 
