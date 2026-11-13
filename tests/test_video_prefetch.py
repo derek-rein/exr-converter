@@ -301,3 +301,48 @@ class TestVideoPrefetchService:
             assert _red_mean(a) < _red_mean(b)
         finally:
             svc.shutdown()
+
+    def test_preview_resize_during_decode_keeps_prefetching(
+        self, tmp_path: Path, qapp, monkeypatch
+    ) -> None:
+        import threading
+        import time
+
+        import src.services.video_prefetch as vp
+
+        vid = tmp_path / "resize.mp4"
+        _write_tiny_video(vid, n_frames=4)
+        cache = FrameCache(budget_bytes=64 * 1024 * 1024)
+        release = threading.Event()
+        started = threading.Event()
+        real_decode = vp._decode_one
+
+        def slow_decode(*args, **kwargs):
+            started.set()
+            release.wait(5)
+            return real_decode(*args, **kwargs)
+
+        monkeypatch.setattr(vp, "_decode_one", slow_decode)
+        svc = VideoPrefetchService(
+            str(vid), cache, [1, 2, 3, 4], single_frame=True, preview_target=(64, 48, 1)
+        )
+        try:
+            svc.request_immediate(1)
+            for _ in range(100):
+                qapp.processEvents()
+                if started.is_set():
+                    break
+                time.sleep(0.01)
+            assert started.is_set()
+            svc.set_preview_target(32, 24, 2)  # pane resized mid-decode
+            release.set()
+            svc.request_immediate(2)
+            for _ in range(200):
+                qapp.processEvents()
+                if cache.contains(2):
+                    break
+                time.sleep(0.01)
+            assert cache.contains(2), "prefetch stalled after a preview resize"
+        finally:
+            release.set()
+            svc.shutdown()

@@ -199,6 +199,9 @@ named after the folder, with a codec-appropriate extension:
 | `dnxhr_*` | `.mxf` |
 | `ffv1`, `ffv1_12` | `.mkv` |
 
+The video is written to a hidden `.name.partial.ext` file and renamed when
+complete, so a failed or cancelled encode leaves no truncated file.
+
 ### Codecs (honest bit depths)
 
 Keys match `exr2video --codec`. Software ProRes is **always 10-bit** encode
@@ -310,7 +313,7 @@ appear on macOS only.
 | `--codec KEY` | `prores_proxy` | `prores_proxy`, `prores_lt`, `prores_vt_proxy` / `prores_vt_lt` (macOS), `dnxhr_lb`, `dnxhr_sq`, `h264`, `hevc_8` |
 | `--resolution KEY` | `half` | `half`, `quarter`, `eighth`, `original`, `1080`, `720`, `540` (fit height). Never upscales |
 | `--pixel-aspect FACTOR` | `auto` | Lens squeeze or pixel aspect. See [Pixel aspect](#pixel-aspect). |
-| `--suffix TEXT` | none | Added to proxy filenames. Empty keeps the source name for relinking |
+| `--suffix TEXT` | none | Added to proxy filenames. Empty keeps the source name for relinking. Two clips in one run with the same name (`clip.mov` and `clip.mxf`, or `A/clip.mov` and `B/clip.mov` into one `-o` folder) get `_1`, `_2`, … |
 | `--no-audio` | off | Drop audio (otherwise PCM in `.mov`, AAC in `.mp4`) |
 | `--overwrite` | off | Re-make proxies that already exist (default: skip them) |
 | `--recursive` | off | Include subfolders of `-i` folders and watch folders. `Proxy` folders are skipped |

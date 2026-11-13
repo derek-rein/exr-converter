@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import av
@@ -70,6 +71,43 @@ class TestProxyHelpers:
         out = default_proxy_output(src, output_dir=tmp_path / "px", suffix="_proxy")
         assert out == tmp_path / "px" / "A001C003_proxy.mov"
 
+    def test_default_output_numbers_names_taken_in_this_batch(self, tmp_path):
+        px = tmp_path / "px"
+        taken = {str(px / "clip.mov")}
+        out = default_proxy_output(tmp_path / "clip.mxf", output_dir=px, taken=taken)
+        assert out == px / "clip_1.mov"
+        taken.add(str(out))
+        out = default_proxy_output(tmp_path / "B" / "clip.mov", output_dir=px, taken=taken)
+        assert out == px / "clip_2.mov"
+        out = default_proxy_output(tmp_path / "clip.mov", output_dir=px, suffix="_p", taken=taken)
+        assert out == px / "clip_p.mov"
+
+    def test_cli_batch_gives_same_stem_clips_their_own_proxy(self, tmp_path, monkeypatch):
+        import src.core.proxy as proxy_mod
+
+        clips = tmp_path / "in"
+        for rel in ("clip.mov", "clip.mxf", "A/clip.mov"):
+            (clips / rel).parent.mkdir(parents=True, exist_ok=True)
+            (clips / rel).write_bytes(b"x")
+        written: dict[str, str] = {}
+
+        def fake_run(src, out, **_kw):
+            written[str(out)] = str(src)
+            Path(out).parent.mkdir(parents=True, exist_ok=True)
+            Path(out).write_bytes(b"p")
+            return Path(out)
+
+        monkeypatch.setattr(proxy_mod, "run_video_to_proxy", fake_run)
+        px = tmp_path / "px"
+        argv = ["proxy", "-i", str(clips), "--recursive", "-o", str(px)]
+        assert run_cli(build_parser().parse_args(argv)) == 0
+        assert len(written) == 3, written
+        assert sorted(Path(p).name for p in written) == ["clip.mov", "clip_1.mov", "clip_2.mov"]
+        # A second run maps each clip to the same name and skips them all.
+        written.clear()
+        assert run_cli(build_parser().parse_args(argv)) == 0
+        assert written == {}
+
     def test_sources_skip_hidden_raw_and_proxy_folder(self, tmp_path):
         for name in ("a.mov", "b.MP4", ".hidden.mov", "._a.mov", "c.r3d", "notes.txt"):
             (tmp_path / name).write_bytes(b"x")
@@ -137,6 +175,32 @@ class TestWatchFolder:
         w = WatchFolder(tmp_path, recursive=True, settle_seconds=0, exclude_dirs=(out,))
         (out / "x.mov").write_bytes(_DATA)
         assert w.poll() == []
+
+    def test_failed_folder_scan_does_not_forget_reported_clips(self, tmp_path, monkeypatch):
+        import src.core.watch_folder as wf
+
+        (tmp_path / "old.mov").write_bytes(_DATA)
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "deep.mov").write_bytes(_DATA)
+        w = WatchFolder(tmp_path, recursive=True, settle_seconds=0)
+        clip = tmp_path / "new.mov"
+        clip.write_bytes(_DATA)
+        assert w.poll() == [clip]
+
+        real_scandir = os.scandir
+        down = {str(tmp_path)}
+
+        def flaky_scandir(path):
+            if os.fspath(path) in down:
+                raise OSError("network share went away")
+            return real_scandir(path)
+
+        monkeypatch.setattr(wf.os, "scandir", flaky_scandir)
+        assert w.poll() == []  # share hiccup on the root
+        down = {str(tmp_path / "sub")}
+        assert w.poll() == []  # hiccup on a subfolder
+        down = set()
+        assert w.poll() == []  # back: nothing is reprocessed
 
 
 class TestProxyCli:

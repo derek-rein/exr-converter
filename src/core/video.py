@@ -409,19 +409,88 @@ def guess_video_colorspace_candidates(path: str) -> list[str]:
     import av
 
     try:
-        container = av.open(path)
-        stream = container.streams.video[0]
-        codec = stream.codec_context.name
-        pix_fmt = stream.codec_context.pix_fmt or ""
-        color_trc = str(getattr(stream.codec_context, "color_trc", "") or "")
-        color_primaries = str(getattr(stream.codec_context, "color_primaries", "") or "")
-        color_space = str(getattr(stream.codec_context, "color_space", "") or "")
-        meta = getattr(stream, "metadata", {}) or {}
-        make = (meta.get("make") or meta.get("manufacturer") or "").lower()
-        encoder = (meta.get("encoder") or "").lower()
-        container.close()
+        with av.open(path) as container:
+            stream = container.streams.video[0]
+            cc = stream.codec_context
+            meta = getattr(stream, "metadata", {}) or {}
+            return colorspace_candidates_from_tags(
+                codec=cc.name,
+                pix_fmt=cc.pix_fmt or "",
+                color_trc=getattr(cc, "color_trc", ""),
+                color_primaries=getattr(cc, "color_primaries", ""),
+                colorspace=getattr(cc, "colorspace", ""),
+                make=meta.get("make") or meta.get("manufacturer") or "",
+                encoder=meta.get("encoder") or "",
+            )
     except Exception:
         return []
+
+
+# PyAV returns H.273 codes as ints. Map them to FFmpeg's names, which the
+# matching below expects. log100 / log316 / xvYCC (9, 10, 11) are left out:
+# their names would land in the log and sRGB branches.
+_H273_TRANSFER: dict[int, str] = {
+    1: "bt709",
+    4: "gamma22",
+    5: "gamma28",
+    6: "smpte170m",
+    7: "smpte240m",
+    8: "linear",
+    12: "bt1361e",
+    13: "iec61966-2-1",
+    14: "bt2020-10",
+    15: "bt2020-12",
+    16: "smpte2084",
+    17: "smpte428",
+    18: "arib-std-b67",
+}
+_H273_PRIMARIES: dict[int, str] = {
+    1: "bt709",
+    4: "bt470m",
+    5: "bt470bg",
+    6: "smpte170m",
+    7: "smpte240m",
+    8: "film",
+    9: "bt2020",
+    10: "smpte428",
+    11: "smpte431",
+    12: "smpte432",
+    22: "ebu3213",
+}
+_H273_MATRIX: dict[int, str] = {
+    1: "bt709",
+    5: "bt470bg",
+    6: "smpte170m",
+    7: "smpte240m",
+    9: "bt2020nc",
+    10: "bt2020c",
+    14: "ictcp",
+}
+
+
+def _h273_name(value: object, names: dict[int, str]) -> str:
+    """FFmpeg name for an H.273 tag given as an int code or as a name."""
+    if isinstance(value, int):
+        return names.get(value, "")
+    return str(value or "")
+
+
+def colorspace_candidates_from_tags(
+    *,
+    codec: str,
+    pix_fmt: str,
+    color_trc: object,
+    color_primaries: object,
+    colorspace: object,
+    make: str,
+    encoder: str,
+) -> list[str]:
+    """Ranked OCIO colour space candidates from a video stream's codec tags."""
+    color_trc = _h273_name(color_trc, _H273_TRANSFER)
+    color_primaries = _h273_name(color_primaries, _H273_PRIMARIES)
+    color_space = _h273_name(colorspace, _H273_MATRIX)
+    make = make.lower()
+    encoder = encoder.lower()
 
     is_10bit = "10" in pix_fmt or "12" in pix_fmt or "16" in pix_fmt
     trc = color_trc.lower()

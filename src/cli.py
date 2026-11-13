@@ -846,10 +846,22 @@ def run_proxy_cli(args: argparse.Namespace) -> int:
     _cli_cancel.clear()
     _install_cli_sigint()
     failures = 0
+    # Source → proxy path, so two clips with one stem never share an output.
+    planned: dict[str, Path] = {}
 
     def _convert(src: Path) -> None:
         nonlocal failures
-        out = default_proxy_output(src, args.codec, output_dir=args.output_dir, suffix=args.suffix)
+        key = os.path.abspath(src)
+        out = planned.get(key)
+        if out is None:
+            out = default_proxy_output(
+                src,
+                args.codec,
+                output_dir=args.output_dir,
+                suffix=args.suffix,
+                taken={str(p) for p in planned.values()},
+            )
+            planned[key] = out
         if out.exists() and not args.overwrite:
             _log(f"Skip (proxy exists): {out}")
             return

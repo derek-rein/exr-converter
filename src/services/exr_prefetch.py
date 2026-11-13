@@ -408,15 +408,16 @@ class ExrPrefetchService(QObject):
     ) -> None:
         # Runs on a worker thread — must not touch QTimer / emit cross-thread
         # work synchronously.  Hop to the GUI thread via _delivery_ready (a
-        # QueuedConnection-bound signal).
-        if generation != self._generation:
-            return
-        try:
-            rgb = fut.result()
-        except Exception:
-            rgb = None
-        if reduced_flag is not None and not reduced_flag.get("reduced", True):
-            self._full_res_only = True
+        # QueuedConnection-bound signal). A stale result still goes to
+        # _deliver: it drops the pixels but releases the worker slot.
+        rgb = None
+        if generation == self._generation:
+            try:
+                rgb = fut.result()
+            except Exception:
+                rgb = None
+            if reduced_flag is not None and not reduced_flag.get("reduced", True):
+                self._full_res_only = True
         try:
             self._delivery_ready.emit(frame, rgb, generation)
         except RuntimeError:

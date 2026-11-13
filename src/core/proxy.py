@@ -116,14 +116,31 @@ def default_proxy_output(
     *,
     output_dir: str | os.PathLike[str] | None = None,
     suffix: str = "",
+    taken: set[str] | None = None,
 ) -> Path:
     """Where the proxy for *source* goes.
 
     Without *output_dir*, ``<source_dir>/Proxy/<stem><suffix><ext>``.
+    *taken* holds outputs already given to other clips in this batch (for
+    example ``clip.mov`` and ``clip.mxf``, or ``A/clip.mov`` and ``B/clip.mov``
+    into one folder). A taken name gets ``_1``, ``_2``, … as Transcode does.
+    Files already on disk are not renamed around: the caller skips or
+    overwrites them.
     """
     src = Path(source)
     folder = Path(output_dir) if output_dir else src.parent / PROXY_SUBFOLDER
-    return folder / f"{src.stem}{suffix}{proxy_extension(codec_key)}"
+    ext = proxy_extension(codec_key)
+    out = folder / f"{src.stem}{suffix}{ext}"
+    taken_norm = {_norm(p) for p in (taken or ())}
+    n = 1
+    while _norm(out) in taken_norm:
+        out = folder / f"{src.stem}{suffix}_{n}{ext}"
+        n += 1
+    return out
+
+
+def _norm(p: str | os.PathLike[str]) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(p)))
 
 
 def is_proxy_source(path: str | os.PathLike[str]) -> bool:

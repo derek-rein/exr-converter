@@ -28,6 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from fractions import Fraction
 from functools import cache
+from pathlib import Path
 from typing import Any
 
 import av
@@ -300,3 +301,8 @@ def run_with_fallback[T](
             if log:
                 log(f"{e}. Encoding again with {choice.fallback.label}.")
             choice = choice.fallback
+
+
+def partial_output_path(output: Path) -> Path:
+    """Hidden sibling written during an encode, renamed into place on success."""
+    return output.with_name(f".{output.stem}.partial{output.suffix}")
