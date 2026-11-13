@@ -393,14 +393,16 @@ class VideoPrefetchService(QObject):
         generation: int,
         reduced_flag: dict[str, bool] | None = None,
     ) -> None:
-        if generation != self._generation:
-            return
-        try:
-            rgb = fut.result()
-        except Exception:
-            rgb = None
-        if reduced_flag is not None and not reduced_flag.get("reduced", True):
-            self._full_res_only = True
+        # A stale result still goes to _deliver: it drops the pixels but
+        # releases the in-flight slot, or prefetch stalls for good.
+        rgb = None
+        if generation == self._generation:
+            try:
+                rgb = fut.result()
+            except Exception:
+                rgb = None
+            if reduced_flag is not None and not reduced_flag.get("reduced", True):
+                self._full_res_only = True
         try:
             self._delivery_ready.emit(frame, rgb, generation)
         except RuntimeError:

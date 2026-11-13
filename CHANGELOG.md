@@ -23,6 +23,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 - Transcode and proxy no longer overwrite the source when the output name differs only in letter case on a case-insensitive macOS volume (for example `C0001.MOV` to `C0001.mov`).
 - `proxy` CLI: clips with the same name in one run (`clip.mov` and `clip.mxf`, or `A/clip.mov` and `B/clip.mov` into one output folder) each get their own proxy, numbered `_1`, `_2`, …. Before, the second was skipped as existing or overwrote the first.
 - Watch folders no longer reprocess every clip after a network share drops out for one scan.
+- Resizing the browser Preview while a frame decodes no longer stops video prefetch for good, or slows EXR prefetch a little more on each resize.
 
 ## [0.14.1] - 2026-11-12
 
