@@ -7,7 +7,7 @@
 #   make release PART=patch               # bump + lock + commit + tag + push (triggers Release workflow)
 #   make release PUSH=0                   # … local only; push branch + tag yourself to trigger CI
 
-.PHONY: help run lint typecheck fmt test test-unit resources bundle clean bump release \
+.PHONY: help run lint typecheck fmt test test-unit resources icons bundle clean bump release \
 	sync ensure-ocio r3d-bridge r3d-sdk-fetch \
 	braw-bridge braw-sdk-fetch oxideav-prores cinemadng
 
@@ -127,7 +127,12 @@ test-unit: cinemadng
 
 resources: src/rc_resources.py
 
-src/rc_resources.py: resources.qrc resources/icons/icon.png resources/style.qss
+# Rasterise resources/icons/lucide/*.svg to PNG (release builds have no QtSvg).
+icons:
+	$(PYTHON) scripts/build_icons.py
+
+src/rc_resources.py: resources.qrc resources/icons/icon.png resources/style.qss \
+		$(wildcard resources/images/*.png) $(wildcard resources/icons/ui/*.png)
 	$(RCC) --compress-algo zlib resources.qrc -o src/rc_resources.py
 
 # ── Bundle with Nuitka ───────────────────────────────────────────────────────

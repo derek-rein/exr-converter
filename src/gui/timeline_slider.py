@@ -32,19 +32,28 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
+from .style import color
+
+
 # -- Palette ---------------------------------------------------------------
-_BG = QColor(30, 30, 30)
-_GROOVE = QColor(42, 42, 42)
-_TICK_MAJOR = QColor(100, 100, 100)
-_TICK_MINOR = QColor(60, 60, 60)
-_LABEL_COLOR = QColor(140, 140, 140)
-_CACHED = QColor(76, 175, 80, 180)
-_MARKER = QColor(200, 120, 40, 110)
-_MARKER_LABEL = QColor(220, 160, 90)
-_PLAYHEAD = QColor(200, 120, 40)
-_PLAYHEAD_LINE = QColor(220, 140, 50)
+def _alpha(token: str, alpha: int) -> QColor:
+    c = QColor(color(token))
+    c.setAlpha(alpha)
+    return c
+
+
+_BG = QColor(color("BG_INPUT"))
+_GROOVE = QColor(color("BG_ALT"))
+_TICK_MAJOR = QColor(color("FG_DISABLED"))
+_TICK_MINOR = QColor(color("BORDER"))
+_LABEL_COLOR = QColor(color("FG_DIM"))
+_CACHED = _alpha("SUCCESS", 180)
+_MARKER = _alpha("ACCENT", 110)
+_MARKER_LABEL = QColor(color("ACCENT_HOVER"))
+_PLAYHEAD = QColor(color("ACCENT"))
+_PLAYHEAD_LINE = QColor(color("ACCENT_HOVER"))
 _OUTSIDE_RANGE = QColor(0, 0, 0, 120)
-_IN_OUT_MARK = QColor(230, 200, 90)
+_IN_OUT_MARK = QColor(color("WARNING"))
 
 # -- Layout (absolute pixels from bottom) ----------------------------------
 _MARGIN_LEFT = 6

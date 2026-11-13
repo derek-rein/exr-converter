@@ -64,3 +64,12 @@ A patched copy of the crate source lives in
 `native/exr_prores/vendor/oxideav-prores`. The patch changes the 4:4:4 chroma
 block order and is described in `EXR_CONVERTER_PATCH.md` in that folder. The
 crate's `LICENSE` file is kept alongside the source.
+
+## Lucide icons
+
+The interface icons under `resources/icons/lucide` (and the PNGs rasterised
+from them in `resources/icons/ui` and `resources/images`) come from Lucide.
+
+- Project: https://lucide.dev
+- License: ISC. Copyright Lucide Icons and Contributors. The license text is
+  in `resources/icons/lucide/LICENSE`.

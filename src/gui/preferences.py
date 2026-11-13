@@ -48,6 +48,7 @@ from ..services.cache_prefs import (
     save_cache_budget_pct,
     total_ram_bytes,
 )
+from .style import set_style_property
 
 # QSettings keys (canonical registry: app_settings.Keys)
 PLAYER_MODE_KEY = Keys.PLAYER_MODE
@@ -435,7 +436,7 @@ class PreferencesDialog(QDialog):
         )
         hint.setWordWrap(True)
         hint.setTextFormat(Qt.TextFormat.RichText)
-        hint.setStyleSheet("color: #aaa;")
+        set_style_property(hint, "role", "hint")
         player_layout.addWidget(hint)
 
         self._mode_group = QButtonGroup(self)
@@ -475,7 +476,7 @@ class PreferencesDialog(QDialog):
         if detected:
             quick = QHBoxLayout()
             quick_lbl = QLabel("Detected:")
-            quick_lbl.setStyleSheet("color: #888;")
+            set_style_property(quick_lbl, "role", "muted")
             quick.addWidget(quick_lbl)
             for label, path in detected:
                 btn = QPushButton(label)
@@ -563,7 +564,7 @@ class PreferencesDialog(QDialog):
             "smooth play; lower values free memory for other apps."
         )
         cache_hint.setWordWrap(True)
-        cache_hint.setStyleSheet("color: #aaa;")
+        set_style_property(cache_hint, "role", "hint")
         cache_layout.addWidget(cache_hint)
 
         cache_row = QHBoxLayout()
@@ -701,7 +702,7 @@ class PreferencesDialog(QDialog):
         )
         hint.setWordWrap(True)
         hint.setTextFormat(Qt.TextFormat.RichText)
-        hint.setStyleSheet("color: #aaa;")
+        set_style_property(hint, "role", "hint")
         layout.addWidget(hint)
 
         form = QFormLayout()

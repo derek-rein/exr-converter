@@ -31,8 +31,18 @@ from a Read. See [nuke.md](./nuke.md).
 
 Dragging the **Log** splitter up does not squash Input / Output / Options
 fields. Those controls keep a fixed readable height, and the convert form
-scrolls if the pane is short. **Convert** and **Cancel** share that height;
-the progress bar matches the input rows.
+scrolls if the pane is short. **Convert** and **Cancel** share that height.
+The Log starts small, and the height you drag it to is remembered.
+
+The **OCIO config** menu is one row above the tabs and applies to all of
+them. The status beside it shows how many color spaces loaded; hover it for
+the config name, or for the error when a config fails to load.
+
+The row under the tabs holds the **When done** options, then **Cancel** and
+**Convert**. A progress bar appears in that row while a job runs.
+
+Keyboard: **Ctrl+Return** (⌘Return on macOS) starts the conversion when
+Convert is enabled. **Ctrl+1** to **Ctrl+4** (⌘1 to ⌘4) switch tabs.
 
 Mode can be forced with `--mode video2exr|exr2video|proxy|transcode`, or inferred from `--open`
 (`auto`: image-sequence paths open **EXR → Video**, common video extensions open

@@ -51,6 +51,7 @@ from .player.preview_view import ImagePreviewView as SlatePreviewView
 from .player.sequence_player import OverlayHooks, SequencePlayer
 from .player.shuttle_bar import ShuttleBar as _ShuttleBar
 from .size_grip import SizeGrip
+from .style import set_style_property
 from .token_line_edit import TokenLineEdit
 
 if TYPE_CHECKING:
@@ -370,7 +371,7 @@ class SlateFormPanel(QWidget):
             col = QVBoxLayout()
             col.setSpacing(2)
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("font-size: 10px; color: #888;")
+            set_style_property(lbl, "role", "caption")
             col.addWidget(lbl)
             col.addWidget(widget)
             return col
@@ -393,7 +394,7 @@ class SlateFormPanel(QWidget):
         ver_col = QVBoxLayout()
         ver_col.setSpacing(2)
         ver_lbl = QLabel("Version")
-        ver_lbl.setStyleSheet("font-size: 10px; color: #888;")
+        set_style_property(ver_lbl, "role", "caption")
         ver_col.addWidget(ver_lbl)
         ver_col.addWidget(self.version_spin)
         top_layout.addLayout(ver_col, 1)

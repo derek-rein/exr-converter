@@ -28,6 +28,7 @@ from ..core.quicklook_prefs import (
     set_format_enabled,
     set_quicklook_installed,
 )
+from .style import set_style_property
 
 
 class QuickLookDialog(QDialog):
@@ -48,7 +49,7 @@ class QuickLookDialog(QDialog):
             "app’s default OCIO display view; numbered frames play in the preview."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        set_style_property(intro, "role", "hint")
         root.addWidget(intro)
 
         self.enable_check = QCheckBox("Use EXR Converter for Quick Look and Finder thumbnails")
@@ -59,7 +60,7 @@ class QuickLookDialog(QDialog):
         self._status = QLabel()
         self._status.setObjectName("ql_status")
         self._status.setWordWrap(True)
-        self._status.setStyleSheet("color: #888;")
+        set_style_property(self._status, "role", "muted")
         root.addWidget(self._status)
 
         self._formats_box = QGroupBox("Formats")
@@ -69,7 +70,7 @@ class QuickLookDialog(QDialog):
             "Finder keeps its own preview. A format you turn off is declined."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #aaa;")
+        set_style_property(hint, "role", "hint")
         formats.addWidget(hint)
         self._checks: dict[str, QCheckBox] = {}
         for fmt in QUICKLOOK_FORMATS:

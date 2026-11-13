@@ -15,6 +15,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
+from .style import color
+
 
 class NukeSlider(QWidget):
     """QPainter viewer slider with procedural value curves (gain / gamma).
@@ -32,12 +34,12 @@ class NukeSlider(QWidget):
 
     valueChanged = Signal(float)
 
-    _BG = QColor(0x1E, 0x1E, 0x1E)
-    _GROOVE = QColor(0x3C, 0x3C, 0x3C)
-    _TICK = QColor(0x58, 0x58, 0x58)
-    _LABEL_COLOR = QColor(0x88, 0x88, 0x88)
-    _INDICATOR = QColor(0xC8, 0x78, 0x28)  # Nuke orange
-    _DEFAULT_MARK = QColor(0x50, 0x50, 0x50)
+    _BG = QColor(color("BG_INPUT"))
+    _GROOVE = QColor(color("BORDER"))
+    _TICK = QColor(color("BORDER_STRONG"))
+    _LABEL_COLOR = QColor(color("FG_DIM"))
+    _INDICATOR = QColor(color("ACCENT"))
+    _DEFAULT_MARK = QColor(color("SCROLLBAR"))
     _PIVOT = 1.0
     # asinh steepness: higher → more track budget near the pivot.
     _PIVOT_K = 1.6

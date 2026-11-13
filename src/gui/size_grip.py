@@ -9,6 +9,8 @@ from __future__ import annotations
 from PySide6.QtGui import QColor, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QSizeGrip, QWidget
 
+from .style import color
+
 
 class SizeGrip(QSizeGrip):
     """A window-corner resize grip that paints its own diagonal-line texture.
@@ -26,7 +28,7 @@ class SizeGrip(QSizeGrip):
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         del event
         p = QPainter(self)
-        pen = QPen(QColor(0x70, 0x70, 0x70))
+        pen = QPen(QColor(color("FG_DISABLED")))
         pen.setWidth(1)
         p.setPen(pen)
         w, h = self.width(), self.height()

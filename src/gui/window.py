@@ -16,6 +16,7 @@ from PySide6.QtGui import (
     QGuiApplication,
     QIcon,
     QKeySequence,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -64,6 +65,7 @@ from .preferences import (
 )
 from .proxy_tab import ProxyTab
 from .size_grip import SizeGrip
+from .style import set_style_property
 from .transcode_tab import TranscodeTab
 from .widgets import ConvertTab, OcioConfigPanel, _select_video_codec_combo_key
 
@@ -312,8 +314,8 @@ class MainWindow(QMainWindow):
 
         top = QWidget()
         top_layout = QVBoxLayout(top)
-        top_layout.setContentsMargins(8, 8, 8, 4)
-        top_layout.setSpacing(6)
+        top_layout.setContentsMargins(12, 10, 12, 8)
+        top_layout.setSpacing(8)
 
         self._ocio_panel = OcioConfigPanel(self._settings)
         top_layout.addWidget(self._ocio_panel)
@@ -333,34 +335,38 @@ class MainWindow(QMainWindow):
             self._tabs.setCurrentIndex(saved_tab)
         top_layout.addWidget(self._tabs, 1)
 
+        # Action row, left to right: what happens afterwards, progress while a
+        # job runs, then Cancel and the primary button at the trailing edge.
         prog_row = QHBoxLayout()
         prog_row.setContentsMargins(0, 0, 0, 0)
-        prog_row.setSpacing(6)
+        prog_row.setSpacing(8)
         self._progress = QProgressBar()
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._progress.setTextVisible(True)
         self._progress.setFormat("%p%")
         self._progress.setObjectName("convertProgress")
-        prog_row.addWidget(self._progress, 1)
-        self._go = QPushButton("  Convert  ")
+        # Hidden while idle: an empty 0% bar is noise.
+        self._progress.setVisible(False)
+        self._go = QPushButton("Convert")
         self._go.setObjectName("convertBtn")
+        convert_keys = QKeySequence("Ctrl+Return")
+        native_keys = convert_keys.toString(QKeySequence.SequenceFormat.NativeText)
+        self._go.setToolTip(f"Start the conversion ({native_keys})")
+        self._progress.setAccessibleName("Conversion progress")
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setEnabled(False)
         lock_form_row_height(self._progress)
         lock_form_row_height(self._go)
         lock_form_row_height(self._cancel_btn)
-        prog_row.addWidget(self._go)
-        prog_row.addWidget(self._cancel_btn)
-        top_layout.addLayout(prog_row)
 
         # Post-convert actions (persisted). Hidden on the batch tabs (Proxy, Transcode).
         self._after_row_widget = QWidget()
         after_row = QHBoxLayout(self._after_row_widget)
         after_row.setContentsMargins(0, 0, 0, 0)
         after_row.setSpacing(14)
-        after_lbl = QLabel("When done:")
-        after_lbl.setStyleSheet("color: #888;")
+        after_lbl = QLabel("When done")
+        set_style_property(after_lbl, "role", "muted")
         after_row.addWidget(after_lbl)
         self._copy_path_cb = QCheckBox("Copy path")
         self._copy_path_cb.setToolTip(
@@ -393,18 +399,30 @@ class MainWindow(QMainWindow):
             lambda v: self._settings.setValue("ui/show_folder_after", v)
         )
         after_row.addWidget(self._show_folder_cb)
-        after_row.addStretch()
-        top_layout.addWidget(self._after_row_widget)
+        prog_row.addWidget(self._after_row_widget)
+        # The holder keeps the stretch while the bar inside it is hidden.
+        progress_slot = QWidget()
+        slot_layout = QHBoxLayout(progress_slot)
+        slot_layout.setContentsMargins(0, 0, 0, 0)
+        slot_layout.addWidget(self._progress)
+        prog_row.addWidget(progress_slot, 1)
+        prog_row.addWidget(self._cancel_btn)
+        prog_row.addWidget(self._go)
+        top_layout.addLayout(prog_row)
 
         splitter.addWidget(top)
 
         log_container = QWidget()
         log_layout = QVBoxLayout(log_container)
-        log_layout.setContentsMargins(8, 4, 8, 4)
+        log_layout.setContentsMargins(12, 6, 12, 6)
+        log_layout.setSpacing(4)
         log_header = QHBoxLayout()
-        log_header.addWidget(QLabel("Log"))
+        log_title = QLabel("Log")
+        set_style_property(log_title, "role", "section")
+        log_header.addWidget(log_title)
         self._clear_log = QPushButton("Clear")
         self._clear_log.setObjectName("clearBtn")
+        set_style_property(self._clear_log, "variant", "ghost")
         log_header.addStretch()
         log_header.addWidget(self._clear_log)
         log_layout.addLayout(log_header)
@@ -418,8 +436,11 @@ class MainWindow(QMainWindow):
         self._log.setMinimumHeight(LOG_PANE_MIN_HEIGHT)
         log_layout.addWidget(self._log, 1)
         splitter.addWidget(log_container)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
+        # The form gets the room; the log starts at its minimum and the user
+        # drags it taller. The position is remembered (ui/log_splitter).
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        self._log_splitter = splitter
 
         self._statusbar = QStatusBar()
         # Native grip is invisible under the QSS stylesheet — use a painted one.
@@ -456,11 +477,25 @@ class MainWindow(QMainWindow):
         self._update_go_state()
         self._sync_proxy_tab_chrome()
 
+        QShortcut(convert_keys, self).activated.connect(self._start_from_shortcut)
+        for index in range(self._tabs.count()):
+            QShortcut(QKeySequence(f"Ctrl+{index + 1}"), self).activated.connect(
+                lambda i=index: self._tabs.setCurrentIndex(i)
+            )
+
         self._reload_ocio()
 
         geom = self._settings.value("ui/geometry")
         if geom:
             self.restoreGeometry(geom)
+        else:
+            # First launch: tall enough that the EXR and video tabs do not scroll.
+            self.resize(880, 860)
+        split_state = self._settings.value("ui/log_splitter")
+        if split_state:
+            self._log_splitter.restoreState(split_state)
+        else:
+            self._log_splitter.setSizes([10_000, LOG_PANE_MIN_HEIGHT])
 
     def apply_startup(
         self,
@@ -747,6 +782,11 @@ class MainWindow(QMainWindow):
             return self._transcode_tab
         return None
 
+    def _start_from_shortcut(self) -> None:
+        """Ctrl+Return: same as clicking Convert, and only when it is enabled."""
+        if self._go.isEnabled():
+            self._start()
+
     def _update_go_state(self) -> None:
         """Enable Convert only when idle and the active tab is ready.
 
@@ -766,6 +806,8 @@ class MainWindow(QMainWindow):
             self._cancel_btn.setEnabled(batch.is_busy())
         else:
             self._cancel_btn.setEnabled(self._is_convert_running() or self._busy == "convert")
+        # The bar shows exactly while there is something to cancel.
+        self._progress.setVisible(self._cancel_btn.isEnabled())
 
     def _sync_proxy_tab_chrome(self) -> None:
         """Post-convert actions apply to single convert jobs, not batch tabs."""
@@ -890,6 +932,7 @@ class MainWindow(QMainWindow):
         self._busy = "convert"
         self._go.setEnabled(False)
         self._cancel_btn.setEnabled(True)
+        self._progress.setVisible(True)
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._progress.setFormat("%p%")
@@ -1581,6 +1624,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._settings.setValue("ui/geometry", self.saveGeometry())
+        self._settings.setValue("ui/log_splitter", self._log_splitter.saveState())
         # Flush prefs (input paths, post-convert toggles, …) before exit so a
         # subsequent launch restores a validated source without re-browsing.
         self._settings.sync()

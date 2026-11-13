@@ -91,10 +91,12 @@ from .browser_chrome import _VIDEO_EXTS, _add_copy_path_actions, _folder_path_fo
 from .browser_path import clean_path_string
 from .browser_state import BrowserPreviewContext
 from .color_widgets import ColorSpaceButton, FpsCombo, lock_form_row_height
+from .icons import set_button_icon
+from .picker_button import PickerButton
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import file_manager_label, path_is_revealable
 from .sequence_browser import SequenceBrowserDialog
-from .style import DESC_STYLE, HINT_STYLE
+from .style import DESC_STYLE, HINT_STYLE, set_style_property
 from .video_browser import VideoBrowserDialog
 
 log = logging.getLogger(__name__)
@@ -495,7 +497,7 @@ class _InputProbeWorker(QObject):
             self.failed.emit(str(e))
 
 
-class CodecPicker(QToolButton):
+class CodecPicker(PickerButton):
     """Nested family menu for EXR→video codecs (not a flat heading list)."""
 
     key_changed = Signal(str)
@@ -698,8 +700,10 @@ class ConvertTab(QWidget):
         range_row.addWidget(self._frame_range_edit, 1)
 
         self._reset_range_btn = QToolButton()
-        self._reset_range_btn.setText("\u21ba")
+        set_button_icon(self._reset_range_btn, "rotate-ccw")
+        set_style_property(self._reset_range_btn, "variant", "ghost")
         self._reset_range_btn.setToolTip("Reset to source range")
+        self._reset_range_btn.setAccessibleName("Reset to source range")
         self._reset_range_btn.setEnabled(False)
         self._reset_range_btn.clicked.connect(self._reset_to_source_range)
         range_row.addWidget(self._reset_range_btn)
@@ -799,8 +803,10 @@ class ConvertTab(QWidget):
             scale_row.addStretch()
 
             self._edit_slate_btn = QToolButton()
-            self._edit_slate_btn.setText("\u270e")
+            set_button_icon(self._edit_slate_btn, "pencil")
+            set_style_property(self._edit_slate_btn, "variant", "ghost")
             self._edit_slate_btn.setToolTip("Edit Slate & Overlay\u2026")
+            self._edit_slate_btn.setAccessibleName("Edit slate and overlay")
             self._edit_slate_btn.setAutoRaise(True)
             self._edit_slate_btn.setFixedWidth(28)
             self._edit_slate_btn.clicked.connect(self._open_slate_dialog)
@@ -845,7 +851,9 @@ class ConvertTab(QWidget):
             comp_row.setSpacing(4)
             comp_row.addWidget(self.compression_combo, 1)
             self._comp_settings_btn = QToolButton()
-            self._comp_settings_btn.setText("\u2699")
+            set_button_icon(self._comp_settings_btn, "settings")
+            set_style_property(self._comp_settings_btn, "variant", "ghost")
+            self._comp_settings_btn.setAccessibleName("Compression settings")
             self._comp_settings_btn.setAutoRaise(True)
             self._comp_settings_btn.setFixedWidth(28)
             self._comp_settings_btn.setToolTip("Compression settings\u2026")
@@ -908,7 +916,9 @@ class ConvertTab(QWidget):
             codec_row.setSpacing(4)
             codec_row.addWidget(self.codec_combo, 1)
             self._codec_settings_btn = QToolButton()
-            self._codec_settings_btn.setText("\u2699")
+            set_button_icon(self._codec_settings_btn, "settings")
+            set_style_property(self._codec_settings_btn, "variant", "ghost")
+            self._codec_settings_btn.setAccessibleName("Codec settings")
             self._codec_settings_btn.setAutoRaise(True)
             self._codec_settings_btn.setFixedWidth(28)
             self._codec_settings_btn.setToolTip("Codec settings\u2026")
@@ -1758,9 +1768,9 @@ class ConvertTab(QWidget):
 
     def _flash_field(self, widget: QWidget) -> None:
         """Brief amber flash on a path field / button after an auto-edit."""
-        widget.setStyleSheet("background-color: #3a3020;")
+        set_style_property(widget, "flash", True)
         # Context = *widget* so the clear always runs on that object (never sticky).
-        QTimer.singleShot(500, widget, lambda w=widget: w.setStyleSheet(""))
+        QTimer.singleShot(500, widget, lambda w=widget: set_style_property(w, "flash", False))
 
     def _update_output_placeholder(self) -> None:
         """Update the output placeholder and current pattern to reflect padding."""

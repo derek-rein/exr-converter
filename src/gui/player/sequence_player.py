@@ -33,11 +33,13 @@ from ...services.cache_prefs import cache_budget_bytes
 from ...services.exr_prefetch import ExrPrefetchService
 from ...services.frame_cache import FrameCache
 from ...services.video_prefetch import VideoPrefetchService
+from ..icons import set_button_icon
 from ..ocio_gpu_plane import (
     OcioGpuImagePlane,
     gpu_ocio_available,
     nuke_viewer_gamma_power,
 )
+from ..style import color, set_style_property
 from ..timeline_slider import TimelineSlider
 from .preview_view import ImagePreviewView
 from .shuttle_bar import ShuttleBar
@@ -169,7 +171,7 @@ class SequencePlayer(QWidget):
 
         self._preview = ImagePreviewView()
         self._preview_stack = QStackedWidget()
-        self._preview_stack.setStyleSheet("background-color: #000000;")
+        self._preview_stack.setStyleSheet(f"background-color: {color('VIEWER_BG')};")
         self._preview_stack.addWidget(self._preview)
         # Create the GPU plane *eagerly* (before the top-level window is shown).
         # Qt 6.4+ docs: adding the first QOpenGLWidget to an *already shown*
@@ -914,13 +916,6 @@ class SequencePlayer(QWidget):
         self.in_out_changed.emit(in_point, out_point)
 
     def _build_in_out_ui(self, row: QHBoxLayout, height: int) -> None:
-        style = (
-            "QToolButton { background: #2a2a2a; color: #e0e0e0; border: 1px solid #3c3c3c;"
-            " border-radius: 3px; font-size: 11px; padding: 0 6px; }"
-            "QToolButton:hover { background: #3c3c3c; }"
-            "QToolButton:checked { background: #6b5a1e; border-color: #e6c85a; color: #fff; }"
-            "QToolButton:disabled { color: #666; }"
-        )
         host = QWidget()
         lay = QHBoxLayout(host)
         lay.setContentsMargins(4, 0, 4, 0)
@@ -930,7 +925,7 @@ class SequencePlayer(QWidget):
             b = QToolButton()
             b.setText(text)
             b.setToolTip(tip)
-            b.setStyleSheet(style)
+            set_style_property(b, "variant", "tool")
             b.setFixedHeight(22)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             lay.addWidget(b)
@@ -940,9 +935,11 @@ class SequencePlayer(QWidget):
         self._in_btn.setCheckable(True)
         self._out_btn = make("Out", "Set the out point at the current frame (O)")
         self._out_btn.setCheckable(True)
-        self._in_out_clear_btn = make("\u2715", "Clear in and out points")
+        self._in_out_clear_btn = make("", "Clear in and out points")
+        set_button_icon(self._in_out_clear_btn, "x", size=12)
         self._in_out_label = QLabel()
-        self._in_out_label.setStyleSheet("font-size: 10px; color: #c8b45a;")
+        set_style_property(self._in_out_label, "role", "caption")
+        set_style_property(self._in_out_label, "state", "warning")
         self._in_out_label.setMinimumWidth(64)
         lay.addWidget(self._in_out_label)
         host.setFixedHeight(height)
@@ -1006,7 +1003,7 @@ class SequencePlayer(QWidget):
 
         gamma_lbl = QLabel("\u03b3")
         gamma_lbl.setFixedWidth(10)
-        gamma_lbl.setStyleSheet("font-size: 10px; color: #888;")
+        set_style_property(gamma_lbl, "role", "caption")
         strip.addWidget(gamma_lbl)
 
         self._gamma_value_label = QLabel("1.0")
@@ -1135,8 +1132,9 @@ class SequencePlayer(QWidget):
     @staticmethod
     def _style_viewer_value_label(label: QLabel, value: float, *, default: float = 1.0) -> None:
         is_default = abs(float(value) - default) < 1e-6
-        color = "#d4d4d4" if is_default else "#e05030"
-        label.setStyleSheet(f"font-size: 10px; color: {color};")
+        # A non-default gain or gamma changes what you see: flag it.
+        set_style_property(label, "role", "caption")
+        set_style_property(label, "state", "" if is_default else "warning")
 
     def _on_gain_changed(self, gain: float) -> None:
         self._gain = gain
@@ -1188,7 +1186,6 @@ class SequencePlayer(QWidget):
 
     def _build_cache_ui(self, parent_layout: QVBoxLayout) -> None:
         """Compact pause/clear + usage only. Budget % lives in Preferences."""
-        muted = "color: #8a8a8a;"
         self._cache_host = QWidget()
         row = QHBoxLayout(self._cache_host)
         row.setContentsMargins(8, 2, 8, 2)
@@ -1197,11 +1194,11 @@ class SequencePlayer(QWidget):
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
         sep.setFrameShadow(QFrame.Shadow.Plain)
-        sep.setStyleSheet("color: #3a3a3a;")
+        sep.setStyleSheet(f"color: {color('BORDER')};")
         row.addWidget(sep)
 
         cache_lbl = QLabel("Cache")
-        cache_lbl.setStyleSheet(muted)
+        set_style_property(cache_lbl, "role", "muted")
         row.addWidget(cache_lbl)
 
         self._cache_bar = QProgressBar()
@@ -1215,7 +1212,9 @@ class SequencePlayer(QWidget):
         row.addWidget(self._cache_bar)
 
         self._cache_pause_btn = QToolButton()
-        self._cache_pause_btn.setText("\u23f8")
+        set_button_icon(self._cache_pause_btn, "pause", size=12)
+        set_style_property(self._cache_pause_btn, "variant", "ghost")
+        self._cache_pause_btn.setAccessibleName("Pause background prefetch")
         self._cache_pause_btn.setCheckable(True)
         self._cache_pause_btn.setAutoRaise(True)
         self._cache_pause_btn.setFixedSize(24, 22)
@@ -1223,7 +1222,9 @@ class SequencePlayer(QWidget):
         row.addWidget(self._cache_pause_btn)
 
         self._cache_clear_btn = QToolButton()
-        self._cache_clear_btn.setText("\u2715")
+        set_button_icon(self._cache_clear_btn, "x", size=12)
+        set_style_property(self._cache_clear_btn, "variant", "ghost")
+        self._cache_clear_btn.setAccessibleName("Clear playback cache")
         self._cache_clear_btn.setAutoRaise(True)
         self._cache_clear_btn.setFixedSize(24, 22)
         self._cache_clear_btn.setToolTip("Clear playback cache")
@@ -1254,7 +1255,7 @@ class SequencePlayer(QWidget):
     def _on_cache_pause_toggled(self, paused: bool) -> None:
         self._cache_paused = paused
         if self._cache_pause_btn is not None:
-            self._cache_pause_btn.setText("\u25b6" if paused else "\u23f8")
+            set_button_icon(self._cache_pause_btn, "play" if paused else "pause", size=12)
         if self._prefetch is not None:
             self._prefetch.set_paused(paused)
         if not paused:

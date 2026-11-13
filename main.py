@@ -31,7 +31,7 @@ def main() -> int:
 
     import src.rc_resources  # noqa: F401 — register Qt resources
     from src.gui.ocio_gpu_plane import configure_default_gl_format
-    from src.gui.style import load_stylesheet
+    from src.gui.style import apply_app_palette, load_stylesheet
     from src.gui.window import MainWindow
 
     # Core Profile 4.1 for OCIO GLSL GPU display in the slate viewer.
@@ -44,6 +44,7 @@ def main() -> int:
     app.setApplicationVersion(APP_VERSION)
     app.setStyle("Fusion")
     app.setStyleSheet(load_stylesheet())
+    apply_app_palette(app)
     # macOS: do not setWindowIcon — Dock must use the .app bundle's .icns
     # (CFBundleIconFile). A runtime PNG becomes NSApplication.applicationIconImage
     # and draws a sharp full-bleed square while the app is running.

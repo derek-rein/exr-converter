@@ -13,9 +13,20 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- Keyboard shortcuts: Ctrl+Return (⌘Return on macOS) starts the conversion, and Ctrl+1 to Ctrl+4 switch tabs.
+
 ### Changed
 
 - Browser Preview decodes the frame on screen at a size that covers the pane, including screen pixel density and anamorphic squeeze. R3D, N-RAW, and Blackmagic RAW use the SDK reduced-resolution decode. OpenEXR uses a mip or ripmap when the file has one, and reads RGB only. CinemaDNG uses a smaller embedded preview when one covers the pane, or a half-size debayer when the pane fits in half the frame. Video scales in the decoder. The full viewer and convert output are unchanged.
+
+- Refreshed the interface, keeping the neutral dark look. Orange now marks only the primary action, the selection, and keyboard focus. Sections are a title over a line in place of nested boxes, tabs are underlined, and dim text is lighter so small hints are easier to read.
+- The OCIO config picker is one header row. The status beside it shows the color space count, and its tooltip has the config name or the load error.
+- The progress bar appears only while a job runs. The When done options, Cancel, and Convert share one row, with Convert at the end.
+- Color space and codec pickers look like the menus they are: left-aligned text and a chevron.
+- Reset range, edit slate, codec and compression settings, and the player transport use drawn icons in place of text symbols, which showed as color emoji on some systems.
+- The log starts small and remembers the height you drag it to.
 
 ### Fixed
 
