@@ -17,6 +17,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 - Browser Preview decodes the frame on screen at a size that covers the pane, including screen pixel density and anamorphic squeeze. R3D, N-RAW, and Blackmagic RAW use the SDK reduced-resolution decode. OpenEXR uses a mip or ripmap when the file has one, and reads RGB only. CinemaDNG uses a smaller embedded preview when one covers the pane, or a half-size debayer when the pane fits in half the frame. Video scales in the decoder. The full viewer and convert output are unchanged.
 
+### Fixed
+
+- HDR (PQ, HLG), Rec.2020, sRGB, and linear video clips get the right source colour space guess. They were all read as Rec.709.
+
 ## [0.14.1] - 2026-11-12
 
 ### Added
