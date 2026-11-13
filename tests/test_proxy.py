@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import av
@@ -174,6 +175,32 @@ class TestWatchFolder:
         w = WatchFolder(tmp_path, recursive=True, settle_seconds=0, exclude_dirs=(out,))
         (out / "x.mov").write_bytes(_DATA)
         assert w.poll() == []
+
+    def test_failed_folder_scan_does_not_forget_reported_clips(self, tmp_path, monkeypatch):
+        import src.core.watch_folder as wf
+
+        (tmp_path / "old.mov").write_bytes(_DATA)
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "deep.mov").write_bytes(_DATA)
+        w = WatchFolder(tmp_path, recursive=True, settle_seconds=0)
+        clip = tmp_path / "new.mov"
+        clip.write_bytes(_DATA)
+        assert w.poll() == [clip]
+
+        real_scandir = os.scandir
+        down = {str(tmp_path)}
+
+        def flaky_scandir(path):
+            if os.fspath(path) in down:
+                raise OSError("network share went away")
+            return real_scandir(path)
+
+        monkeypatch.setattr(wf.os, "scandir", flaky_scandir)
+        assert w.poll() == []  # share hiccup on the root
+        down = {str(tmp_path / "sub")}
+        assert w.poll() == []  # hiccup on a subfolder
+        down = set()
+        assert w.poll() == []  # back: nothing is reprocessed
 
 
 class TestProxyCli:
