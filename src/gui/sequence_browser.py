@@ -170,9 +170,12 @@ class SequenceBrowserDialog(_MediaBrowserDialog):
         th.setMinimumSectionSize(48)
         # Sensible first-open defaults for non-name columns (QSettings can override).
         th.resizeSection(1, 64)
-        th.resizeSection(2, 100)
-        th.resizeSection(3, 100)
+        th.resizeSection(2, 92)
+        th.resizeSection(3, 92)
         th.resizeSection(4, 72)
+        # Leave the stretch to Name: the sequence name is what people read.
+        th.resizeSection(5, 96)
+        th.resizeSection(6, 104)
         th.resizeSection(5, 100)
         th.resizeSection(6, 120)
         # Keep Name readable under squeeze (global min is 48; Name wants more).
@@ -197,9 +200,8 @@ class SequenceBrowserDialog(_MediaBrowserDialog):
         # Fuzzy sequence search over an in-memory index of folders visited in
         # this dialog. Results replace the list/grid while the field has text.
         self._seq_search_edit = _SearchField()
-        self._seq_search_edit.setPlaceholderText(
-            "\U0001f50d  Find sequence (fuzzy, e.g. shot_010_comp)\u2026"
-        )
+        self._seq_search_edit.setPlaceholderText("Find sequence (fuzzy, e.g. shot_010_comp)\u2026")
+        self._seq_search_edit.set_leading_icon("search")
         self._seq_search_edit.setToolTip(
             "Typo-tolerant search over image sequences in folders opened in this "
             "browser and their subfolders. Enter or click a result to jump to it."
@@ -242,7 +244,7 @@ class SequenceBrowserDialog(_MediaBrowserDialog):
         # Places sidebar is 150 px fixed, so the folder tree gets the rest:
         # 240 left it about 90 px, too narrow to read a folder name. The dialog is
         # wide enough that the Name column still gets room beside Metadata.
-        self._outer_splitter.setSizes([360, 1000])
+        self._outer_splitter.setSizes([330, 1030])
         self._wire_layout_save()
         self._wire_browse_signals()
         self._table.cellDoubleClicked.connect(self._on_table_double_clicked)

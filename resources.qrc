@@ -12,6 +12,10 @@
     <file alias="arrow_up@2x.png">resources/images/arrow_up@2x.png</file>
     <file alias="check.png">resources/images/check.png</file>
     <file alias="check@2x.png">resources/images/check@2x.png</file>
+    <file alias="branch_closed.png">resources/images/branch_closed.png</file>
+    <file alias="branch_closed@2x.png">resources/images/branch_closed@2x.png</file>
+    <file alias="branch_open.png">resources/images/branch_open.png</file>
+    <file alias="branch_open@2x.png">resources/images/branch_open@2x.png</file>
     <file alias="ui/check.png">resources/icons/ui/check.png</file>
     <file alias="ui/chevron-down.png">resources/icons/ui/chevron-down.png</file>
     <file alias="ui/chevron-right.png">resources/icons/ui/chevron-right.png</file>

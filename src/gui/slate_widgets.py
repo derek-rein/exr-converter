@@ -1069,6 +1069,7 @@ class SlateDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        set_style_property(buttons.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         self._status_bar.addPermanentWidget(buttons)

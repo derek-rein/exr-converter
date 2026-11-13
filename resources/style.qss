@@ -242,7 +242,7 @@ QPushButton:disabled {
 }
 
 /* Primary action — same box as Cancel, so the row stays one height. */
-QPushButton#convertBtn {
+QPushButton#convertBtn, QPushButton[variant="primary"] {
     background-color: @ACCENT;
     color: @ACCENT_FG;
     font-weight: 600;
@@ -250,17 +250,17 @@ QPushButton#convertBtn {
     padding: 4px 26px;
     min-height: 22px;
 }
-QPushButton#convertBtn:hover {
+QPushButton#convertBtn:hover, QPushButton[variant="primary"]:hover {
     background-color: @ACCENT_HOVER;
     border-color: @ACCENT;
 }
-QPushButton#convertBtn:pressed {
+QPushButton#convertBtn:pressed, QPushButton[variant="primary"]:pressed {
     background-color: @ACCENT_DARK;
 }
-QPushButton#convertBtn:focus {
+QPushButton#convertBtn:focus, QPushButton[variant="primary"]:focus {
     border-color: @SEL_FG;
 }
-QPushButton#convertBtn:disabled {
+QPushButton#convertBtn:disabled, QPushButton[variant="primary"]:disabled {
     background-color: @BG_BTN;
     color: @FG_DISABLED;
     border-color: @BORDER;
@@ -303,21 +303,31 @@ QPushButton#clearBtn {
 }
 
 /* ---- ToolButton ----
-   Bare QToolButtons are pickers (color space, codec): they open a menu, so
-   they look like a combo, with the same field fill and a chevron. */
+   Plain tool buttons are small quiet buttons. PickerButton (color space,
+   codec) opens a menu, so it looks like a combo: field fill and a chevron. */
 QToolButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 3px 5px;
+    font-size: 13px;
+    color: @FG;
+}
+PickerButton {
     background-color: @BG_INPUT;
     background-image: url(:/arrow_down.png);
     background-repeat: no-repeat;
     background-position: right center;
     background-origin: content;
     border: 1px solid @BORDER;
-    border-radius: 4px;
     padding: 4px 8px;
-    text-align: left;
-    font-size: 13px;
-    color: @FG;
     min-height: 22px;
+}
+QToolButton:hover:!disabled {
+    background-color: @BG_BTN;
+}
+PickerButton:hover:!disabled {
+    background-color: @BG_INPUT;
 }
 QToolButton:hover {
     border-color: @BORDER_STRONG;
@@ -327,24 +337,22 @@ QToolButton:focus, QToolButton:pressed {
 }
 QToolButton:disabled {
     color: @FG_DISABLED;
+}
+PickerButton:disabled {
     background-color: @BG;
 }
 QToolButton::menu-indicator {
     image: none;
 }
-QToolButton[state="invalid"] {
+PickerButton[state="invalid"] {
     color: @ERROR;
     border-color: @ERROR_BORDER;
     background-color: @ERROR_BG;
 }
-QToolButton[state="auto"] {
+PickerButton[state="auto"] {
     color: @WARNING;
     border-color: @WARNING_BORDER;
     background-color: @WARNING_BG;
-}
-/* Icon tool buttons carry no chevron. */
-QToolButton[variant="ghost"], QToolButton[variant="tool"] {
-    background-image: none;
 }
 /* Compact strip buttons: transport, in / out. */
 QToolButton[variant="tool"], QPushButton[variant="tool"] {
@@ -576,10 +584,10 @@ QTreeView::branch {
     background-color: transparent;
 }
 QTreeView::branch:has-children:closed {
-    image: url(:/arrow_right.png);
+    image: url(:/branch_closed.png);
 }
 QTreeView::branch:has-children:open {
-    image: url(:/arrow_down.png);
+    image: url(:/branch_open.png);
 }
 QHeaderView {
     background-color: @BG_INPUT;
@@ -765,6 +773,19 @@ QPlainTextEdit#logPane {
 QPlainTextEdit#metaPane {
     font-size: 11px;
     font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New';
+}
+
+/* ---- Browser ---- */
+QListWidget#placesList {
+    background-color: transparent;
+    border: none;
+}
+QListWidget#placesList::item {
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+QTableWidget#browserTable::item, QTableView#browserTable::item {
+    padding: 5px 8px;
 }
 
 /* ---- Viewer ---- */

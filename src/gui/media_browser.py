@@ -80,7 +80,7 @@ from .browser_state import (
 from .browser_tree import BrowserTreeModel
 from .player.sequence_player import SequencePlayer
 from .segmented_control import SegmentedControl
-from .style import STATUS_DIM
+from .style import STATUS_DIM, set_style_property
 
 
 def _letterbox_thumb(pm: QPixmap, background: QColor) -> QPixmap:
@@ -265,6 +265,8 @@ class _MediaBrowserDialog(QDialog):
         self._tree.setHeaderHidden(True)
         # Every row is one line: lets the view skip per-row size queries.
         self._tree.setUniformRowHeights(True)
+        # Tighter than Qt's 20 px, so deep paths keep room for their names.
+        self._tree.setIndentation(14)
         self._tree.setMinimumWidth(200)
         tree_header = self._tree.header()
         tree_header.setStretchLastSection(True)
@@ -291,6 +293,9 @@ class _MediaBrowserDialog(QDialog):
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(30)
+        self._table.setShowGrid(False)
+        self._table.setObjectName("browserTable")
         self._table.setMinimumWidth(min_width)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         th = self._table.horizontalHeader()
@@ -368,6 +373,7 @@ class _MediaBrowserDialog(QDialog):
         buttons.rejected.connect(self.reject)
         self._ok_btn = buttons.button(QDialogButtonBox.StandardButton.Open)
         self._ok_btn.setEnabled(False)
+        set_style_property(self._ok_btn, "variant", "primary")
         # Fixed-size button row so long status cannot push buttons off-screen.
         buttons.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         bottom_row.addWidget(buttons)

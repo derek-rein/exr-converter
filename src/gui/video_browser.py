@@ -188,7 +188,7 @@ class VideoBrowserDialog(_MediaBrowserDialog):
         # Places sidebar is 150 px fixed, so the folder tree gets the rest:
         # 240 left it about 90 px, too narrow to read a folder name. The dialog is
         # wide enough that the Name column still gets room beside Metadata.
-        self._outer_splitter.setSizes([360, 1000])
+        self._outer_splitter.setSizes([330, 1030])
         layout.addWidget(self._outer_splitter, 1)
 
         self._wire_layout_save()

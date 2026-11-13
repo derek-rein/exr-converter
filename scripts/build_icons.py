@@ -66,6 +66,17 @@ def main() -> int:
         # A heavier stroke keeps a 12 px chevron legible.
         render(SVG_DIR / f"{svg}.svg", size, colour, 2.5).save(str(IMG_DIR / f"{out}.png"))
         render(SVG_DIR / f"{svg}.svg", size * 2, colour, 2.5).save(str(IMG_DIR / f"{out}@2x.png"))
+    # Tree disclosure arrows: Qt stretches the image over the whole branch
+    # cell, so the glyph sits small in a transparent 20 px square.
+    for out, svg in (("branch_closed", "chevron-right"), ("branch_open", "chevron-down")):
+        for scale, suffix in ((1, ""), (2, "@2x")):
+            canvas = QImage(20 * scale, 20 * scale, QImage.Format.Format_ARGB32_Premultiplied)
+            canvas.fill(Qt.GlobalColor.transparent)
+            glyph = render(SVG_DIR / f"{svg}.svg", 10 * scale, "#9a9a9a", 2.5)
+            painter = QPainter(canvas)
+            painter.drawImage(5 * scale, 5 * scale, glyph)
+            painter.end()
+            canvas.save(str(IMG_DIR / f"{out}{suffix}.png"))
     print(f"icons: {len(names)} glyphs, {len(QSS_IMAGES)} stylesheet images")
     return 0
 
