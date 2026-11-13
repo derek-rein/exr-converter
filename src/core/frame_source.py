@@ -7,12 +7,13 @@ that dispatch so callers do not branch on extension at every site.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import math
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -97,8 +98,44 @@ class IngestSource(Protocol):
         ...
 
 
-def open_preview_decoder(path: str, *, fps: float = 0.0) -> PreviewDecoder:
-    """Factory for the sequence-player / prefetch decoder."""
+def _open_plugin_preview(plugin: Any, path: str, fps: float, target_size: tuple[int, int] | None):
+    """Call ``open_preview``, passing a size only when the plugin already accepts it."""
+    opener = plugin.open_preview
+    try:
+        params = inspect.signature(opener).parameters
+    except (TypeError, ValueError):
+        return opener(path, fps=fps)
+    kwargs: dict[str, object] = {"fps": fps}
+    if target_size and "target_size" in params:
+        kwargs["target_size"] = target_size
+    elif target_size and "scale" in params:
+        try:
+            ceiling = float(plugin.preview_scale())
+        except Exception:
+            ceiling = 1.0
+        scale = ceiling
+        try:
+            src_w, src_h, _fps, _count = plugin.probe(path)
+            if src_w > 0 and src_h > 0:
+                need = max(target_size[0] / float(src_w), target_size[1] / float(src_h))
+                scale = min(ceiling, max(need, 1.0 / 16.0))
+        except Exception:
+            scale = ceiling
+        kwargs["scale"] = scale
+    return opener(path, **kwargs)
+
+
+def open_preview_decoder(
+    path: str,
+    *,
+    fps: float = 0.0,
+    target_size: tuple[int, int] | None = None,
+) -> PreviewDecoder:
+    """Factory for the sequence-player / prefetch decoder.
+
+    *target_size* is a browser-preview storage size. ``None`` keeps the
+    decoder the full viewer already uses.
+    """
     from .braw import is_braw_path
 
     # Lazy: cinemadng.source imports this module for MediaInfo and resize.
@@ -115,13 +152,13 @@ def open_preview_decoder(path: str, *, fps: float = 0.0) -> PreviewDecoder:
     plugin = plugin_for_path(path)
     if plugin is not None:
         require_available(plugin)
-        return plugin.open_preview(path, fps=fps)
+        return _open_plugin_preview(plugin, path, fps, target_size)
     if is_cinemadng_input(path):
-        return CinemaDNGPreviewDecoder(path, fps=fps)
+        return CinemaDNGPreviewDecoder(path, fps=fps, target_size=target_size)
     if is_r3d_path(path):
-        return R3DPreviewDecoder(path, fps=fps)
+        return R3DPreviewDecoder(path, fps=fps, target_size=target_size)
     if is_braw_path(path):
-        return BRAWPreviewDecoder(path, fps=fps)
+        return BRAWPreviewDecoder(path, fps=fps, target_size=target_size)
     if is_libav_unsafe_media(path):
         if is_ignored_media_filename(path):
             raise RuntimeError(f"Not a media file (OS metadata sidecar): {Path(path).name}")
@@ -207,16 +244,30 @@ def resize_rgb_f32(rgb: np.ndarray, out_w: int, out_h: int) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
+# Codecs whose decoder actually honors FFmpeg's ``lowres`` private option.
+# H.264 / HEVC ignore it and stay at full resolution; swscale covers those.
+_LOWRES_CODECS = frozenset({"mpeg1video", "mpeg2video", "mpeg4", "mjpeg"})
+
+
 class VideoPreviewDecoder:
     """Stateful sequential PyAV decoder with keyframe-seek + decode-forward."""
 
-    def __init__(self, path: str, *, fps: float = 0.0) -> None:
+    def __init__(
+        self,
+        path: str,
+        *,
+        fps: float = 0.0,
+        target_size: tuple[int, int] | None = None,
+    ) -> None:
         import av
 
         from .video import stream_fps
 
         self.path = path
         self._av = av
+        self._target = target_size
+        self._source_w = 0
+        self._source_h = 0
         self._open()
         probed = float(fps) if fps and fps > 0 else 0.0
         self.fps = probed if probed > 0 else (stream_fps(self.stream) or 24.0)
@@ -236,8 +287,61 @@ class VideoPreviewDecoder:
             self.stream.thread_type = "AUTO"
         except Exception:
             pass
+        self._source_w = int(self.stream.width or 0)
+        self._source_h = int(self.stream.height or 0)
+        self._apply_lowres()
         self._time_base = self.stream.time_base
         self._start_pts = int(self.stream.start_time or 0)
+
+    def _apply_lowres(self) -> None:
+        """Ask MPEG-family decoders for a native half / quarter / eighth frame."""
+        if self._target is None or self._source_w <= 0 or self._source_h <= 0:
+            return
+        try:
+            name = str(self.stream.codec_context.name or "")
+        except Exception:
+            return
+        if name not in _LOWRES_CODECS:
+            return
+        tw, th = self._target
+        level = 0
+        for candidate in (1, 2, 3):
+            if (self._source_w >> candidate) >= tw and (self._source_h >> candidate) >= th:
+                level = candidate
+            else:
+                break
+        if level <= 0:
+            return
+        try:
+            options = dict(self.stream.codec_context.options or {})
+            options["lowres"] = str(level)
+            self.stream.codec_context.options = options
+        except Exception:
+            log.debug("Video lowres option was not accepted", exc_info=True)
+
+    def _swscale_size(self, frame) -> tuple[int, int] | None:
+        """Even output size for one swscale, or None to keep the decoded frame."""
+        if self._target is None:
+            return None
+        src_w = int(frame.width or 0)
+        src_h = int(frame.height or 0)
+        if src_w <= 0 or src_h <= 0:
+            return None
+        tw, th = self._target
+        if tw >= src_w and th >= src_h:
+            return None
+        scale = min(1.0, max(tw / src_w, th / src_h))
+        out_w = max(2, int(round(src_w * scale)))
+        out_h = max(2, int(round(src_h * scale)))
+        if out_w % 2:
+            out_w = min(src_w, out_w + 1)
+        if out_h % 2:
+            out_h = min(src_h, out_h + 1)
+        out_w = min(out_w, src_w)
+        out_h = min(out_h, src_h)
+        if out_w >= src_w and out_h >= src_h:
+            return None
+        return out_w, out_h
 
     def _reset_cursor(self) -> None:
         """Forget the decode position; the next read starts a fresh decode iterator."""
@@ -246,6 +350,11 @@ class VideoPreviewDecoder:
         self._last_rgb: np.ndarray | None = None
         self._last_idx: int | None = None
         self._eof = False
+
+    @property
+    def source_size(self) -> tuple[int, int]:
+        """Full raster, before lowres or swscale."""
+        return max(1, self._source_w), max(1, self._source_h)
 
     @property
     def decode_size(self) -> tuple[int, int]:
@@ -263,9 +372,23 @@ class VideoPreviewDecoder:
 
     def _frame_to_rgb_f32(self, frame) -> np.ndarray:
         from .decoders import normalize_frame
-        from .video import av_frame_to_rgb_ndarray
+        from .video import av_frame_reformat, av_frame_to_rgb_ndarray
 
         frame = normalize_frame(frame, self._hw_device)
+        scaled = self._swscale_size(frame)
+        # One swscale does the color convert and the downscale together.
+        # That replaces the full-frame convert; it is not a second pass.
+        if scaled is not None:
+            try:
+                out_w, out_h = scaled
+                frame = av_frame_reformat(frame, width=out_w, height=out_h, format="rgb48le")
+                arr = frame.to_ndarray()
+                rgb = np.ascontiguousarray(np.asarray(arr).astype(np.float32) * (1.0 / 65535.0))
+                self._decode_w = int(rgb.shape[1])
+                self._decode_h = int(rgb.shape[0])
+                return rgb
+            except Exception:
+                log.debug("Preview swscale failed; converting the decoded frame", exc_info=True)
         try:
             arr = av_frame_to_rgb_ndarray(frame, pix_fmt="rgb48le")
             rgb = np.ascontiguousarray(arr.astype(np.float32) * (1.0 / 65535.0))
@@ -421,13 +544,27 @@ class VideoPreviewDecoder:
 class R3DPreviewDecoder:
     """R3D / N-RAW decoder for player scrub (half-res good by default)."""
 
-    def __init__(self, path: str, *, fps: float = 0.0, mode: int | None = None) -> None:
+    def __init__(
+        self,
+        path: str,
+        *,
+        fps: float = 0.0,
+        mode: int | None = None,
+        target_size: tuple[int, int] | None = None,
+    ) -> None:
+        from .preview_proxy import r3d_preview_mode
         from .r3d import DECODE_PREVIEW, R3DClip, scale_for_decode_mode
 
         self.path = path
         self._clip = R3DClip(path)
         self.fps = float(fps) if fps and fps > 0 else float(self._clip.info.fps or 24.0)
-        self._mode = int(mode) if mode is not None else DECODE_PREVIEW
+        if mode is not None:
+            self._mode = int(mode)
+        elif target_size is not None:
+            info = self._clip.info
+            self._mode = r3d_preview_mode(info.width, info.height, target_size[0], target_size[1])
+        else:
+            self._mode = DECODE_PREVIEW
         self._last_idx: int | None = None
         self._last_rgb: np.ndarray | None = None
         ladder = scale_for_decode_mode(self._mode)
@@ -704,13 +841,27 @@ class R3DIngestSource:
 class BRAWPreviewDecoder:
     """BRAW decoder for player scrub (half-res by default)."""
 
-    def __init__(self, path: str, *, fps: float = 0.0, mode: int | None = None) -> None:
+    def __init__(
+        self,
+        path: str,
+        *,
+        fps: float = 0.0,
+        mode: int | None = None,
+        target_size: tuple[int, int] | None = None,
+    ) -> None:
         from .braw import DECODE_PREVIEW, BRAWClip, scale_for_decode_mode
+        from .preview_proxy import braw_preview_mode
 
         self.path = path
         self._clip = BRAWClip(path)
         self.fps = float(fps) if fps and fps > 0 else float(self._clip.info.fps or 24.0)
-        self._mode = int(mode) if mode is not None else DECODE_PREVIEW
+        if mode is not None:
+            self._mode = int(mode)
+        elif target_size is not None:
+            info = self._clip.info
+            self._mode = braw_preview_mode(info.width, info.height, target_size[0], target_size[1])
+        else:
+            self._mode = DECODE_PREVIEW
         self._last_idx: int | None = None
         self._last_rgb: np.ndarray | None = None
         ladder = scale_for_decode_mode(self._mode)

@@ -15,6 +15,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import numpy as np
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
+from ..core.exr_io import image_header_size, read_exr, read_image_preview
+from ..core.preview_proxy import get_preview_cache, preview_cache_key
 from .cache_prefs import DEFAULT_LOOKBACK_RATIO
 from .frame_cache import FrameCache
 
@@ -33,7 +35,28 @@ _MIN_LOOKAHEAD_FRAMES = 8
 DEFAULT_MAX_WORKERS = 4
 
 
-def _read_exr_frame(path: str, transform: FrameTransform | None) -> np.ndarray | None:
+def _apply_transform(
+    rgb: np.ndarray,
+    transform: FrameTransform | None,
+) -> np.ndarray | None:
+    if transform is None:
+        # Keep unclamped headroom even without OCIO (float16 can hold >1.0).
+        return np.ascontiguousarray(rgb, dtype=np.float16)
+    try:
+        out = transform(rgb)
+    except Exception:
+        return None
+    return out
+
+
+def _read_exr_frame(
+    path: str,
+    transform: FrameTransform | None,
+    target: tuple[int, int, int] | None = None,
+    on_draft: Callable[[np.ndarray], None] | None = None,
+    frame: int = 0,
+    reduced_flag: dict[str, bool] | None = None,
+) -> np.ndarray | None:
     """Worker-thread pipeline: read **HDR float** RGB and run an optional transform.
 
     Uses :func:`read_exr` (float32, unclamped) — **not** uint16.  Requesting
@@ -42,26 +65,57 @@ def _read_exr_frame(path: str, transform: FrameTransform | None) -> np.ndarray |
 
     The transform typically applies OCIO ``src → working`` and returns float16
     working-space pixels (still HDR-capable) for the RAM cache.
+
+    *target* ``(width, height, bucket)`` is browser Preview only. It reads a
+    mip when one covers that size. The full viewer passes ``None`` and keeps
+    :func:`read_exr`.
     """
-    import numpy as np
-
-    from ..core.exr_io import read_exr
-
     try:
-        rgb = read_exr(path)
+        if target is None:
+            rgb = read_exr(path)
+            reduced = False
+            draft = None
+        else:
+            _width, _height, bucket = target
+            cache = get_preview_cache()
+            key = preview_cache_key(path, frame, bucket)
+            hit = cache.get(key)
+            if hit is not None:
+                rgb = hit
+                draft = None
+                try:
+                    src_w, src_h = image_header_size(path)
+                    reduced = int(hit.shape[1]) < src_w - 1 or int(hit.shape[0]) < src_h - 1
+                except Exception:
+                    reduced = True
+            else:
+
+                def _emit_source(source_rgb: np.ndarray) -> None:
+                    if on_draft is None:
+                        return
+                    drafted = _apply_transform(source_rgb, transform)
+                    if drafted is None:
+                        return
+                    try:
+                        on_draft(drafted)
+                    except Exception:
+                        return
+
+                draft, rgb, reduced = read_image_preview(
+                    path,
+                    _width,
+                    _height,
+                    with_draft=on_draft is not None,
+                    on_draft=_emit_source,
+                )
+                cache.put(key, rgb)
     except Exception:
         return None
+    if reduced_flag is not None:
+        reduced_flag["reduced"] = bool(reduced)
     if rgb is None:
         return None
-    if transform is None:
-        # Keep unclamped headroom even without OCIO (float16 can hold >1.0).
-        return np.ascontiguousarray(rgb, dtype=np.float16)
-    try:
-        out = transform(rgb)
-    except Exception:
-        return None
-    # None = OCIO failed; never cache source as float "working-space".
-    return out
+    return _apply_transform(rgb, transform)
 
 
 class ExrPrefetchService(QObject):
@@ -87,6 +141,8 @@ class ExrPrefetchService(QObject):
         lookback_ratio: float = DEFAULT_LOOKBACK_RATIO,
         max_workers: int = DEFAULT_MAX_WORKERS,
         frame_transform: FrameTransform | None = None,
+        single_frame: bool = False,
+        preview_target: tuple[int, int, int] | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -99,6 +155,11 @@ class ExrPrefetchService(QObject):
         self._lookback_ratio = max(0.0, min(1.0, lookback_ratio))
         self._max_workers = max(1, max_workers)
         self._frame_transform: FrameTransform | None = frame_transform
+        # Browser Preview: decode the frame on screen, not a lookahead window.
+        self._single_frame = bool(single_frame)
+        self._preview_target = preview_target
+        self._full_res_only = False
+        self._draft_once = bool(single_frame and preview_target)
 
         self._current = 0
         self._playing = False
@@ -131,6 +192,22 @@ class ExrPrefetchService(QObject):
             fut.cancel()
         self._inflight.clear()
         self._pool.shutdown(wait=False, cancel_futures=True)
+
+    @property
+    def full_res_only(self) -> bool:
+        """True once a frame had no cheaper level than a full read."""
+        return self._full_res_only
+
+    def set_preview_target(self, width: int, height: int, bucket: int) -> None:
+        """Switch browser-preview resolution. In-flight frames from the old size are dropped."""
+        target = (int(width), int(height), int(bucket))
+        if target == self._preview_target:
+            return
+        self._preview_target = target
+        self._generation += 1
+        self._draft_once = False
+        self._rebuild_queue()
+        self._schedule_kick()
 
     def set_paused(self, paused: bool) -> None:
         self._paused = paused
@@ -170,6 +247,8 @@ class ExrPrefetchService(QObject):
           - **Empty cache** → conservative window (probe size) until we
             learn how big a frame is.
         """
+        if self._single_frame:
+            return 0, 0
         capacity = min(self._cache_capacity(), _HARD_LOOKAHEAD_FRAMES + 32)
         if self._playing:
             return 0, min(capacity, _HARD_LOOKAHEAD_FRAMES)
@@ -283,9 +362,26 @@ class ExrPrefetchService(QObject):
                 path = self._seq.frame(frame)
             except Exception:
                 continue
-            fut = self._pool.submit(_read_exr_frame, path, self._frame_transform)
+            want_draft = self._draft_once
+            if want_draft:
+                self._draft_once = False
+            reduced_flag: dict[str, bool] = {"reduced": True}
+            on_draft = None
+            if want_draft:
+                on_draft = lambda rgb, fr=frame, g=gen: self._emit_draft(fr, rgb, g)  # noqa: E731
+            fut = self._pool.submit(
+                _read_exr_frame,
+                path,
+                self._frame_transform,
+                self._preview_target,
+                on_draft,
+                frame,
+                reduced_flag,
+            )
             self._inflight[frame] = fut
-            fut.add_done_callback(lambda f, fr=frame, g=gen: self._on_done(fr, f, g))
+            fut.add_done_callback(
+                lambda f, fr=frame, g=gen, flag=reduced_flag: self._on_done(fr, f, g, flag)
+            )
 
     def set_frame_transform(self, transform: FrameTransform | None) -> None:
         """Replace the worker-thread transform.
@@ -296,7 +392,20 @@ class ExrPrefetchService(QObject):
         """
         self._frame_transform = transform
 
-    def _on_done(self, frame: int, fut: Future, generation: int) -> None:
+    def _emit_draft(self, frame: int, rgb: np.ndarray, generation: int) -> None:
+        """Hop a fast first image to the GUI thread without finishing the job."""
+        try:
+            self._delivery_ready.emit(frame, ("draft", rgb), generation)
+        except RuntimeError:
+            return
+
+    def _on_done(
+        self,
+        frame: int,
+        fut: Future,
+        generation: int,
+        reduced_flag: dict[str, bool] | None = None,
+    ) -> None:
         # Runs on a worker thread — must not touch QTimer / emit cross-thread
         # work synchronously.  Hop to the GUI thread via _delivery_ready (a
         # QueuedConnection-bound signal).
@@ -306,14 +415,25 @@ class ExrPrefetchService(QObject):
             rgb = fut.result()
         except Exception:
             rgb = None
+        if reduced_flag is not None and not reduced_flag.get("reduced", True):
+            self._full_res_only = True
         try:
             self._delivery_ready.emit(frame, rgb, generation)
         except RuntimeError:
             # Prefetch QObject already deleted (dialog closed mid-load).
             return
 
-    def _deliver(self, frame: int, rgb: np.ndarray | None, generation: int) -> None:
-        # GUI-thread slot.
+    def _deliver(self, frame: int, payload: object, generation: int) -> None:
+        # GUI-thread slot. A draft is shown immediately and is not cached:
+        # the sharp frame from the same job replaces it.
+        if isinstance(payload, tuple) and len(payload) == 2 and payload[0] == "draft":
+            if generation != self._generation:
+                return
+            image = payload[1]
+            if image is not None:
+                self.frame_loaded.emit(frame, image)
+            return
+        rgb = payload if isinstance(payload, np.ndarray) else None
         self._inflight.pop(frame, None)
         if generation != self._generation:
             self._schedule_kick()

@@ -69,7 +69,11 @@ space; EXR, CinemaDNG, and DPX default toward scene-linear / metadata.
 available; it shows the image header of the selected sequence). **List** is the metadata table; **Grid** shows first-frame
 thumbnails (async OIIO downscale; EXR/DPX get a cheap display curve).
 **Preview** plays the **currently selected** sequence (or the first listed row
-if nothing is selected). To preview another sequence, click it in the folder
+if nothing is selected). It decodes only the visible frame, at a resolution
+that covers the pane on this screen (pixel density and anamorphic squeeze
+included). R3D, N-RAW, Blackmagic RAW, mipmapped OpenEXR, CinemaDNG, and video
+use a smaller native decode when that still looks sharp. The full sequence
+player and convert still use the full image. To preview another sequence, click it in the folder
 tree, or return to List/Grid, select it, then enter Preview again. Folder tree
 and path stay visible.
 Browser Preview uses the same GPU OCIO `SequencePlayer` as the slate editor
@@ -191,7 +195,8 @@ expansion set.
 **Video browser** (Video → EXR input) mirrors the sequence browser with
 **List | Grid | Preview**. **Grid** shows first-frame video thumbnails (PyAV).
 **Preview** plays the selected file (or the first file in the folder) with the
-same player transport, cache strip, and OCIO controls. Video decode seeks to
+same player transport, cache strip, and OCIO controls, sized to the pane.
+Video decode seeks to
 the previous keyframe then decodes forward to the exact frame (so scrubbing and
 play stay frame-accurate on long GOPs). **Space** toggles Preview; **Esc**
 returns to list/grid. Folder path fields never expand the dialog when paths are
