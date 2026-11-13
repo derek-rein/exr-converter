@@ -69,7 +69,30 @@ def test_form_rows_share_one_left_edge(app: QApplication) -> None:
     _show(host, app)
     lefts = {w.mapTo(host, w.rect().topLeft()).x() for w in (path, space, frames)}
     assert len(lefts) == 1
-    assert lefts.pop() >= LABEL_WIDTH
+    assert lefts.pop() == LABEL_WIDTH + form.horizontalSpacing()
+
+
+def test_separate_forms_share_the_same_control_column(app: QApplication) -> None:
+    """A long label in one card must not shift that card's fields past the others."""
+    from PySide6.QtWidgets import QVBoxLayout
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    layout.setContentsMargins(0, 0, 0, 0)
+    short_card, long_card = Card("Cache"), Card("Hardware")
+    short_form, long_form = FormGrid(), FormGrid()
+    short_card.body.addLayout(short_form)
+    long_card.body.addLayout(long_form)
+    budget, encoder = QComboBox(), QComboBox()
+    short_form.add_row("Budget", budget, width=WIDE)
+    long_form.add_row("H.264 / HEVC encoding", encoder, width=WIDE)
+    layout.addWidget(short_card)
+    layout.addWidget(long_card)
+    _show(host, app)
+    assert (
+        budget.mapTo(host, budget.rect().topLeft()).x()
+        == encoder.mapTo(host, encoder.rect().topLeft()).x()
+    )
 
 
 def test_capped_controls_share_one_right_edge_and_do_not_stretch(app: QApplication) -> None:

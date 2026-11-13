@@ -62,7 +62,10 @@ class FormGrid(QGridLayout):
         self.setContentsMargins(0, 0, 0, 0)
         self.setHorizontalSpacing(12)
         self.setVerticalSpacing(6)
+        # Min and stretch-0: a wide label must wrap, not grow this column, so
+        # every FormGrid (every card) keeps the same control x.
         self.setColumnMinimumWidth(0, LABEL_WIDTH)
+        self.setColumnStretch(0, 0)
         self.setColumnStretch(1, 1)
         self._labels: dict[int, QLabel] = {}
 
@@ -77,6 +80,8 @@ class FormGrid(QGridLayout):
         row = self.rowCount()
         text = QLabel(label)
         text.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        text.setWordWrap(True)
+        text.setFixedWidth(LABEL_WIDTH)
         self.addWidget(text, row, 0)
         self._labels[row] = text
 

@@ -36,6 +36,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Fixed
 
+- Form fields on Preferences and Transcode keep one label column on Windows. Longer labels wrap so every card's controls stay on the same x.
 - Transcode: the naming hint no longer draws over the Pixel aspect menu.
 - Dropping a file on the window accepts every video type the app reads (for example `.mts`, `.m2ts`, `.mpg`, `.dv`), not a shorter list of eleven.
 - Slate & Overlay Editor: Cancel (or Esc) now discards the edits made in that session. Before, every keystroke was already saved, so Cancel kept them.
