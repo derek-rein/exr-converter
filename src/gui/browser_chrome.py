@@ -66,6 +66,8 @@ from .browser_state import (
 )
 from .browser_tree import BrowserTreeModel, VolumePoller, background_pool
 from .browser_volumes import VolumeInfo
+from .icons import icon as ui_icon
+from .icons import set_button_icon
 from .style import _PALETTE, STATUS_DIM
 
 log = logging.getLogger(__name__)
@@ -75,11 +77,11 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _OS_PLACES: list[tuple[str, str, QStandardPaths.StandardLocation]] = [
-    ("\U0001f3e0", "Home", QStandardPaths.StandardLocation.HomeLocation),
-    ("\U0001f5a5\ufe0f", "Desktop", QStandardPaths.StandardLocation.DesktopLocation),
-    ("\U0001f4c4", "Documents", QStandardPaths.StandardLocation.DocumentsLocation),
-    ("\u2b07\ufe0f", "Downloads", QStandardPaths.StandardLocation.DownloadLocation),
-    ("\U0001f3ac", "Movies", QStandardPaths.StandardLocation.MoviesLocation),
+    ("house", "Home", QStandardPaths.StandardLocation.HomeLocation),
+    ("monitor", "Desktop", QStandardPaths.StandardLocation.DesktopLocation),
+    ("file-text", "Documents", QStandardPaths.StandardLocation.DocumentsLocation),
+    ("download", "Downloads", QStandardPaths.StandardLocation.DownloadLocation),
+    ("film", "Movies", QStandardPaths.StandardLocation.MoviesLocation),
 ]
 
 
@@ -192,6 +194,8 @@ class _PlacesSidebar(QWidget):
         layout.setSpacing(0)
 
         self._list = _FavoritesDropList()
+        self._list.setObjectName("placesList")
+        self._list.setIconSize(QSize(15, 15))
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._ctx_menu)
@@ -216,14 +220,14 @@ class _PlacesSidebar(QWidget):
             path = QStandardPaths.writableLocation(location)
             if not path or not path_is_dir(path):
                 continue
-            item = QListWidgetItem(f"{icon}  {name}")
+            item = QListWidgetItem(ui_icon(icon, "FG_DIM"), name)
             item.setData(Qt.ItemDataRole.UserRole, path)
             item.setToolTip(path)
             self._list.addItem(item)
 
         _places_divider_item(self._list)
 
-        header = QListWidgetItem("\u2605  Favorites")
+        header = QListWidgetItem("Favorites")
         header.setFlags(Qt.ItemFlag.NoItemFlags)
         font = header.font()
         font.setBold(True)
@@ -243,12 +247,14 @@ class _PlacesSidebar(QWidget):
         btn_row.setContentsMargins(2, 2, 2, 2)
         btn_row.setSpacing(2)
         add_btn = QToolButton()
-        add_btn.setText("+")
+        set_button_icon(add_btn, "plus", "FG_DIM", size=14)
+        add_btn.setAccessibleName("Add current folder to favorites")
         add_btn.setToolTip("Add current folder to favorites")
         add_btn.setAutoRaise(True)
         add_btn.clicked.connect(self._add_current)
         rm_btn = QToolButton()
-        rm_btn.setText("\u2212")
+        set_button_icon(rm_btn, "minus", "FG_DIM", size=14)
+        rm_btn.setAccessibleName("Remove selected favorite")
         rm_btn.setToolTip("Remove selected favorite")
         rm_btn.setAutoRaise(True)
         rm_btn.clicked.connect(self._remove_selected)
@@ -286,8 +292,8 @@ class _PlacesSidebar(QWidget):
             insert_at = self._vol_start
             for vol in self._volumes or []:
                 # Prefer a disk glyph; system root gets a computer glyph.
-                icon = "\U0001f5a5" if vol.is_system_root else "\U0001f4be"
-                item = QListWidgetItem(f"{icon}  {vol.name}")
+                icon = "monitor" if vol.is_system_root else "hard-drive"
+                item = QListWidgetItem(ui_icon(icon, "FG_DIM"), vol.name)
                 item.setData(Qt.ItemDataRole.UserRole, vol.path)
                 item.setToolTip(vol.path)
                 self._list.insertItem(insert_at, item)
@@ -302,7 +308,7 @@ class _PlacesSidebar(QWidget):
 
     def _add_fav_item(self, path: str) -> None:
         name = Path(path).name or path
-        item = QListWidgetItem(f"\U0001f4c1  {name}")
+        item = QListWidgetItem(ui_icon("folder", "FG_DIM"), name)
         item.setData(Qt.ItemDataRole.UserRole, path)
         item.setToolTip(path)
         self._list.addItem(item)
@@ -621,6 +627,10 @@ class _SearchField(QLineEdit):
     def clear_button(self) -> QToolButton:
         return self._clear_btn
 
+    def set_leading_icon(self, name: str) -> None:
+        """Show a drawn icon at the start of the field (search glass)."""
+        self.addAction(ui_icon(name, "FG_DIM"), QLineEdit.ActionPosition.LeadingPosition)
+
     def set_busy(self, busy: bool) -> None:
         if busy:
             self._spin_idx = 0
@@ -690,7 +700,8 @@ class _SearchableTree(QWidget):
         layout.setSpacing(4)
 
         self._search_edit = _SearchField()
-        self._search_edit.setPlaceholderText("\U0001f50d  Search folders\u2026")
+        self._search_edit.setPlaceholderText("Search folders\u2026")
+        self._search_edit.set_leading_icon("search")
         layout.addWidget(self._search_edit)
 
         layout.addWidget(tree, 1)
@@ -755,10 +766,11 @@ class _SearchableTree(QWidget):
         self._results.setUpdatesEnabled(False)
         try:
             for name, full_path, rel_path, is_dir in items:
-                icon = "\U0001f4c1" if is_dir else "\U0001f4c4"
                 parent = os.path.dirname(rel_path)
-                display = f"{icon}  {name}    {parent}" if parent else f"{icon}  {name}"
-                item = QListWidgetItem(display)
+                display = f"{name}    {parent}" if parent else name
+                item = QListWidgetItem(
+                    ui_icon("folder" if is_dir else "file-text", "FG_DIM"), display
+                )
                 item.setData(Qt.ItemDataRole.UserRole, full_path)
                 item.setData(Qt.ItemDataRole.UserRole + 1, bool(is_dir))
                 item.setToolTip(full_path)

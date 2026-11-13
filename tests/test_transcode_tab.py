@@ -65,8 +65,9 @@ def test_defaults_are_prores_hq_passthrough(tab: TranscodeTab, qapp: QApplicatio
     assert tab.dst_btn.isVisible() and tab.watermark_cb.isVisible()
     # ProRes is intra-frame: no CRF / bitrate / preset controls.
     assert not tab.rate_combo.isVisible() and tab._intra_note.isVisible()
-    assert not tab.width_spin.isVisible()
-    assert not tab.output_dir.isVisible()
+    assert not tab.width_spin.isVisible() and tab._size_label.isHidden()
+    assert not tab.output_dir.isVisible() and tab._folder_label.isHidden()
+    assert not tab.fps_spin.isVisible()
 
 
 def test_codec_drives_container_quality_and_audio(tab: TranscodeTab, qapp) -> None:
@@ -98,12 +99,72 @@ def test_custom_size_and_fps_rows(tab: TranscodeTab, qapp) -> None:
     tab.show()
     _select(tab.resolution_combo, "custom")
     qapp.processEvents()
-    assert tab.width_spin.isVisible()
+    assert tab.width_spin.isVisible() and tab._size_label.isVisible()
+    _select(tab.location_combo, LOCATION_CUSTOM)
+    qapp.processEvents()
+    assert tab.output_dir.isVisible() and tab._folder_label.isVisible()
     _select(tab.fps_combo, -1.0)
     qapp.processEvents()
     assert tab.fps_spin.isVisible()
     tab.fps_spin.setValue(48.0)
     assert tab.fps() == 48.0
+
+
+def test_form_controls_share_one_left_edge(tab: TranscodeTab, qapp: QApplication) -> None:
+    """Every card's fields start on the same column, as on the convert tabs."""
+    tab.resize(880, 700)
+    tab.show()
+    _select(tab.codec_combo, "h264")
+    qapp.processEvents()
+    fields = [
+        tab.codec_combo,
+        tab.resolution_combo,
+        tab.fps_combo,
+        tab.rate_combo,
+        tab.audio_combo,
+        tab.location_combo,
+        tab.name_edit,
+        tab.overwrite_combo,
+        tab.dst_btn,
+        tab.watermark_cb,
+    ]
+    assert len({w.mapTo(tab, w.rect().topLeft()).x() for w in fields}) == 1
+
+
+def test_tab_order_follows_reading_order(tab: TranscodeTab, qapp: QApplication) -> None:
+    tab.show()
+    qapp.processEvents()
+    order = [
+        tab.clip_tree,
+        tab._add_files_btn,
+        tab.recursive_cb,
+        tab.codec_combo,
+        tab.container_combo,
+        tab.resolution_combo,
+        tab.pixel_aspect_combo,
+        tab.width_spin,
+        tab.height_spin,
+        tab.fps_combo,
+        tab.rate_combo,
+        tab.crf_spin,
+        tab.preset_combo,
+        tab.audio_combo,
+        tab.location_combo,
+        tab.output_dir,
+        tab.name_edit,
+        tab.overwrite_combo,
+        tab.dst_btn,
+        tab.watermark_cb,
+        tab.watermark_payload,
+        tab.watermark_strength,
+    ]
+    chain: list = []
+    w = tab.clip_tree
+    while w not in chain:
+        chain.append(w)
+        w = w.nextInFocusChain()
+    positions = [chain.index(x) for x in order]
+    assert positions == sorted(positions)
 
 
 def test_readiness(tab: TranscodeTab, tmp_path) -> None:

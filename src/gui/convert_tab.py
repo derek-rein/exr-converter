@@ -35,9 +35,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -85,16 +83,31 @@ from ..core.sequence import (
     probe_pixel_colorspace,
     sequence_looks_scene_referred,
 )
+from ..core.source_summary import sequence_details, video_details
 from ..core.video import is_ignored_media_filename, probe_video, resolve_video_src_colorspace
 from ..services.slate_model import SlateModel
 from .browser_chrome import _VIDEO_EXTS, _add_copy_path_actions, _folder_path_for_copy
 from .browser_path import clean_path_string
 from .browser_state import BrowserPreviewContext
 from .color_widgets import ColorSpaceButton, FpsCombo, lock_form_row_height
+from .components import (
+    FILL,
+    MEDIUM,
+    NARROW,
+    NATURAL,
+    WIDE,
+    Card,
+    FormGrid,
+    inline_label,
+    sized,
+)
+from .icons import icon, set_button_icon
+from .picker_button import PickerButton
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import file_manager_label, path_is_revealable
 from .sequence_browser import SequenceBrowserDialog
-from .style import DESC_STYLE, HINT_STYLE
+from .source_card import SourceCard
+from .style import set_style_property
 from .video_browser import VideoBrowserDialog
 
 log = logging.getLogger(__name__)
@@ -129,6 +142,37 @@ _EXR_COMPRESSION_HELP: dict[str, str] = {
 }
 
 
+def _level_field(slider: QSlider, spin: QSpinBox) -> QWidget:
+    """A slider and its number box as one form field (the box keeps its width)."""
+    field = QWidget()
+    row = QHBoxLayout(field)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(8)
+    row.addWidget(slider, 1)
+    row.addWidget(spin)
+    return field
+
+
+def _field_note(form: FormGrid, text: str) -> QLabel:
+    """A one-line hint under the field above it, in the control column."""
+    note = QLabel(text)
+    set_style_property(note, "role", "hint")
+    form.addWidget(note, form.rowCount(), 1)
+    return note
+
+
+def _dialog_buttons(dialog: QDialog) -> QDialogButtonBox:
+    """OK / Cancel with OK as the primary action."""
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+    )
+    ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    set_style_property(ok, "variant", "primary")
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    return buttons
+
+
 class ExrCompressionSettingsDialog(QDialog):
     """Show settings relevant to the selected EXR compression method."""
 
@@ -145,25 +189,18 @@ class ExrCompressionSettingsDialog(QDialog):
         self.setMinimumWidth(420)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
-        desc = _EXR_COMPRESSION_HELP.get(compression, "")
-        if desc:
-            lbl = QLabel(desc)
-            lbl.setWordWrap(True)
-            lbl.setStyleSheet(DESC_STYLE)
-            layout.addWidget(lbl)
-
-        form = QFormLayout()
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        card = Card(compression.upper(), _EXR_COMPRESSION_HELP.get(compression, ""))
+        form = FormGrid()
+        card.body.addLayout(form)
 
         self._dwa_spin: QSpinBox | None = None
         self._zip_spin: QSpinBox | None = None
 
         if compression in ("dwaa", "dwab"):
             saved = int(float(settings.value("exr_opts/dwa_level", 45)))
-            row = QHBoxLayout()
-            row.setSpacing(6)
             slider = QSlider(Qt.Orientation.Horizontal)
             slider.setRange(0, 250)
             slider.setValue(saved)
@@ -178,16 +215,10 @@ class ExrCompressionSettingsDialog(QDialog):
             )
             slider.valueChanged.connect(self._dwa_spin.setValue)
             self._dwa_spin.valueChanged.connect(slider.setValue)
-            row.addWidget(slider, 1)
-            row.addWidget(self._dwa_spin)
-            hint = QLabel("0 = lossless · 45 = visually lossless (default) · 100+ = aggressive")
-            hint.setStyleSheet(HINT_STYLE)
-            form.addRow("Compression level", row)
-            form.addRow("", hint)
+            form.add_row("Compression level", _level_field(slider, self._dwa_spin), width=WIDE)
+            _field_note(form, "0 = lossless · 45 = visually lossless (default) · 100+ = aggressive")
         elif compression in ("zip", "zips"):
             saved = int(settings.value("exr_opts/zip_level", 4))
-            row = QHBoxLayout()
-            row.setSpacing(6)
             slider = QSlider(Qt.Orientation.Horizontal)
             slider.setRange(1, 9)
             slider.setValue(saved)
@@ -200,18 +231,11 @@ class ExrCompressionSettingsDialog(QDialog):
             self._zip_spin.setToolTip("1 = fastest, 9 = best compression")
             slider.valueChanged.connect(self._zip_spin.setValue)
             self._zip_spin.valueChanged.connect(slider.setValue)
-            row.addWidget(slider, 1)
-            row.addWidget(self._zip_spin)
-            form.addRow("Zip level", row)
+            form.add_row("Zip level", _level_field(slider, self._zip_spin), width=WIDE)
 
-        layout.addLayout(form)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        layout.addWidget(card)
+        layout.addStretch(1)
+        layout.addWidget(_dialog_buttons(self))
 
     def get_settings(self) -> dict[str, str]:
         """Return dict of option key -> value strings."""
@@ -321,29 +345,27 @@ class VideoCodecSettingsDialog(QDialog):
         self.setMinimumWidth(480)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
+        card = Card(display)
         desc = _CODEC_HELP.get(codec_key, "")
         if desc:
+            # Several lines for some codecs, so it wraps in the body, not the header.
             lbl = QLabel(desc)
             lbl.setWordWrap(True)
-            lbl.setStyleSheet(DESC_STYLE)
-            layout.addWidget(lbl)
+            set_style_property(lbl, "role", "hint")
+            card.body.addWidget(lbl)
+        form = FormGrid()
+        card.body.addLayout(form)
         if bit_note:
-            bit_lbl = QLabel(f"<b>Encode format:</b> {bit_note}")
-            bit_lbl.setWordWrap(True)
-            bit_lbl.setStyleSheet(HINT_STYLE)
-            layout.addWidget(bit_lbl)
+            form.add_row("Encode format", QLabel(bit_note), width=NATURAL)
         if spec and spec.platforms:
-            plat = QLabel(
-                f"<i>Platform: {', '.join(spec.platforms)} only (hidden on other OSes).</i>"
+            form.add_row(
+                "Platform",
+                QLabel(f"{', '.join(spec.platforms)} only (hidden on other OSes)."),
+                width=NATURAL,
             )
-            plat.setWordWrap(True)
-            plat.setStyleSheet(HINT_STYLE)
-            layout.addWidget(plat)
-
-        form = QFormLayout()
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self._crf_spin: QSpinBox | None = None
         self._preset: QComboBox | None = None
@@ -356,8 +378,6 @@ class VideoCodecSettingsDialog(QDialog):
             crf_key = f"codec_opts/{self._settings_prefix}_crf"
             preset_key = f"codec_opts/{self._settings_prefix}_preset"
             saved_crf = int(settings.value(crf_key, 18))
-            crf_row = QHBoxLayout()
-            crf_row.setSpacing(6)
             crf_slider = QSlider(Qt.Orientation.Horizontal)
             crf_slider.setRange(0, 51)
             crf_slider.setValue(saved_crf)
@@ -372,9 +392,7 @@ class VideoCodecSettingsDialog(QDialog):
             )
             crf_slider.valueChanged.connect(self._crf_spin.setValue)
             self._crf_spin.valueChanged.connect(crf_slider.setValue)
-            crf_row.addWidget(crf_slider, 1)
-            crf_row.addWidget(self._crf_spin)
-            form.addRow("CRF (quality)", crf_row)
+            form.add_row("CRF (quality)", _level_field(crf_slider, self._crf_spin), width=WIDE)
 
             self._preset = QComboBox()
             for p in X26X_PRESETS:
@@ -383,7 +401,7 @@ class VideoCodecSettingsDialog(QDialog):
             idx = X26X_PRESETS.index(saved_preset) if saved_preset in X26X_PRESETS else 5
             self._preset.setCurrentIndex(idx)
             self._preset.setToolTip("Slower = better compression at same quality")
-            form.addRow("Preset", self._preset)
+            form.add_row("Preset", self._preset, width=NARROW)
 
         elif codec_key in ("cineform", "cineform_rgb"):
             self._cineform_quality = QComboBox()
@@ -397,16 +415,11 @@ class VideoCodecSettingsDialog(QDialog):
             self._cineform_quality.setToolTip(
                 "FFmpeg cfhd quality: film3+/film3 ≈ least compression; low ≈ smallest"
             )
-            form.addRow("Quality", self._cineform_quality)
+            form.add_row("Quality", self._cineform_quality, width=NARROW)
 
-        layout.addLayout(form)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        layout.addWidget(card)
+        layout.addStretch(1)
+        layout.addWidget(_dialog_buttons(self))
 
     def get_settings(self) -> dict[str, str]:
         """Return dict of option key -> value strings for PyAV stream.options."""
@@ -495,7 +508,7 @@ class _InputProbeWorker(QObject):
             self.failed.emit(str(e))
 
 
-class CodecPicker(QToolButton):
+class CodecPicker(PickerButton):
     """Nested family menu for EXR→video codecs (not a flat heading list)."""
 
     key_changed = Signal(str)
@@ -625,6 +638,12 @@ def _form_scroll_area(body: QWidget) -> QScrollArea:
 class ConvertTab(QWidget):
     log_message = Signal(str)
     readiness_changed = Signal(bool)
+    # Probe results cross from the worker thread on these. The slots are bound
+    # methods of this widget, so Qt queues them onto the GUI thread. A plain
+    # closure connected to the worker's signal runs in the worker's thread,
+    # even with QueuedConnection.
+    _probe_succeeded = Signal(int, object)
+    _probe_failed = Signal(int, str)
 
     def __init__(self, mode: str, settings: QSettings, parent: QWidget | None = None):
         super().__init__(parent)
@@ -647,12 +666,24 @@ class ConvertTab(QWidget):
         layout.setSpacing(8)
 
         # -- Input + src colorspace inline --
-        in_group = QGroupBox("Input")
-        in_main = QVBoxLayout(in_group)
-        in_main.setSpacing(4)
+        in_group = Card(
+            "Input",
+            "The clip to convert." if mode == "video2exr" else "The frames to convert.",
+        )
+        in_main = in_group.body
+        in_form = FormGrid()
 
-        in_row = QHBoxLayout()
-        in_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        # The source as an object: drop target when empty, clip card when set.
+        if mode == "video2exr":
+            self.source_card = SourceCard("Drop a video here", empty_icon="film")
+        else:
+            self.source_card = SourceCard(
+                "Drop a frame or a folder of frames here", empty_icon="folder-open"
+            )
+        self.source_card.clicked.connect(lambda: self._on_browse_clicked(is_input=True))
+        in_main.addWidget(self.source_card)
+        in_main.addLayout(in_form)
+
         self.input_path = QLineEdit()
         self.input_path.setPlaceholderText(
             "Video file (mp4, mov, mkv, \u2026)"
@@ -664,20 +695,11 @@ class ConvertTab(QWidget):
             self.input_path.setText(saved_in)
         self._browse_in = QPushButton("Browse\u2026")
         self._browse_in.setToolTip(self._browse_button_tooltip())
-        in_row.addWidget(self.input_path, 1)
-        in_row.addWidget(self._browse_in)
-        in_main.addLayout(in_row)
+        in_form.add_row("Path", self.input_path, self._browse_in, width=FILL)
 
-        cs_in_row = QHBoxLayout()
-        cs_in_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        cs_in_row.addWidget(QLabel("Color space:"))
         self.src_btn = ColorSpaceButton()
-        cs_in_row.addWidget(self.src_btn, 1)
-        in_main.addLayout(cs_in_row)
+        in_form.add_row("Color space", self.src_btn, width=WIDE)
 
-        range_row = QHBoxLayout()
-        range_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        range_row.addWidget(QLabel("Frames:"))
         self._frame_range_edit = QLineEdit()
         self._frame_range_edit.setPlaceholderText("e.g. 1001-1100, 1-50x2")
         self._frame_range_edit.setToolTip(
@@ -689,28 +711,27 @@ class ConvertTab(QWidget):
                 self._frame_range_edit,
             )
         )
-        range_row.addWidget(self._frame_range_edit, 1)
-
         self._reset_range_btn = QToolButton()
-        self._reset_range_btn.setText("\u21ba")
+        set_button_icon(self._reset_range_btn, "rotate-ccw")
+        set_style_property(self._reset_range_btn, "variant", "ghost")
         self._reset_range_btn.setToolTip("Reset to source range")
+        self._reset_range_btn.setAccessibleName("Reset to source range")
         self._reset_range_btn.setEnabled(False)
         self._reset_range_btn.clicked.connect(self._reset_to_source_range)
-        range_row.addWidget(self._reset_range_btn)
-
-        in_main.addLayout(range_row)
+        in_form.add_row("Frames", self._frame_range_edit, self._reset_range_btn, width=MEDIUM)
         self._full_input_range = ""
         in_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         layout.addWidget(in_group)
 
         # -- Output + dst colorspace inline --
-        out_group = QGroupBox("Output")
-        out_main = QVBoxLayout(out_group)
-        out_main.setSpacing(4)
+        out_group = Card(
+            "Output",
+            "Where the EXR sequence goes." if mode == "video2exr" else "The video to write.",
+        )
+        out_form = FormGrid()
+        out_group.body.addLayout(out_form)
 
-        out_row = QHBoxLayout()
-        out_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.output_path = QLineEdit()
         self.output_path.setPlaceholderText(
             f"Output directory for EXR sequence (name.{'#' * DEFAULT_FRAME_PADDING}.exr)"
@@ -722,24 +743,18 @@ class ConvertTab(QWidget):
             self.output_path.setText(saved_out)
         self._browse_out = QPushButton("Browse\u2026")
         self._browse_out.setToolTip(self._browse_button_tooltip())
-        out_row.addWidget(self.output_path, 1)
-        out_row.addWidget(self._browse_out)
-        out_main.addLayout(out_row)
+        out_form.add_row("Path", self.output_path, self._browse_out, width=FILL)
 
-        cs_out_row = QHBoxLayout()
-        cs_out_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        cs_out_row.addWidget(QLabel("Color space:"))
         self.dst_btn = ColorSpaceButton()
-        cs_out_row.addWidget(self.dst_btn, 1)
-        out_main.addLayout(cs_out_row)
+        out_form.add_row("Color space", self.dst_btn, width=WIDE)
         out_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         layout.addWidget(out_group)
 
         # -- Options row: scale + mode-specific in one group --
-        opts_group = QGroupBox("Options")
-        opts_layout = QFormLayout(opts_group)
-        opts_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        opts_group = Card("Options")
+        opts_layout = FormGrid()
+        opts_group.body.addLayout(opts_layout)
 
         self.scale_combo = QComboBox()
         for scale_val, scale_label in SCALE_OPTIONS:
@@ -753,28 +768,24 @@ class ConvertTab(QWidget):
             lambda _: self._settings.setValue(f"{self._mode}/scale", self.scale_combo.currentData())
         )
 
-        scale_row = QHBoxLayout()
-        scale_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        scale_row.setSpacing(12)
-        scale_row.addWidget(self.scale_combo, 1)
-
         if mode == "exr2video":
+            overlays: list[QWidget] = []
             self._slate_model = SlateModel(settings, mode, parent=self)
 
             self._slate_check = QCheckBox("Slate")
             self._slate_check.setToolTip("Prepend a 1-frame slate image before the video")
             self._slate_check.setChecked(self._slate_model.slate_enabled)
-            scale_row.addWidget(self._slate_check)
+            overlays.append(self._slate_check)
 
             self._burnin_check = QCheckBox("Burn-in")
             self._burnin_check.setToolTip("Overlay semi-transparent text on every frame")
             self._burnin_check.setChecked(self._slate_model.burnin_enabled)
-            scale_row.addWidget(self._burnin_check)
+            overlays.append(self._burnin_check)
 
             self._watermark_check = QCheckBox("Watermark")
             self._watermark_check.setToolTip("Add a diagonal watermark across every frame")
             self._watermark_check.setChecked(self._slate_model.watermark_enabled)
-            scale_row.addWidget(self._watermark_check)
+            overlays.append(self._watermark_check)
 
             self._invisible_wm_check = QCheckBox("Invisible WM")
             self._invisible_wm_check.setToolTip(
@@ -788,35 +799,41 @@ class ConvertTab(QWidget):
             self._invisible_wm_check.toggled.connect(
                 lambda on: self._settings.setValue(f"{self._mode}/invisible_watermark", bool(on))
             )
-            scale_row.addWidget(self._invisible_wm_check)
+            overlays.append(self._invisible_wm_check)
 
-            scale_row.addStretch()
-
+            # A labelled button: "what does the pencil do" should not need a hover.
             self._edit_slate_btn = QToolButton()
-            self._edit_slate_btn.setText("\u270e")
+            self._edit_slate_btn.setText("Edit\u2026")
+            self._edit_slate_btn.setIcon(icon("pencil", "FG_DIM"))
+            self._edit_slate_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            set_style_property(self._edit_slate_btn, "variant", "ghost")
             self._edit_slate_btn.setToolTip("Edit Slate & Overlay\u2026")
-            self._edit_slate_btn.setAutoRaise(True)
-            self._edit_slate_btn.setFixedWidth(28)
+            self._edit_slate_btn.setAccessibleName("Edit slate and overlay")
             self._edit_slate_btn.clicked.connect(self._open_slate_dialog)
-            scale_row.addWidget(self._edit_slate_btn)
+            overlays.append(self._edit_slate_btn)
         else:
+            overlays = []
             self._slate_model = None
             self._slate_check = None
             self._burnin_check = None
             self._watermark_check = None
             self._invisible_wm_check = None
 
-        opts_layout.addRow("Scale", scale_row)
-
         self._pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{mode}/pixel_aspect", self)
         self._pixel_aspect_note = QLabel("Clip: square pixels")
         self._pixel_aspect_note.setToolTip(
             "What Auto will tag. A fixed pixel aspect above replaces it."
         )
-        par_row = QHBoxLayout()
-        par_row.addWidget(self._pixel_aspect_combo, 1)
-        par_row.addWidget(self._pixel_aspect_note, 2)
-        opts_layout.addRow("Pixel aspect", par_row)
+        set_style_property(self._pixel_aspect_note, "role", "muted")
+        # Two short choices share a row; each keeps its own label.
+        opts_layout.add_row(
+            "Scale",
+            self.scale_combo,
+            inline_label("Pixel aspect", self._pixel_aspect_combo),
+            sized(self._pixel_aspect_combo, NARROW),
+            self._pixel_aspect_note,
+            width=NARROW,
+        )
         self._pixel_aspect_combo.currentIndexChanged.connect(
             lambda _i: self._refresh_pixel_aspect_note()
         )
@@ -834,12 +851,10 @@ class ConvertTab(QWidget):
                     self.compression_combo.currentData(),
                 )
             )
-            comp_row = QHBoxLayout()
-            comp_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-            comp_row.setSpacing(4)
-            comp_row.addWidget(self.compression_combo, 1)
             self._comp_settings_btn = QToolButton()
-            self._comp_settings_btn.setText("\u2699")
+            set_button_icon(self._comp_settings_btn, "settings")
+            set_style_property(self._comp_settings_btn, "variant", "ghost")
+            self._comp_settings_btn.setAccessibleName("Compression settings")
             self._comp_settings_btn.setAutoRaise(True)
             self._comp_settings_btn.setFixedWidth(28)
             self._comp_settings_btn.setToolTip("Compression settings\u2026")
@@ -848,8 +863,9 @@ class ConvertTab(QWidget):
             self.compression_combo.currentIndexChanged.connect(
                 lambda _: self._update_comp_btn_state()
             )
-            comp_row.addWidget(self._comp_settings_btn)
-            opts_layout.addRow("EXR Compression", comp_row)
+            opts_layout.add_row(
+                "EXR compression", self.compression_combo, self._comp_settings_btn, width=NARROW
+            )
 
             self.padding_spin = QSpinBox()
             self.padding_spin.setRange(1, 8)
@@ -872,15 +888,13 @@ class ConvertTab(QWidget):
                 lambda v: self._settings.setValue(f"{self._mode}/start_frame", v)
             )
 
-            frame_row = QHBoxLayout()
-            frame_row.setSpacing(8)
-            frame_row.addWidget(QLabel("Padding"))
-            frame_row.addWidget(self.padding_spin)
-            frame_row.addSpacing(12)
-            frame_row.addWidget(QLabel("Start frame"))
-            frame_row.addWidget(self.start_frame_spin)
-            frame_row.addStretch()
-            opts_layout.addRow("Frame numbering", frame_row)
+            opts_layout.add_row(
+                "Start frame",
+                self.start_frame_spin,
+                inline_label("Padding", self.padding_spin),
+                sized(self.padding_spin, NARROW),
+                width=NARROW,
+            )
 
             self.fps_widget = None
             self.codec_combo = None
@@ -889,7 +903,6 @@ class ConvertTab(QWidget):
             self.padding_spin = None
             self.start_frame_spin = None
             self.fps_widget = FpsCombo(settings, f"{mode}/fps")
-            opts_layout.addRow("Frame rate", self.fps_widget)
 
             self.codec_combo = CodecPicker()
             saved_codec = settings.value(f"{mode}/video_codec", DEFAULT_VIDEO_CODEC)
@@ -897,12 +910,10 @@ class ConvertTab(QWidget):
             self.codec_combo.key_changed.connect(
                 lambda k: self._settings.setValue(f"{self._mode}/video_codec", k)
             )
-            codec_row = QHBoxLayout()
-            codec_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-            codec_row.setSpacing(4)
-            codec_row.addWidget(self.codec_combo, 1)
             self._codec_settings_btn = QToolButton()
-            self._codec_settings_btn.setText("\u2699")
+            set_button_icon(self._codec_settings_btn, "settings")
+            set_style_property(self._codec_settings_btn, "variant", "ghost")
+            self._codec_settings_btn.setAccessibleName("Codec settings")
             self._codec_settings_btn.setAutoRaise(True)
             self._codec_settings_btn.setFixedWidth(28)
             self._codec_settings_btn.setToolTip("Codec settings\u2026")
@@ -911,14 +922,26 @@ class ConvertTab(QWidget):
             self.codec_combo.key_changed.connect(lambda _: self._update_codec_btn_state())
             self.codec_combo.key_changed.connect(lambda _: self._update_output_ext())
             self.codec_combo.key_changed.connect(lambda _: self._update_dst_for_codec())
-            codec_row.addWidget(self._codec_settings_btn)
-            opts_layout.addRow("Codec", codec_row)
+            opts_layout.add_row(
+                "Codec",
+                self.codec_combo,
+                self._codec_settings_btn,
+                inline_label("Frame rate", self.fps_widget),
+                sized(self.fps_widget, NARROW),
+                width=WIDE,
+            )
         else:
             self.compression_combo = None
             self.padding_spin = None
             self.start_frame_spin = None
             self.fps_widget = None
             self.codec_combo = None
+
+        if overlays:
+            # Last: what the picture is comes before what is drawn over it.
+            opts_layout.add_row("Overlays", *overlays, width=NATURAL, spacing=14).setToolTip(
+                "Slate, burn-in and watermarks added to the video"
+            )
 
         opts_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addWidget(opts_group)
@@ -992,6 +1015,8 @@ class ConvertTab(QWidget):
                 self.setTabOrder(tab_chain[i], tab_chain[i + 1])
 
         # -- Connections --
+        self._probe_succeeded.connect(self._on_probe_succeeded)
+        self._probe_failed.connect(self._on_probe_failed)
         self._browse_in.clicked.connect(lambda: self._on_browse_clicked(is_input=True))
         self._browse_out.clicked.connect(lambda: self._on_browse_clicked(is_input=False))
         self._install_path_field_menus()
@@ -1118,7 +1143,33 @@ class ConvertTab(QWidget):
         self._emit_readiness()
 
     def _emit_readiness(self) -> None:
+        self._refresh_source_card()
         self.readiness_changed.emit(self.is_ready())
+
+    def _refresh_source_card(self) -> None:
+        """Mirror the probed input model (never the raw text field) on the card."""
+        video = self._video_info
+        seq = self._input_seq
+        if video is not None:
+            self.source_card.set_source(
+                Path(video.path).name,
+                video_details(video.width, video.height, video.frame_count, video.fps),
+                video.path,
+            )
+        elif seq is not None:
+            try:
+                frames = sorted(seq.frameSet())
+            except Exception:
+                frames = []
+            pad = "#" * max(1, seq.zfill())
+            first, last = (frames[0], frames[-1]) if frames else (0, 0)
+            self.source_card.set_source(
+                f"{seq.basename()}{pad}{seq.extension()}",
+                sequence_details(len(frames), first, last, str(seq.extension())),
+                str(seq.frame(first)) if frames else "",
+            )
+        else:
+            self.source_card.set_empty()
 
     def is_ready(self) -> bool:
         """True when all required fields are populated with validated inputs."""
@@ -1750,9 +1801,9 @@ class ConvertTab(QWidget):
 
     def _flash_field(self, widget: QWidget) -> None:
         """Brief amber flash on a path field / button after an auto-edit."""
-        widget.setStyleSheet("background-color: #3a3020;")
+        set_style_property(widget, "flash", True)
         # Context = *widget* so the clear always runs on that object (never sticky).
-        QTimer.singleShot(500, widget, lambda w=widget: w.setStyleSheet(""))
+        QTimer.singleShot(500, widget, lambda w=widget: set_style_property(w, "flash", False))
 
     def _update_output_placeholder(self) -> None:
         """Update the output placeholder and current pattern to reflect padding."""
@@ -1892,37 +1943,16 @@ class ConvertTab(QWidget):
         worker.moveToThread(thr)
         thr.started.connect(worker.run)
 
-        def _apply_range() -> None:
-            if frame_range and self._full_input_range:
-                self._frame_range_edit.setText(frame_range)
-
-        def _ok(result: object) -> None:
-            if gen != getattr(self, "_probe_gen", 0):
-                return
-            self._apply_probe_result(result)
-            _apply_range()
-
-        def _fail(err: str) -> None:
-            if gen != getattr(self, "_probe_gen", 0):
-                return
-            self.log_message.emit(f"Could not open input: {err}")
-            # Sync fallback: directory/file probes are usually fast; try once
-            # on the GUI thread so a restored path is not left "shown but
-            # unaccepted" after a transient async failure.
-            try:
-                if self.set_input(path):
-                    _apply_range()
-                    self.log_message.emit(f"Opened (retry): {path}")
-            except Exception:
-                pass
+        self._probe_request = (gen, path, frame_range)
 
         def _cleanup() -> None:
             if getattr(self, "_probe_thread", None) is thr:
                 self._probe_thread = None
                 self._probe_worker = None
 
-        worker.finished.connect(_ok, Qt.ConnectionType.QueuedConnection)
-        worker.failed.connect(_fail, Qt.ConnectionType.QueuedConnection)
+        # These lambdas run in the worker thread and only re-emit.
+        worker.finished.connect(lambda result, g=gen: self._probe_succeeded.emit(g, result))
+        worker.failed.connect(lambda err, g=gen: self._probe_failed.emit(g, err))
         worker.finished.connect(thr.quit)
         worker.failed.connect(thr.quit)
         thr.finished.connect(worker.deleteLater)
@@ -1931,6 +1961,34 @@ class ConvertTab(QWidget):
         self._probe_thread = thr
         self._probe_worker = worker
         thr.start()
+
+    def _apply_requested_range(self, frame_range: str) -> None:
+        if frame_range and self._full_input_range:
+            self._frame_range_edit.setText(frame_range)
+
+    def _on_probe_succeeded(self, gen: int, result: object) -> None:
+        """GUI thread: adopt the probe result unless a newer probe replaced it."""
+        request = getattr(self, "_probe_request", None)
+        if request is None or gen != request[0] or gen != getattr(self, "_probe_gen", 0):
+            return
+        self._apply_probe_result(result)
+        self._apply_requested_range(request[2])
+
+    def _on_probe_failed(self, gen: int, err: str) -> None:
+        request = getattr(self, "_probe_request", None)
+        if request is None or gen != request[0] or gen != getattr(self, "_probe_gen", 0):
+            return
+        _gen, path, frame_range = request
+        self.log_message.emit(f"Could not open input: {err}")
+        # Sync fallback: directory/file probes are usually fast; try once
+        # on the GUI thread so a restored path is not left "shown but
+        # unaccepted" after a transient async failure.
+        try:
+            if self.set_input(path):
+                self._apply_requested_range(frame_range)
+                self.log_message.emit(f"Opened (retry): {path}")
+        except Exception:
+            pass
 
     def _apply_probe_result(self, result: object) -> None:
         """Apply a successful async probe result on the GUI thread."""

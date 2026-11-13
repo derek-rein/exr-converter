@@ -86,13 +86,66 @@ def test_watch_refuses_missing_folder(tab: ProxyTab, tmp_path) -> None:
 def test_custom_folder_row_follows_location(tab: ProxyTab, qapp: QApplication) -> None:
     tab.show()
     qapp.processEvents()
-    assert tab.output_dir.isHidden()
+    assert tab.output_dir.isHidden() and tab._folder_label.isHidden()
     tab.location_combo.setCurrentIndex(tab.location_combo.findData(LOCATION_CUSTOM))
     qapp.processEvents()
-    assert not tab.output_dir.isHidden()
+    assert not tab.output_dir.isHidden() and not tab._folder_label.isHidden()
     tab.location_combo.setCurrentIndex(tab.location_combo.findData(LOCATION_BESIDE))
     qapp.processEvents()
-    assert tab.output_dir.isHidden()
+    assert tab.output_dir.isHidden() and tab._folder_label.isHidden()
+
+
+def test_form_controls_share_one_left_edge(tab: ProxyTab, qapp: QApplication) -> None:
+    """Every card's fields start on the same column, as on the convert tabs."""
+    tab.resize(880, 700)
+    tab.show()
+    qapp.processEvents()
+    fields = [
+        tab.location_combo,
+        tab.codec_combo,
+        tab.resolution_combo,
+        tab.suffix_edit,
+        tab.watermark_cb,
+        tab.watch_dir,
+    ]
+    assert len({w.mapTo(tab, w.rect().topLeft()).x() for w in fields}) == 1
+
+
+def test_tab_order_follows_reading_order(tab: ProxyTab, qapp: QApplication) -> None:
+    tab.show()
+    qapp.processEvents()
+    order = [
+        tab.clip_list,
+        tab._add_files_btn,
+        tab.recursive_cb,
+        tab.location_combo,
+        tab.codec_combo,
+        tab.audio_cb,
+        tab.resolution_combo,
+        tab.pixel_aspect_combo,
+        tab.suffix_edit,
+        tab.skip_existing_cb,
+        tab.watermark_cb,
+        tab.watermark_payload,
+        tab.watermark_strength,
+        tab.watch_dir,
+        tab._browse_watch,
+        tab.existing_cb,
+        tab.watch_btn,
+    ]
+    assert _focus_chain_positions(tab.clip_list, order) == sorted(
+        _focus_chain_positions(tab.clip_list, order)
+    )
+
+
+def _focus_chain_positions(start: QWidget, widgets: list[QWidget]) -> list[int]:
+    """Where each of *widgets* comes in the focus chain that starts at *start*."""
+    chain: list[QWidget] = []
+    w = start
+    while w not in chain:
+        chain.append(w)
+        w = w.nextInFocusChain()
+    return [chain.index(x) for x in widgets]
 
 
 def test_watch_folder_is_always_shown(tab: ProxyTab, qapp: QApplication) -> None:

@@ -9,21 +9,15 @@ its metadata) and all clips share one output space. Jobs run on the serial
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt, Signal
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
-    QFileDialog,
-    QGridLayout,
-    QGroupBox,
-    QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QPushButton,
     QSizePolicy,
     QSpinBox,
     QVBoxLayout,
@@ -65,24 +59,22 @@ from ..core.transcode import (
     transcode_source_suffixes,
     validate_settings,
 )
-from ..core.trustmark.payload import (
-    DEFAULT_STRENGTH,
-    MAX_TEXT_CHARS,
-    STRENGTH_MAX,
-    STRENGTH_MIN,
-)
 from ..services.proxy_queue import TranscodeJob, TranscodeQueue
+from .batch_common import (
+    BatchTab,
+    OutputLocation,
+    SourceClipsPanel,
+    WatermarkControls,
+)
+from .batch_rules import LOCATION_BESIDE, LOCATION_CUSTOM  # noqa: F401 (re-exported)
 from .color_widgets import ColorSpaceButton, lock_form_row_height
+from .components import FILL, NARROW, WIDE, Card, FormGrid, inline_label, sized
 from .convert_tab import _ConvertFormBody, _form_scroll_area
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import encoder_mode
-from .proxy_tab import _field_label, _limit_combo_width
-from .style import HINT_STYLE
+from .style import set_style_property
 from .token_line_edit import TokenLineEdit
 from .transcode_clips import ClipColorTree
-
-LOCATION_BESIDE = "beside"
-LOCATION_CUSTOM = "custom"
 
 _K = "transcode"
 
@@ -102,17 +94,11 @@ def _fps_text(fps: float) -> str:
     return str(int(fps)) if fps == int(fps) else f"{fps:.3f}"
 
 
-class TranscodeTab(QWidget):
+class TranscodeTab(BatchTab):
     """Transcode form. Jobs run serially on :class:`TranscodeQueue`."""
 
-    log_message = Signal(str)
-    readiness_changed = Signal(bool)
-    progress = Signal(int, int)
-    busy_changed = Signal(bool)
-
     def __init__(self, settings: QSettings, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._settings = settings
+        super().__init__(settings, _K, "transcode", parent)
         self._queue = TranscodeQueue(self)
         self._config_source = ""
         self._config_path = ""
@@ -130,9 +116,6 @@ class TranscodeTab(QWidget):
         layout.setSpacing(8)
 
         # -- Source clips --
-        in_group = QGroupBox("Source clips")
-        in_main = QVBoxLayout(in_group)
-        in_main.setSpacing(4)
         self.clip_tree = ClipColorTree()
         self.clip_tree.setObjectName("transcodeClipList")
         self.clip_tree.setMinimumHeight(120)
@@ -141,39 +124,30 @@ class TranscodeTab(QWidget):
             "Clips to transcode when you press Convert. Drop videos or folders here too.\n"
             "Each clip shows its progress, then ✓ when done or ✗ on error (hover for details)."
         )
-        in_main.addWidget(self.clip_tree)
         self._clips_hint = QLabel(
             "Click an input color space to change it. A folder's space applies to every "
             "clip inside; expand the folder to set clips one by one."
         )
         self._clips_hint.setWordWrap(True)
-        self._clips_hint.setStyleSheet(HINT_STYLE)
-        in_main.addWidget(self._clips_hint)
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(6)
-        self._add_files_btn = QPushButton("Add Clips…")
-        self._add_folder_btn = QPushButton("Add Folder…")
-        self._remove_btn = QPushButton("Remove")
-        self._clear_btn = QPushButton("Clear")
-        for b in (self._add_files_btn, self._add_folder_btn, self._remove_btn, self._clear_btn):
-            lock_form_row_height(b)
-            btn_row.addWidget(b)
-        self.recursive_cb = QCheckBox("Include subfolders")
-        self.recursive_cb.setToolTip("Add Folder… also adds clips in nested folders.")
-        self.recursive_cb.setChecked(settings.value(f"{_K}/recursive", False, type=bool))
-        btn_row.addSpacing(8)
-        btn_row.addWidget(self.recursive_cb)
-        btn_row.addStretch()
-        in_main.addLayout(btn_row)
+        set_style_property(self._clips_hint, "role", "hint")
+        in_group = self._sources = SourceClipsPanel(
+            self.clip_tree,
+            settings,
+            _K,
+            recursive_tip="Add Folder… also adds clips in nested folders.",
+            hint=self._clips_hint,
+        )
+        self._add_files_btn = in_group.add_files_btn
+        self._add_folder_btn = in_group.add_folder_btn
+        self._remove_btn = in_group.remove_btn
+        self._clear_btn = in_group.clear_btn
+        self.recursive_cb = in_group.recursive_cb
         layout.addWidget(in_group)
 
         # -- Output --
-        out_group = QGroupBox("Output")
-        grid = QGridLayout(out_group)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(6)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(3, 1)
+        out_group = Card("Output")
+        form = FormGrid()
+        out_group.body.addLayout(form)
 
         self.codec_combo = QComboBox()
         for spec in available_transcode_codecs():
@@ -184,10 +158,13 @@ class TranscodeTab(QWidget):
         self._select(self.codec_combo, settings.value(f"{_K}/codec", DEFAULT_TRANSCODE_CODEC))
         self.container_combo = QComboBox()
         self.container_combo.setToolTip("File type. The choices follow the codec.")
-        grid.addWidget(_field_label("Codec"), 0, 0)
-        grid.addWidget(self.codec_combo, 0, 1)
-        grid.addWidget(_field_label("Container"), 0, 2)
-        grid.addWidget(self.container_combo, 0, 3, 1, 2)
+        form.add_row(
+            "Codec",
+            self.codec_combo,
+            inline_label("Container", self.container_combo),
+            sized(self.container_combo, NARROW),
+            width=WIDE,
+        )
 
         self.resolution_combo = QComboBox()
         for key in TRANSCODE_RESOLUTION_MENU:
@@ -200,6 +177,37 @@ class TranscodeTab(QWidget):
             self.resolution_combo,
             settings.value(f"{_K}/resolution", DEFAULT_TRANSCODE_RESOLUTION),
         )
+        self.pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{_K}/pixel_aspect", self)
+        # Two picture-size choices share a row, as Scale and Pixel aspect do
+        # on the convert tabs.
+        form.add_row(
+            "Resolution",
+            self.resolution_combo,
+            inline_label("Pixel aspect", self.pixel_aspect_combo),
+            sized(self.pixel_aspect_combo, NARROW),
+            width=NARROW,
+        )
+
+        self.width_spin = QSpinBox()
+        self.height_spin = QSpinBox()
+        for spin, key, tip in (
+            (self.width_spin, "custom_width", "Width in pixels (0 = from height and aspect)"),
+            (self.height_spin, "custom_height", "Height in pixels (0 = from width and aspect)"),
+        ):
+            spin.setRange(0, 16384)
+            spin.setSingleStep(2)
+            spin.setToolTip(tip)
+            spin.setValue(int(settings.value(f"{_K}/{key}", 0, type=int)))
+        self._times_label = QLabel("×")
+        # Shown only for Custom size.
+        self._size_label = form.add_row(
+            "Size",
+            self.width_spin,
+            self._times_label,
+            sized(self.height_spin, NARROW),
+            width=NARROW,
+        )
+
         self.fps_combo = QComboBox()
         self.fps_combo.addItem("Keep source", _FPS_KEEP)
         for f in COMMON_FPS:
@@ -215,37 +223,9 @@ class TranscodeTab(QWidget):
         self.fps_spin.setDecimals(3)
         self.fps_spin.setSuffix(" fps")
         self._restore_fps(float(settings.value(f"{_K}/fps", _FPS_KEEP, type=float)))
-        fps_row = QHBoxLayout()
-        fps_row.setSpacing(6)
-        fps_row.addWidget(self.fps_combo, 1)
-        fps_row.addWidget(self.fps_spin)
-        grid.addWidget(_field_label("Resolution"), 1, 0)
-        grid.addWidget(self.resolution_combo, 1, 1)
-        grid.addWidget(_field_label("Frame rate"), 1, 2)
-        grid.addLayout(fps_row, 1, 3, 1, 2)
+        # The custom rate box shows only for "Conform to custom…".
+        form.add_row("Frame rate", self.fps_combo, sized(self.fps_spin, NARROW), width=WIDE)
 
-        self._size_label = _field_label("Size")
-        self.width_spin = QSpinBox()
-        self.height_spin = QSpinBox()
-        for spin, key, tip in (
-            (self.width_spin, "custom_width", "Width in pixels (0 = from height and aspect)"),
-            (self.height_spin, "custom_height", "Height in pixels (0 = from width and aspect)"),
-        ):
-            spin.setRange(0, 16384)
-            spin.setSingleStep(2)
-            spin.setToolTip(tip)
-            spin.setValue(int(settings.value(f"{_K}/{key}", 0, type=int)))
-        size_row = QHBoxLayout()
-        size_row.setSpacing(6)
-        size_row.addWidget(self.width_spin, 1)
-        self._times_label = QLabel("×")
-        size_row.addWidget(self._times_label)
-        size_row.addWidget(self.height_spin, 1)
-        size_row.addStretch(1)
-        grid.addWidget(self._size_label, 2, 0)
-        grid.addLayout(size_row, 2, 1, 1, 4)
-
-        self._quality_label = _field_label("Quality")
         self.rate_combo = QComboBox()
         self.rate_combo.addItem("Constant quality (CRF)", RATE_CRF)
         self.rate_combo.addItem("Target bitrate", RATE_BITRATE)
@@ -265,39 +245,49 @@ class TranscodeTab(QWidget):
             self.preset_combo.addItem(p, p)
         self.preset_combo.setToolTip("Encoder speed. Slower is smaller at the same quality.")
         self._select(self.preset_combo, settings.value(f"{_K}/preset", DEFAULT_PRESET))
-        q_row = QHBoxLayout()
-        q_row.setSpacing(6)
-        q_row.addWidget(self.crf_spin)
-        q_row.addWidget(self.bitrate_spin)
-        grid.addWidget(self._quality_label, 3, 0)
-        grid.addWidget(self.rate_combo, 3, 1)
-        grid.addLayout(q_row, 3, 2)
-        grid.addWidget(self.preset_combo, 3, 3, 1, 2)
+        # Intra-frame codecs show the note in place of the rate controls.
         self._intra_note = QLabel("Intra-frame codec: quality is set by the profile.")
-        self._intra_note.setStyleSheet(HINT_STYLE)
-        grid.addWidget(self._intra_note, 3, 1, 1, 4)
+        set_style_property(self._intra_note, "role", "hint")
+        self._quality_label = form.add_row(
+            "Quality",
+            self.rate_combo,
+            sized(self.crf_spin, NARROW),
+            sized(self.bitrate_spin, NARROW),
+            sized(self.preset_combo, NARROW),
+            self._intra_note,
+            width=WIDE,
+        )
 
         self.audio_combo = QComboBox()
         self.audio_combo.setToolTip(
             "First audio track. Copy keeps the source audio as is when the\n"
             "container can hold it, and encodes it otherwise."
         )
-        self.overwrite_combo = QComboBox()
-        for key, label in OVERWRITE_MODES:
-            self.overwrite_combo.addItem(label, key)
-        self.overwrite_combo.setToolTip(
-            "When the output file already exists: skip the clip, replace the file,\n"
-            "or add _1, _2, … to the new file name."
-        )
-        self._select(self.overwrite_combo, settings.value(f"{_K}/overwrite", DEFAULT_OVERWRITE))
-        grid.addWidget(_field_label("Audio"), 4, 0)
-        grid.addWidget(self.audio_combo, 4, 1)
-        grid.addWidget(_field_label("If file exists"), 4, 2)
-        grid.addWidget(self.overwrite_combo, 4, 3, 1, 2)
+        form.add_row("Audio", self.audio_combo, width=WIDE)
 
-        self.location_combo = QComboBox()
-        self.location_combo.addItem("Next to each clip", LOCATION_BESIDE)
-        self.location_combo.addItem("Custom folder", LOCATION_CUSTOM)
+        output_dir = TokenLineEdit(
+            groups=PATH_TOKEN_GROUPS,
+            tooltip=(
+                "Folder for all transcodes. It can use variables too, e.g.\n"
+                "/Volumes/Dailies/<date>/<reel>  or  $DAILIES_ROOT/<reel>\n"
+                "$VAR / ${VAR} read environment variables (${VAR:-default} for a fallback).\n"
+                "Right-click to insert a variable:\n\n" + tokens_tooltip()
+            ),
+        )
+        output_dir.setText(str(settings.value(f"{_K}/output_dir", "") or ""))
+        output_dir.setPlaceholderText("Folder for all transcodes")
+        self._location = OutputLocation(
+            "Next to each clip",
+            output_dir,
+            dialog_parent=self,
+            dialog_title="Transcode output folder",
+        )
+        self.location_combo = self._location.combo
+        self._location.add_to(form)
+        self._folder_label = self._location.folder_label
+        self.output_dir = output_dir
+        self._browse_out = self._location.browse_btn
+
         self.name_edit = TokenLineEdit(
             groups=PATH_TOKEN_GROUPS,
             tooltip=(
@@ -310,96 +300,56 @@ class TranscodeTab(QWidget):
             str(settings.value(f"{_K}/pattern", DEFAULT_NAME_PATTERN) or DEFAULT_NAME_PATTERN)
         )
         self.name_edit.setPlaceholderText(DEFAULT_NAME_PATTERN)
-        grid.addWidget(_field_label("Location"), 5, 0)
-        grid.addWidget(self.location_combo, 5, 1)
-        grid.addWidget(_field_label("Name"), 5, 2)
-        grid.addWidget(self.name_edit, 5, 3, 1, 2)
-
-        self._folder_label = _field_label("Folder")
-        self.output_dir = TokenLineEdit(
-            groups=PATH_TOKEN_GROUPS,
-            tooltip=(
-                "Folder for all transcodes. It can use variables too, e.g.\n"
-                "/Volumes/Dailies/<date>/<reel>  or  $DAILIES_ROOT/<reel>\n"
-                "$VAR / ${VAR} read environment variables (${VAR:-default} for a fallback).\n"
-                "Right-click to insert a variable:\n\n" + tokens_tooltip()
-            ),
-        )
-        self.output_dir.setText(str(settings.value(f"{_K}/output_dir", "") or ""))
-        self.output_dir.setPlaceholderText("Folder for all transcodes")
-        self._browse_out = QPushButton("Browse…")
-        grid.addWidget(self._folder_label, 6, 0)
-        grid.addWidget(self.output_dir, 6, 1, 1, 3)
-        grid.addWidget(self._browse_out, 6, 4)
-        self.pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{_K}/pixel_aspect", self)
-        grid.addWidget(_field_label("Pixel aspect"), 7, 0)
-        grid.addWidget(self.pixel_aspect_combo, 7, 1, 1, 2)
+        form.add_row("Name", self.name_edit, width=FILL)
         self._naming_hint = QLabel(
             "Right-click Name or Folder to insert variables such as <reel>, <name> "
             "or <srcresolution>. Use / in Name for sub-folders, and $VAR or ${VAR} "
             "for environment variables."
         )
-        self._naming_hint.setStyleSheet(HINT_STYLE)
+        set_style_property(self._naming_hint, "role", "hint")
         self._naming_hint.setWordWrap(True)
-        grid.addWidget(self._naming_hint, 7, 1, 1, 4)
+        # The hint explains Name / Folder, so it sits right under them.
+        form.add_row("", self._naming_hint, width=FILL)
+
+        self.overwrite_combo = QComboBox()
+        for key, label in OVERWRITE_MODES:
+            self.overwrite_combo.addItem(label, key)
+        self.overwrite_combo.setToolTip(
+            "When the output file already exists: skip the clip, replace the file,\n"
+            "or add _1, _2, … to the new file name."
+        )
+        self._select(self.overwrite_combo, settings.value(f"{_K}/overwrite", DEFAULT_OVERWRITE))
+        form.add_row("If file exists", self.overwrite_combo, width=NARROW)
         layout.addWidget(out_group)
 
         # -- Color and watermark --
-        color_group = QGroupBox("Color and watermark")
-        color_grid = QGridLayout(color_group)
-        color_grid.setHorizontalSpacing(8)
-        color_grid.setVerticalSpacing(6)
-        color_grid.setColumnStretch(1, 1)
+        color_group = Card("Color and watermark")
+        color_form = FormGrid()
+        color_group.body.addLayout(color_form)
         self.dst_btn = ColorSpaceButton()
         self.dst_btn.setToolTip(
             "Output color space or display for every clip, from the OCIO config\n"
             "chosen at the top of the window. Each clip converts from its input\n"
             "space in the list above."
         )
-        color_grid.addWidget(_field_label("Output space"), 0, 0)
-        color_grid.addWidget(self.dst_btn, 0, 1)
+        color_form.add_row("Output space", self.dst_btn, width=WIDE)
 
-        self.watermark_cb = QCheckBox("Invisible watermark")
-        self.watermark_cb.setToolTip(
-            "Embed an invisible TrustMark watermark in every frame (same as Video → Proxy).\n"
-            "Off by default. The encoder model downloads once into your cache."
+        self._watermark = WatermarkControls(
+            settings,
+            _K,
+            check_text="Invisible watermark",
+            check_tip=(
+                "Embed an invisible TrustMark watermark in every frame (same as Video → Proxy).\n"
+                "Off by default. The encoder model downloads once into your cache."
+            ),
         )
-        self.watermark_cb.setChecked(settings.value(f"{_K}/watermark", False, type=bool))
-        self.watermark_payload = QLineEdit(str(settings.value(f"{_K}/watermark_text", "") or ""))
-        self.watermark_payload.setMaxLength(MAX_TEXT_CHARS)
-        self.watermark_payload.setPlaceholderText(
-            f"Payload, up to {MAX_TEXT_CHARS} ASCII characters"
-        )
-        self.watermark_strength = QDoubleSpinBox()
-        self.watermark_strength.setRange(STRENGTH_MIN, STRENGTH_MAX)
-        self.watermark_strength.setSingleStep(0.05)
-        self.watermark_strength.setDecimals(2)
-        self.watermark_strength.setValue(
-            float(settings.value(f"{_K}/watermark_strength", DEFAULT_STRENGTH, type=float))
-        )
-        self.watermark_strength.setToolTip("TrustMark strength. 1.00 is the normal strength.")
-        self._strength_label = QLabel("Strength")
-        wm_row = QHBoxLayout()
-        wm_row.setSpacing(6)
-        wm_row.addWidget(self.watermark_payload, 1)
-        wm_row.addWidget(self._strength_label)
-        wm_row.addWidget(self.watermark_strength)
-        color_grid.addWidget(self.watermark_cb, 1, 0)
-        color_grid.addLayout(wm_row, 1, 1)
+        self.watermark_cb = self._watermark.check
+        self.watermark_payload = self._watermark.payload
+        self.watermark_strength = self._watermark.strength
+        self._strength_label = self._watermark.strength_label
+        self._watermark.add_to(color_form)
         layout.addWidget(color_group)
 
-        for combo, chars in (
-            (self.codec_combo, 18),
-            (self.container_combo, 12),
-            (self.resolution_combo, 12),
-            (self.fps_combo, 12),
-            (self.rate_combo, 14),
-            (self.preset_combo, 8),
-            (self.audio_combo, 12),
-            (self.overwrite_combo, 10),
-            (self.location_combo, 14),
-        ):
-            _limit_combo_width(combo, chars)
         for g in (in_group, out_group, color_group):
             g.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addStretch()
@@ -413,10 +363,13 @@ class TranscodeTab(QWidget):
             self.fps_spin,
             self.width_spin,
             self.height_spin,
+            self.pixel_aspect_combo,
             self.rate_combo,
             self.crf_spin,
             self.bitrate_spin,
             self.preset_combo,
+            # Same row height whether the rate controls or the note show.
+            self._intra_note,
             self.audio_combo,
             self.overwrite_combo,
             self.location_combo,
@@ -432,7 +385,7 @@ class TranscodeTab(QWidget):
 
         outer.addWidget(_form_scroll_area(body))
 
-        self._select(self.location_combo, settings.value(f"{_K}/location", LOCATION_BESIDE))
+        self._location.restore(settings, _K)
         self._on_codec_changed(save=False)
         self._sync_all()
 
@@ -441,8 +394,7 @@ class TranscodeTab(QWidget):
         self._add_folder_btn.clicked.connect(self._pick_folder)
         self._remove_btn.clicked.connect(self._remove_selected)
         self._clear_btn.clicked.connect(self._clear_clips)
-        self._browse_out.clicked.connect(self._pick_output_dir)
-        self.recursive_cb.toggled.connect(lambda v: self._save("recursive", v))
+        self._sources.save_to(settings, _K)
         self.codec_combo.currentIndexChanged.connect(lambda _: self._on_codec_changed())
         self.container_combo.currentIndexChanged.connect(lambda _: self._on_container_changed())
         self.resolution_combo.currentIndexChanged.connect(
@@ -466,17 +418,14 @@ class TranscodeTab(QWidget):
         self.overwrite_combo.currentIndexChanged.connect(
             lambda _: self._save("overwrite", self.overwrite_mode())
         )
-        self.location_combo.currentIndexChanged.connect(
-            lambda _: self._changed("location", self.location())
-        )
+        self._location.save_to(settings, _K)
+        self.location_combo.currentIndexChanged.connect(lambda _: self._sync_all())
         self.name_edit.textChanged.connect(lambda t: self._changed("pattern", t))
-        self.output_dir.textChanged.connect(lambda t: self._changed("output_dir", t))
+        self.output_dir.textChanged.connect(lambda _: self._sync_all())
         self.dst_btn.space_changed.connect(lambda n: self._changed("color_dst", n))
-        self.watermark_cb.toggled.connect(lambda v: self._changed("watermark", v))
-        self.watermark_payload.textChanged.connect(lambda t: self._changed("watermark_text", t))
-        self.watermark_strength.valueChanged.connect(
-            lambda v: self._save("watermark_strength", float(v))
-        )
+        self._watermark.save_to(settings, _K)
+        self.watermark_cb.toggled.connect(lambda _: self._sync_all())
+        self.watermark_payload.textChanged.connect(lambda _: self._sync_all())
         self.clip_tree.spaces_changed.connect(self._emit_readiness)
 
         self._queue.log_message.connect(self.log_message)
@@ -520,7 +469,7 @@ class TranscodeTab(QWidget):
         return str(self.overwrite_combo.currentData() or DEFAULT_OVERWRITE)
 
     def location(self) -> str:
-        return str(self.location_combo.currentData() or LOCATION_BESIDE)
+        return self._location.location()
 
     def fps(self) -> float:
         val = float(self.fps_combo.currentData() or 0.0)
@@ -529,9 +478,7 @@ class TranscodeTab(QWidget):
         return val
 
     def custom_output_dir(self) -> str | None:
-        if self.location() != LOCATION_CUSTOM:
-            return None
-        return self.output_dir.text().strip() or None
+        return self._location.custom_output_dir()
 
     def clips(self) -> list[str]:
         return self.clip_tree.clips()
@@ -543,9 +490,6 @@ class TranscodeTab(QWidget):
     @property
     def queue(self) -> TranscodeQueue:
         return self._queue
-
-    def is_busy(self) -> bool:
-        return self._queue.is_busy()
 
     def is_ready(self) -> bool:
         if self.clip_tree.clip_count() == 0:
@@ -559,9 +503,6 @@ class TranscodeTab(QWidget):
         if not self.dst_btn.is_valid() or self.clip_tree.detection_pending():
             return False
         return self.clip_tree.all_valid()
-
-    def _emit_readiness(self) -> None:
-        self.readiness_changed.emit(self.is_ready())
 
     def _restore_fps(self, saved: float) -> None:
         for i in range(self.fps_combo.count()):
@@ -629,13 +570,9 @@ class TranscodeTab(QWidget):
         self.preset_combo.setVisible(long_gop)
         self._intra_note.setVisible(not long_gop)
 
-        custom = self.location() == LOCATION_CUSTOM
-        for w in (self._folder_label, self.output_dir, self._browse_out):
-            w.setVisible(custom)
+        self._location.sync_visible()
 
-        wm = self.watermark_cb.isChecked()
-        for w in (self.watermark_payload, self._strength_label, self.watermark_strength):
-            w.setEnabled(wm)
+        self._watermark.sync_enabled()
         self._emit_readiness()
 
     # -- OCIO --
@@ -692,42 +629,17 @@ class TranscodeTab(QWidget):
             self.log_message.emit(f"Transcode list: added {added} clip(s)")
         return added
 
-    def handle_dropped_path(self, path: str) -> bool:
-        return self.add_paths([path]) > 0
-
     def _set_item_state(self, source: str, prefix: str, tip: str = "") -> None:
         self.clip_tree.set_status(source, prefix, tip)
 
-    def _pick_files(self) -> None:
-        exts = " ".join(f"*{e}" for e in sorted(transcode_source_suffixes()))
-        start = str(self._settings.value(f"{_K}/last_dir", "") or "")
-        files, _ = QFileDialog.getOpenFileNames(
-            self, "Add clips", start, f"Video ({exts});;All files (*)"
-        )
-        if files:
-            self._save("last_dir", str(Path(files[0]).parent))
-            self.add_paths(files)
-
-    def _pick_folder(self) -> None:
-        start = str(self._settings.value(f"{_K}/last_dir", "") or "")
-        folder = QFileDialog.getExistingDirectory(self, "Add folder of clips", start)
-        if folder:
-            self._save("last_dir", folder)
-            if not self.add_paths([folder]):
-                self.log_message.emit(f"No video clips found in {folder}")
+    def _source_suffixes(self) -> Iterable[str]:
+        return transcode_source_suffixes()
 
     def _remove_selected(self) -> None:
         self.clip_tree.remove_selected()
 
     def _clear_clips(self) -> None:
         self.clip_tree.clear_clips()
-
-    def _pick_output_dir(self) -> None:
-        folder = QFileDialog.getExistingDirectory(
-            self, "Transcode output folder", self.output_dir.text().strip()
-        )
-        if folder:
-            self.output_dir.setText(folder)
 
     # -- jobs --
 
@@ -737,9 +649,7 @@ class TranscodeTab(QWidget):
         The input space is per clip (see :meth:`settings_for`); here it is the
         output space, a placeholder that passes validation.
         """
-        watermark_text = ""
-        if self.watermark_cb.isChecked():
-            watermark_text = self.watermark_payload.text().strip()
+        watermark_text = self._watermark.payload_text()
         dst = self.dst_btn.current_space()
         if not dst:
             raise ValueError("Pick an output color space.")
@@ -815,19 +725,8 @@ class TranscodeTab(QWidget):
                     self._set_item_state(src, "…", "Queued")
         return queued
 
-    def start_batch(self) -> int:
-        """Queue every listed clip (the window's Convert button)."""
-        if not self.is_ready():
-            return 0
-        clips = self.clips()
-        self.log_message.emit(f"--- transcode ({len(clips)} clip(s)) ---")
-        n = self.enqueue(clips)
-        if n == 0:
-            self.log_message.emit("Nothing to convert.")
-        return n
-
     def cancel(self) -> None:
-        self._queue.cancel_all()
+        super().cancel()
         for src in self.clips():
             if self.clip_tree.status_text(src).startswith("… "):
                 self._set_item_state(src, "")

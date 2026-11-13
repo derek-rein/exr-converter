@@ -13,12 +13,36 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- The input of Video → EXR and EXR → Video is shown as a card: a drop target while empty, then a thumbnail with the clip or sequence name, resolution, frame count, frame rate, and range. It flags missing frames in a sequence. Click it to browse. The path field stays below it.
+- Motion: the tab underline slides, tab pages fade in, progress glides between values, Convert reacts to hover and press. All of it is under 300 ms. Turn it off with **Reduce motion** in Preferences, or by setting `EXR_CONVERTER_REDUCE_MOTION=1`.
+- The log is a drawer. Closed, it is one line with the latest status; click **Log** to open it. It opens by itself when a conversion fails. The height is remembered.
+- Browse dialogs: drawn icons for places, volumes, favorites, and search in place of emoji; a compact folder tree; a table without grid lines; and Open as the accent button.
+- Video → Proxy and Transcode show a hint in the empty clip list: drop clips or folders, or use Add Clips… / Add Folder….
+- Sections are cards: a raised surface with a title and a one-line description. Labels share one column, so fields line up, and menus are sized to what they hold in place of stretching across the window. Related short fields share a row (Scale with Pixel aspect, Codec with Frame rate, Start frame with Padding).
+- Keyboard shortcuts: Ctrl+Return (⌘Return on macOS) starts the conversion, and Ctrl+1 to Ctrl+4 switch tabs. Switching tabs from the keyboard does not animate.
+
 ### Changed
 
 - Browser Preview decodes the frame on screen at a size that covers the pane, including screen pixel density and anamorphic squeeze. R3D, N-RAW, and Blackmagic RAW use the SDK reduced-resolution decode. OpenEXR uses a mip or ripmap when the file has one, and reads RGB only. CinemaDNG uses a smaller embedded preview when one covers the pane, or a half-size debayer when the pane fits in half the frame. Video scales in the decoder. The full viewer and convert output are unchanged.
 
+- Refreshed the interface, keeping the neutral dark look. Orange now marks only the primary action, the selection, and keyboard focus. Sections are a title over a line in place of nested boxes, tabs are underlined, and dim text is lighter so small hints are easier to read.
+- The OCIO config picker is one header row. The status beside it shows the color space count, and its tooltip has the config name or the load error.
+- The progress bar appears only while a job runs. The When done options, Cancel, and Convert share one row, with Convert at the end.
+- Color space and codec pickers look like the menus they are: left-aligned text and a chevron.
+- Reset range, edit slate, codec and compression settings, and the player transport use drawn icons in place of text symbols, which showed as color emoji on some systems.
+- The log starts small and remembers the height you drag it to.
+
 ### Fixed
 
+- Form fields on Preferences and Transcode keep one label column on Windows. Longer labels wrap so every card's controls stay on the same x.
+- Transcode: the naming hint no longer draws over the Pixel aspect menu.
+- Dropping a file on the window accepts every video type the app reads (for example `.mts`, `.m2ts`, `.mpg`, `.dv`), not a shorter list of eleven.
+- Slate & Overlay Editor: Cancel (or Esc) now discards the edits made in that session. Before, every keystroke was already saved, so Cancel kept them.
+- OCIO config: choosing the Custom file row again opens the file picker, so you can switch to another `.ocio` file without selecting a different config first.
+- Choosing an input no longer updates the window from a background thread. The async probe applied its result (path, frame range, color space) from the worker thread, which Qt does not allow and which could stall or crash the interface.
+- Browse dialogs open wide enough to read folder names and the Name column.
 - HDR (PQ, HLG), Rec.2020, sRGB, and linear video clips get the right source colour space guess. They were all read as Rec.709.
 - Transcode and proxy no longer overwrite the source when the output name differs only in letter case on a case-insensitive macOS volume (for example `C0001.MOV` to `C0001.mov`).
 - `proxy` CLI: clips with the same name in one run (`clip.mov` and `clip.mxf`, or `A/clip.mov` and `B/clip.mov` into one output folder) each get their own proxy, numbered `_1`, `_2`, …. Before, the second was skipped as existing or overwrote the first.

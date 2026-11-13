@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QSizePolicy,
     QToolButton,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -39,7 +38,8 @@ from ..core.ocio_utils import (
     list_nuke_configs,
     resolve_ocio_config,
 )
-from .style import STATUS_DIM, STATUS_ERR, STATUS_OK
+from .picker_button import PickerButton
+from .style import color, set_style_property
 
 # Single-line convert/OCIO controls. QSS min-height is the content box
 # (~22px + 4px padding + 1px border each side = 32px widget).
@@ -91,7 +91,7 @@ def fill_color_space_menu(
     return all_names
 
 
-class ColorSpaceButton(QToolButton):
+class ColorSpaceButton(PickerButton):
     """A button that pops up a nested QMenu grouped by OCIO family.
 
     The menu is shown manually under the press point (not via QToolButton's
@@ -109,20 +109,8 @@ class ColorSpaceButton(QToolButton):
 
     space_changed = Signal(str)
 
-    # Visual cue when the displayed name is not in the current config.
-    # No min-height here. On macOS with Qt 6.9.2 a widget stylesheet
-    # min-height replaces the fixed row height. Padding matches the app QSS.
-    _INVALID_STYLE = (
-        "QToolButton { color: #e07070; border: 1px solid #a04040; "
-        "background-color: #3a2020; border-radius: 3px; padding: 4px 8px; "
-        "text-align: left; font-size: 13px; }"
-    )
-    # Brief cue when the space was chosen by media auto-detect (not sticky).
-    _AUTO_STYLE = (
-        "QToolButton { color: #e8dcc0; border: 1px solid #8a6a30; "
-        "background-color: #3a3020; border-radius: 3px; padding: 4px 8px; "
-        "text-align: left; font-size: 13px; }"
-    )
+    # The invalid and auto-detect looks live in style.qss, selected by the
+    # ``state`` property ("invalid" / "auto" / "").
     _AUTO_FLASH_MS = 1200
 
     def __init__(self, parent: QWidget | None = None):
@@ -283,7 +271,7 @@ class ColorSpaceButton(QToolButton):
     def _begin_auto_flash(self) -> None:
         """Show the auto-detect highlight; timer clears it (never sticky)."""
         self._auto_flash = True
-        self.setStyleSheet(self._AUTO_STYLE)
+        set_style_property(self, "state", "auto")
         self.setToolTip(f"{self._current} — auto-detected from media")
         self._auto_timer.start(self._AUTO_FLASH_MS)
 
@@ -302,12 +290,12 @@ class ColorSpaceButton(QToolButton):
 
     def _apply_valid_style(self) -> None:
         if self._auto_flash:
-            self.setStyleSheet(self._AUTO_STYLE)
+            state = "auto"
         elif self._valid:
-            # Empty stylesheet → inherit app QSS (normal input chrome).
-            self.setStyleSheet("")
+            state = ""
         else:
-            self.setStyleSheet(self._INVALID_STYLE)
+            state = "invalid"
+        set_style_property(self, "state", state)
         lock_form_row_height(self)
 
     @staticmethod
@@ -432,22 +420,26 @@ class OcioConfigPanel(QGroupBox):
         self._prev_index = 0
         self._file_path = settings.value("ocio/file_path", "")
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.setObjectName("ocioPanel")
 
-        layout = QVBoxLayout(self)
-        layout.setSpacing(6)
-
-        source_row = QHBoxLayout()
+        # One row: the config applies to every tab, so it reads as a header,
+        # not as a form section competing with Input / Output.
+        source_row = QHBoxLayout(self)
+        source_row.setContentsMargins(0, 0, 0, 0)
+        source_row.setSpacing(8)
         source_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        source_row.addWidget(QLabel("OCIO Config:"))
+        source_label = QLabel("OCIO config")
+        set_style_property(source_label, "role", "muted")
+        source_row.addWidget(source_label)
         self._source_combo = QComboBox()
         self._source_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._source_combo.setAccessibleName("OCIO config")
         lock_form_row_height(self._source_combo)
         source_row.addWidget(self._source_combo, 1)
-        layout.addLayout(source_row)
 
         self._status = QLabel()
-        self._status.setStyleSheet(STATUS_DIM)
-        layout.addWidget(self._status)
+        set_style_property(self._status, "role", "hint")
+        source_row.addWidget(self._status)
 
         self._builtin_configs = list_builtin_configs()
         self._app_configs = list_app_configs()
@@ -519,6 +511,10 @@ class OcioConfigPanel(QGroupBox):
         self._prev_index = self._source_combo.currentIndex()
 
         self._source_combo.currentIndexChanged.connect(self._on_source_changed)
+        # currentIndexChanged does not fire for the row that is already
+        # current, so choosing "Custom: x.ocio" again could not pick a new file.
+        self._change_handled = False
+        self._source_combo.activated.connect(self._on_source_activated)
 
     def _update_custom_label(self) -> None:
         if self._file_path:
@@ -546,7 +542,7 @@ class OcioConfigPanel(QGroupBox):
             )
         else:
             item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
-            item.setForeground(QColor("#666666"))
+            item.setForeground(QColor(color("FG_DISABLED")))
 
     def _combo_item_is_enabled(self, index: int) -> bool:
         model = self._source_combo.model()
@@ -618,8 +614,9 @@ class OcioConfigPanel(QGroupBox):
         try:
             cfg = resolve_ocio_config(source, file_path=file_path)
         except Exception as e:
-            self._status.setText(f"\u2718  {e}")
-            self._status.setStyleSheet(STATUS_ERR)
+            self._status.setText("\u2718  Config failed to load")
+            self._status.setToolTip(str(e))
+            set_style_property(self._status, "state", "error")
             return None
 
         n = len(list(cfg.getColorSpaceNames()))
@@ -636,11 +633,31 @@ class OcioConfigPanel(QGroupBox):
                 self._status.setToolTip(str(p))
         else:
             desc = source
-        self._status.setText(f"\u2714  {desc}  ({n} color spaces)")
-        self._status.setStyleSheet(STATUS_OK)
+        self._status.setText(f"\u2714  {n} color spaces")
+        if not self._status.toolTip() or not is_nuke_source_key(source):
+            self._status.setToolTip(desc)
+        set_style_property(self._status, "state", "ok")
         return cfg
 
+    def _clear_change_handled(self) -> None:
+        self._change_handled = False
+
+    def _on_source_activated(self, idx: int) -> None:
+        """The user chose a row. Re-open the file picker for the current custom row."""
+        if self._change_handled:
+            # This activation belongs to an index change already dealt with.
+            self._change_handled = False
+            return
+        if self._source_combo.itemData(idx) == OCIO_SOURCE_FILE:
+            self._on_source_changed(idx)
+            self._change_handled = False
+
     def _on_source_changed(self, _idx: int) -> None:
+        # Qt emits activated right after this for a user pick. A programmatic
+        # change has no activation to consume the flag, so it expires on the
+        # next event-loop turn.
+        self._change_handled = True
+        QTimer.singleShot(0, self, self._clear_change_handled)
         # Disabled (incompatible) rows should not be selectable; if Qt still
         # delivers the change, bounce back to the previous enabled index.
         if not self._combo_item_is_enabled(_idx):

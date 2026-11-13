@@ -9,8 +9,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
-    QGroupBox,
-    QHBoxLayout,
+    QGridLayout,
     QLabel,
     QPushButton,
     QVBoxLayout,
@@ -28,6 +27,28 @@ from ..core.quicklook_prefs import (
     set_format_enabled,
     set_quicklook_installed,
 )
+from .components import NATURAL, WIDE, Card, FormGrid
+from .style import set_style_property
+
+# A note under a checkbox starts where the checkbox text starts.
+_CHECK_TEXT_INDENT = 23
+
+
+def _note(text: str, role: str = "hint", indent: int = 0) -> QLabel:
+    """A wrapped line under a field, as wide as the WIDE controls."""
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setContentsMargins(indent, 0, 0, 0)
+    label.setFixedWidth(WIDE[1] + indent)
+    set_style_property(label, "role", role)
+    _reserve_lines(label)
+    return label
+
+
+def _reserve_lines(label: QLabel) -> None:
+    """Layouts size rows from sizeHint, which ignores wrapping; reserve every line."""
+    label.ensurePolished()
+    label.setMinimumHeight(label.heightForWidth(label.width()))
 
 
 class QuickLookDialog(QDialog):
@@ -40,48 +61,35 @@ class QuickLookDialog(QDialog):
         self._settings = settings
 
         root = QVBoxLayout(self)
-        root.setSpacing(12)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
 
-        intro = QLabel(
-            "Spacebar previews and Finder icons for OpenEXR and DPX (macOS 12 and "
-            "later). Off until you turn it on here. Scene-linear frames use this "
-            "app’s default OCIO display view; numbered frames play in the preview."
+        main = Card(
+            "Quick Look",
+            "Spacebar previews and Finder icons for OpenEXR and DPX (macOS 12 and later).",
         )
-        intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
-        root.addWidget(intro)
+        form = FormGrid()
+        main.body.addLayout(form)
 
         self.enable_check = QCheckBox("Use EXR Converter for Quick Look and Finder thumbnails")
         self.enable_check.setObjectName("ql_enable")
         self.enable_check.setChecked(quicklook_installed(settings))
-        root.addWidget(self.enable_check)
-
-        self._status = QLabel()
-        self._status.setObjectName("ql_status")
-        self._status.setWordWrap(True)
-        self._status.setStyleSheet("color: #888;")
-        root.addWidget(self._status)
-
-        self._formats_box = QGroupBox("Formats")
-        formats = QVBoxLayout(self._formats_box)
-        hint = QLabel(
-            "OpenEXR and DPX start on. PNG, JPEG, WebP, TIFF, and DNG stay off so "
-            "Finder keeps its own preview. A format you turn off is declined."
+        form.add_row("Extensions", self.enable_check, width=NATURAL)
+        form.addWidget(
+            _note(
+                "Off until you turn it on here. Scene-linear frames use this "
+                "app’s default OCIO display view; numbered frames play in the preview.",
+                indent=_CHECK_TEXT_INDENT,
+            ),
+            form.rowCount(),
+            1,
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #aaa;")
-        formats.addWidget(hint)
-        self._checks: dict[str, QCheckBox] = {}
-        for fmt in QUICKLOOK_FORMATS:
-            check = QCheckBox(fmt.label)
-            check.setObjectName(f"ql_{fmt.key}")
-            check.setToolTip(fmt.detail)
-            check.setChecked(format_enabled(settings, fmt.key))
-            self._checks[fmt.key] = check
-            formats.addWidget(check)
-        root.addWidget(self._formats_box)
 
-        tools = QHBoxLayout()
+        self._status = _note("", "muted")
+        self._status.setObjectName("ql_status")
+        status_label = form.add_row("Status", self._status, width=NATURAL)
+        form.setAlignment(status_label, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         extensions = QPushButton("Login Items && Extensions…")
         extensions.setToolTip(
             "Opens System Settings, where macOS lists Quick Look extensions. "
@@ -91,14 +99,44 @@ class QuickLookDialog(QDialog):
         cache = QPushButton("Clear Quick Look cache")
         cache.setToolTip("Finder caches previews. OK clears it too.")
         cache.clicked.connect(lambda _checked=False: clear_quicklook_cache())
-        tools.addWidget(extensions)
-        tools.addWidget(cache)
-        tools.addStretch()
-        root.addLayout(tools)
+        form.add_row("System", extensions, cache, width=NATURAL)
+        root.addWidget(main)
+
+        self._formats_box = Card(
+            "Formats", "OpenEXR and DPX start on. A format you turn off is declined."
+        )
+        formats_form = FormGrid()
+        self._formats_box.body.addLayout(formats_form)
+        # Two columns, filled row by row so Tab reads across then down.
+        checks = QWidget()
+        grid = QGridLayout(checks)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(24)
+        grid.setVerticalSpacing(6)
+        self._checks: dict[str, QCheckBox] = {}
+        for index, fmt in enumerate(QUICKLOOK_FORMATS):
+            check = QCheckBox(fmt.label)
+            check.setObjectName(f"ql_{fmt.key}")
+            check.setToolTip(fmt.detail)
+            check.setChecked(format_enabled(settings, fmt.key))
+            self._checks[fmt.key] = check
+            grid.addWidget(check, index // 2, index % 2)
+        preview_label = formats_form.add_row("Preview", checks, width=NATURAL)
+        formats_form.setAlignment(
+            preview_label, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        formats_form.addWidget(
+            _note("PNG, JPEG, WebP, TIFF, and DNG stay off so Finder keeps its own preview."),
+            formats_form.rowCount(),
+            1,
+        )
+        root.addWidget(self._formats_box)
+        root.addStretch(1)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        set_style_property(buttons.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -123,6 +161,7 @@ class QuickLookDialog(QDialog):
             text = "macOS reports the extensions as off."
         self._status.setText(text)
         self._status.setTextFormat(Qt.TextFormat.PlainText)
+        _reserve_lines(self._status)
 
     def _on_accept(self) -> None:
         for key, box in self._checks.items():

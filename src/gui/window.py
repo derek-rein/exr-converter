@@ -11,11 +11,13 @@ from PySide6.QtGui import (
     QCloseEvent,
     QDesktopServices,
     QDragEnterEvent,
+    QDragLeaveEvent,
     QDropEvent,
     QFontDatabase,
     QGuiApplication,
     QIcon,
     QKeySequence,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -26,10 +28,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
-    QProgressBar,
     QPushButton,
     QSplitter,
-    QStatusBar,
     QTabWidget,
     QTextBrowser,
     QVBoxLayout,
@@ -40,17 +40,22 @@ from ..core.constants import (
     APP_VERSION,
     DOCS_URL,
     GITHUB_REPO,
-    IMAGE_SEQUENCE_EXTS,
-    is_image_sequence_ext,
 )
 from ..core.decoders import set_decode_mode
+from ..core.drop_routing import DropTarget, drop_target
+from ..core.fs_skip import VIDEO_EXTS
 from ..core.ocio_utils import color_space_families, config_source_info
 from ..core.pixel_aspect import SQUARE, apply_override, probe_media_aspect
 from ..core.quicklook_prefs import schedule_quicklook_view_lut
 from ..core.video import is_ignored_media_filename
 from ..services.presets import delete_preset, list_presets, load_preset, save_preset
 from ..services.worker import ConvertWorker
+from . import motion
+from .action_bar import PROGRESS_LINE_HEIGHT, PrimaryButton, ProgressLine, StatusLine
+from .animated_tabs import SlidingTabBar
 from .color_widgets import lock_form_row_height
+from .icons import set_button_icon_keep_text
+from .motion import SLOW, Animator, crossfade_from
 from .preferences import (
     PLAYER_MODE_BUILTIN,
     PreferencesDialog,
@@ -63,7 +68,7 @@ from .preferences import (
     sequence_display_name,
 )
 from .proxy_tab import ProxyTab
-from .size_grip import SizeGrip
+from .style import set_style_property
 from .transcode_tab import TranscodeTab
 from .widgets import ConvertTab, OcioConfigPanel, _select_video_codec_combo_key
 
@@ -74,22 +79,32 @@ CONVERT_TABS_MIN_HEIGHT = 200
 PROXY_TAB_INDEX = 2
 TRANSCODE_TAB_INDEX = 3
 LOG_PANE_MIN_HEIGHT = 72
+# First-open height of the log drawer (the user's drag is remembered).
+LOG_OPEN_HEIGHT = 190
 
 
 class AboutDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # Imported here so this class's migration stays out of the shared import block.
+        from .components import NATURAL, Card, FormGrid
+
         self.setWindowTitle("About EXR Converter")
         self.setMinimumSize(480, 480)
-        self.resize(520, 560)
+        self.resize(560, 600)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        # Header only outside the scroll area.
-        title = QLabel(f"<h2>EXR Converter</h2><p>Version {APP_VERSION}</p>")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        card = Card(
+            "EXR Converter", "Video to OpenEXR and back, with OpenColorIO color management."
+        )
+        version = QLabel(f"Version {APP_VERSION}")
+        set_style_property(version, "role", "muted")
+        card.add_header_widget(version)
+        form = FormGrid()
+        card.body.addLayout(form)
 
         try:
             import OpenImageIO as oiio
@@ -158,15 +173,22 @@ class AboutDialog(QDialog):
             f"{plugin_lines}"
         )
 
+        form.add_row("Author", QLabel("Derek Rein"), width=NATURAL)
+        links = QLabel(
+            '<a href="https://derekvfx.ca">derekvfx.ca</a> &nbsp;|&nbsp; '
+            '<a href="https://vfx.systems">vfx.systems</a>'
+        )
+        links.setOpenExternalLinks(True)
+        form.add_row("Links", links, width=NATURAL)
+        libraries = QLabel(deps)
+        libraries.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        set_style_property(libraries, "role", "muted")
+        libraries_label = form.add_row("Libraries", libraries, width=NATURAL)
+        form.setAlignment(libraries_label, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         body = QTextBrowser()
         body.setOpenExternalLinks(True)
         body.setHtml(
-            f"<p style='text-align:center;'>{deps}</p>"
-            "<hr>"
-            "<p>by <b>Derek Rein</b></p>"
-            '<p><a href="https://derekvfx.ca">derekvfx.ca</a> &nbsp;|&nbsp; '
-            '<a href="https://vfx.systems">vfx.systems</a></p>'
-            "<hr>"
             "<p><b>Bundled OCIO config:</b> ACES Studio Config v4 (ACES 2.0)<br>"
             "Sourced from <a href='https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES/releases'>"
             "AcademySoftwareFoundation/OpenColorIO-Config-ACES</a> (BSD-3-Clause).<br>"
@@ -198,31 +220,36 @@ class AboutDialog(QDialog):
             "— use the buttons below.</p>"
         )
         body.setReadOnly(True)
-        layout.addWidget(body, 1)
+        form.add_wide(body)
+        form.setRowStretch(form.rowCount() - 1, 1)
 
-        notice_row = QHBoxLayout()
+        notices: list[QPushButton] = []
         red_btn = QPushButton("RED redistributable notice…")
         red_btn.setToolTip("End-user terms for optional RED R3D / N-RAW libraries")
         red_btn.clicked.connect(self._show_red_notice)
-        notice_row.addWidget(red_btn)
+        notices.append(red_btn)
         braw_btn = QPushButton("Blackmagic RAW notice…")
         braw_btn.setToolTip("End-user terms for optional Blackmagic RAW libraries")
         braw_btn.clicked.connect(self._show_braw_notice)
-        notice_row.addWidget(braw_btn)
+        notices.append(braw_btn)
         try:
             from ..core.source_plugins import notices as plugin_notices
 
             for title_text, notice_text in plugin_notices():
-                btn = QPushButton(f"{title_text}\u2026")
+                btn = QPushButton(f"{title_text}…")
                 btn.clicked.connect(
                     lambda _checked=False, t=title_text, n=notice_text: self._show_notice(t, n)
                 )
-                notice_row.addWidget(btn)
+                notices.append(btn)
         except Exception:
             pass
-        layout.addLayout(notice_row)
+        for btn in notices:
+            set_style_property(btn, "variant", "ghost")
+        form.add_row("Notices", *notices, width=NATURAL, spacing=4)
+        layout.addWidget(card, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        set_style_property(buttons.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
 
@@ -231,11 +258,14 @@ class AboutDialog(QDialog):
         dlg.setWindowTitle(title)
         dlg.setMinimumSize(480, 360)
         lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(12)
         text = QPlainTextEdit()
         text.setReadOnly(True)
         text.setPlainText(notice.strip())
         lay.addWidget(text, 1)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        set_style_property(bb.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
         bb.accepted.connect(dlg.accept)
         lay.addWidget(bb)
         dlg.exec()
@@ -243,34 +273,12 @@ class AboutDialog(QDialog):
     def _show_red_notice(self) -> None:
         from ..core.r3d import RED_REDISTRIBUTABLE_NOTICE
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle("RED R3D redistributable notice")
-        dlg.setMinimumSize(480, 360)
-        lay = QVBoxLayout(dlg)
-        text = QPlainTextEdit()
-        text.setReadOnly(True)
-        text.setPlainText(RED_REDISTRIBUTABLE_NOTICE.strip())
-        lay.addWidget(text, 1)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        bb.accepted.connect(dlg.accept)
-        lay.addWidget(bb)
-        dlg.exec()
+        self._show_notice("RED R3D redistributable notice", RED_REDISTRIBUTABLE_NOTICE)
 
     def _show_braw_notice(self) -> None:
         from ..core.braw import BMD_REDISTRIBUTABLE_NOTICE
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Blackmagic RAW redistributable notice")
-        dlg.setMinimumSize(480, 360)
-        lay = QVBoxLayout(dlg)
-        text = QPlainTextEdit()
-        text.setReadOnly(True)
-        text.setPlainText(BMD_REDISTRIBUTABLE_NOTICE.strip())
-        lay.addWidget(text, 1)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        bb.accepted.connect(dlg.accept)
-        lay.addWidget(bb)
-        dlg.exec()
+        self._show_notice("Blackmagic RAW redistributable notice", BMD_REDISTRIBUTABLE_NOTICE)
 
 
 class MainWindow(QMainWindow):
@@ -297,6 +305,7 @@ class MainWindow(QMainWindow):
         # Standalone sequence player from post-convert Open result (Video → EXR).
         self._result_player_win: QDialog | None = None
 
+        motion.apply_saved_preference(self._settings)
         self._build_menu_bar()
 
         central = QWidget()
@@ -312,13 +321,14 @@ class MainWindow(QMainWindow):
 
         top = QWidget()
         top_layout = QVBoxLayout(top)
-        top_layout.setContentsMargins(8, 8, 8, 4)
-        top_layout.setSpacing(6)
+        top_layout.setContentsMargins(12, 10, 12, 8)
+        top_layout.setSpacing(8)
 
         self._ocio_panel = OcioConfigPanel(self._settings)
         top_layout.addWidget(self._ocio_panel)
 
         self._tabs = QTabWidget()
+        self._tabs.setTabBar(SlidingTabBar())
         self._tabs.setMinimumHeight(CONVERT_TABS_MIN_HEIGHT)
         self._v2e_tab = ConvertTab("video2exr", self._settings)
         self._e2v_tab = ConvertTab("exr2video", self._settings)
@@ -333,34 +343,42 @@ class MainWindow(QMainWindow):
             self._tabs.setCurrentIndex(saved_tab)
         top_layout.addWidget(self._tabs, 1)
 
-        prog_row = QHBoxLayout()
-        prog_row.setContentsMargins(0, 0, 0, 0)
-        prog_row.setSpacing(6)
-        self._progress = QProgressBar()
+        # Action bar. A thin progress line runs along its top edge while a job
+        # is active; under it sit the When done options, Cancel, and Convert.
+        self._progress = ProgressLine()
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
-        self._progress.setTextVisible(True)
-        self._progress.setFormat("%p%")
         self._progress.setObjectName("convertProgress")
-        prog_row.addWidget(self._progress, 1)
-        self._go = QPushButton("  Convert  ")
+        self._progress.setAccessibleName("Conversion progress")
+        self._progress.setVisible(False)
+        # The slot keeps its 3 px whether or not the line shows: no layout shift.
+        progress_slot = QWidget()
+        progress_slot.setFixedHeight(PROGRESS_LINE_HEIGHT)
+        slot_layout = QHBoxLayout(progress_slot)
+        slot_layout.setContentsMargins(0, 0, 0, 0)
+        slot_layout.addWidget(self._progress)
+        top_layout.addWidget(progress_slot)
+
+        prog_row = QHBoxLayout()
+        prog_row.setContentsMargins(0, 0, 0, 0)
+        prog_row.setSpacing(8)
+        self._go = PrimaryButton("Convert")
         self._go.setObjectName("convertBtn")
+        convert_keys = QKeySequence("Ctrl+Return")
+        native_keys = convert_keys.toString(QKeySequence.SequenceFormat.NativeText)
+        self._go.setToolTip(f"Start the conversion ({native_keys})")
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setEnabled(False)
-        lock_form_row_height(self._progress)
         lock_form_row_height(self._go)
         lock_form_row_height(self._cancel_btn)
-        prog_row.addWidget(self._go)
-        prog_row.addWidget(self._cancel_btn)
-        top_layout.addLayout(prog_row)
 
         # Post-convert actions (persisted). Hidden on the batch tabs (Proxy, Transcode).
         self._after_row_widget = QWidget()
         after_row = QHBoxLayout(self._after_row_widget)
         after_row.setContentsMargins(0, 0, 0, 0)
         after_row.setSpacing(14)
-        after_lbl = QLabel("When done:")
-        after_lbl.setStyleSheet("color: #888;")
+        after_lbl = QLabel("When done")
+        set_style_property(after_lbl, "role", "muted")
         after_row.addWidget(after_lbl)
         self._copy_path_cb = QCheckBox("Copy path")
         self._copy_path_cb.setToolTip(
@@ -393,19 +411,36 @@ class MainWindow(QMainWindow):
             lambda v: self._settings.setValue("ui/show_folder_after", v)
         )
         after_row.addWidget(self._show_folder_cb)
-        after_row.addStretch()
-        top_layout.addWidget(self._after_row_widget)
+        prog_row.addWidget(self._after_row_widget)
+        prog_row.addStretch(1)
+        prog_row.addWidget(self._cancel_btn)
+        prog_row.addWidget(self._go)
+        top_layout.addLayout(prog_row)
 
         splitter.addWidget(top)
 
+        # Log drawer. Closed, it is one line: a toggle and the latest status.
+        # Open, the full log shows under it and the splitter sets its height.
         log_container = QWidget()
+        log_container.setObjectName("logDrawer")
         log_layout = QVBoxLayout(log_container)
-        log_layout.setContentsMargins(8, 4, 8, 4)
+        log_layout.setContentsMargins(12, 4, 12, 6)
+        log_layout.setSpacing(4)
         log_header = QHBoxLayout()
-        log_header.addWidget(QLabel("Log"))
+        log_header.setSpacing(8)
+        self._log_toggle = QPushButton("Log")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.setObjectName("logToggle")
+        self._log_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._log_toggle.setToolTip("Show or hide the log")
+        set_style_property(self._log_toggle, "variant", "ghost")
+        log_header.addWidget(self._log_toggle)
+        # Stands in for the old status bar: same showMessage() calls.
+        self._statusbar = StatusLine()
+        log_header.addWidget(self._statusbar, 1)
         self._clear_log = QPushButton("Clear")
         self._clear_log.setObjectName("clearBtn")
-        log_header.addStretch()
+        set_style_property(self._clear_log, "variant", "ghost")
         log_header.addWidget(self._clear_log)
         log_layout.addLayout(log_header)
         self._log = QPlainTextEdit()
@@ -417,15 +452,13 @@ class MainWindow(QMainWindow):
         self._log.setObjectName("logPane")
         self._log.setMinimumHeight(LOG_PANE_MIN_HEIGHT)
         log_layout.addWidget(self._log, 1)
+        self._log_container = log_container
         splitter.addWidget(log_container)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
-
-        self._statusbar = QStatusBar()
-        # Native grip is invisible under the QSS stylesheet — use a painted one.
-        self._statusbar.setSizeGripEnabled(False)
-        self._statusbar.addPermanentWidget(SizeGrip(self._statusbar))
-        self.setStatusBar(self._statusbar)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        self._log_splitter = splitter
+        self._log_height = Animator(self, self._apply_log_height, duration_ms=SLOW)
+        self._log_toggle.toggled.connect(self._set_log_open)
 
         self._ocio_panel.config_changed.connect(self._reload_ocio)
         self._go.clicked.connect(self._start)
@@ -434,6 +467,8 @@ class MainWindow(QMainWindow):
         self._tabs.currentChanged.connect(lambda i: self._settings.setValue("ui/tab", i))
         self._tabs.currentChanged.connect(lambda _: self._update_go_state())
         self._tabs.currentChanged.connect(lambda _: self._sync_proxy_tab_chrome())
+        self._shown_tab = self._tabs.currentIndex()
+        self._tabs.currentChanged.connect(self._crossfade_tab)
         self._v2e_tab.log_message.connect(self._append_log)
         self._e2v_tab.log_message.connect(self._append_log)
         self._v2e_tab.readiness_changed.connect(lambda _: self._update_go_state())
@@ -456,11 +491,22 @@ class MainWindow(QMainWindow):
         self._update_go_state()
         self._sync_proxy_tab_chrome()
 
+        QShortcut(convert_keys, self).activated.connect(self._start_from_shortcut)
+        for index in range(self._tabs.count()):
+            QShortcut(QKeySequence(f"Ctrl+{index + 1}"), self).activated.connect(
+                lambda i=index: self._tabs.tabBar().set_current_instant(i)
+            )
+
         self._reload_ocio()
 
         geom = self._settings.value("ui/geometry")
         if geom:
             self.restoreGeometry(geom)
+        else:
+            # First launch: tall enough that the EXR and video tabs do not scroll.
+            self.resize(880, 880)
+        self._log_open_height = int(self._settings.value("ui/log_height", LOG_OPEN_HEIGHT))
+        self._set_log_open(self._settings.value("ui/log_open", False, type=bool), animate=False)
 
     def apply_startup(
         self,
@@ -747,6 +793,58 @@ class MainWindow(QMainWindow):
             return self._transcode_tab
         return None
 
+    def _crossfade_tab(self, index: int) -> None:
+        """Fade a picture of the page being left out over the page being shown."""
+        previous = self._tabs.widget(self._shown_tab)
+        self._shown_tab = index
+        current = self._tabs.widget(index)
+        if previous is None or current is None or previous is current or not self.isVisible():
+            return
+        if self._tabs.tabBar().last_change_was_instant():
+            return
+        crossfade_from(previous.grab(), current)
+
+    # -- Log drawer --
+
+    def _log_header_height(self) -> int:
+        margins = self._log_container.layout().contentsMargins()
+        return self._log_toggle.sizeHint().height() + margins.top() + margins.bottom()
+
+    def _apply_log_height(self, height: float) -> None:
+        total = sum(self._log_splitter.sizes()) or self._log_splitter.height()
+        h = int(round(height))
+        self._log_splitter.setSizes([max(0, total - h), h])
+
+    def _set_log_open(self, is_open: bool, *, animate: bool = True) -> None:
+        """Open or close the log drawer; the open height is remembered."""
+        if self._log_toggle.isChecked() != is_open:
+            self._log_toggle.blockSignals(True)
+            self._log_toggle.setChecked(is_open)
+            self._log_toggle.blockSignals(False)
+        closed = self._log_header_height()
+        container = self._log_container
+        if is_open:
+            self._log.setVisible(True)
+            self._clear_log.setVisible(True)
+            container.setMinimumHeight(0)
+            container.setMaximumHeight(16_777_215)
+            target = max(self._log_open_height, closed + LOG_PANE_MIN_HEIGHT + 4)
+            self._log_height.set(float(container.height() or closed))
+            self._log_height.to(float(target), None if animate else 0)
+        else:
+            if container.height() > closed + LOG_PANE_MIN_HEIGHT:
+                self._log_open_height = container.height()
+            self._log.setVisible(False)
+            self._clear_log.setVisible(False)
+            # Fixed at one line: nothing to drag while the pane is hidden.
+            container.setFixedHeight(closed)
+        set_button_icon_keep_text(self._log_toggle, "chevron-down" if is_open else "chevron-right")
+
+    def _start_from_shortcut(self) -> None:
+        """Ctrl+Return: same as clicking Convert, and only when it is enabled."""
+        if self._go.isEnabled():
+            self._start()
+
     def _update_go_state(self) -> None:
         """Enable Convert only when idle and the active tab is ready.
 
@@ -766,6 +864,8 @@ class MainWindow(QMainWindow):
             self._cancel_btn.setEnabled(batch.is_busy())
         else:
             self._cancel_btn.setEnabled(self._is_convert_running() or self._busy == "convert")
+        # The bar shows exactly while there is something to cancel.
+        self._progress.setVisible(self._cancel_btn.isEnabled())
 
     def _sync_proxy_tab_chrome(self) -> None:
         """Post-convert actions apply to single convert jobs, not batch tabs."""
@@ -890,6 +990,7 @@ class MainWindow(QMainWindow):
         self._busy = "convert"
         self._go.setEnabled(False)
         self._cancel_btn.setEnabled(True)
+        self._progress.setVisible(True)
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._progress.setFormat("%p%")
@@ -1018,6 +1119,8 @@ class MainWindow(QMainWindow):
         self._busy = None
         self._progress.setValue(0)
         self._statusbar.showMessage("Conversion failed.")
+        # The details are in the log: show it rather than leave the drawer shut.
+        self._set_log_open(True)
         QMessageBox.critical(self, "Error", msg)
         self._update_go_state()
 
@@ -1528,43 +1631,43 @@ class MainWindow(QMainWindow):
 
     # -- Drag and drop --
 
-    _VIDEO_EXTS = {
-        ".mp4",
-        ".mov",
-        ".mkv",
-        ".avi",
-        ".mxf",
-        ".webm",
-        ".m4v",
-        ".ts",
-        ".r3d",
-        ".nev",
-        ".braw",
-    }
-
-    @classmethod
-    def _video_exts(cls) -> set[str]:
+    @staticmethod
+    def _video_exts() -> set[str]:
+        """Every video suffix the app reads: the core list plus decoder plugins."""
         from ..core.source_plugins import plugin_suffixes
 
-        return cls._VIDEO_EXTS | set(plugin_suffixes())
+        return set(VIDEO_EXTS) | set(plugin_suffixes())
+
+    @staticmethod
+    def _drop_target(path: Path) -> DropTarget | None:
+        from ..core.source_plugins import plugin_suffixes
+
+        return drop_target(path.name, is_dir=path.is_dir(), extra_video_exts=plugin_suffixes())
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         mime = event.mimeData()
         if mime is not None and mime.hasUrls():
             for url in mime.urls():
                 if url.isLocalFile():
-                    p = Path(url.toLocalFile())
-                    if p.is_dir():
-                        event.acceptProposedAction()
-                        return
-                    if is_ignored_media_filename(p.name):
-                        continue
-                    if p.suffix.lower() in (self._video_exts() | IMAGE_SEQUENCE_EXTS):
+                    target = self._drop_target(Path(url.toLocalFile()))
+                    if target is not None:
+                        self._highlight_drop(target)
                         event.acceptProposedAction()
                         return
         event.ignore()
 
+    def _highlight_drop(self, target: DropTarget | None) -> None:
+        """Light the source card the drop would land on (``None`` clears both)."""
+        on_batch = self._batch_tab() is not None
+        self._v2e_tab.source_card.set_drop_active(target is DropTarget.VIDEO and not on_batch)
+        self._e2v_tab.source_card.set_drop_active(target is DropTarget.SEQUENCE and not on_batch)
+
+    def dragLeaveEvent(self, event: QDragLeaveEvent) -> None:
+        self._highlight_drop(None)
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event: QDropEvent) -> None:
+        self._highlight_drop(None)
         mime = event.mimeData()
         if mime is None or not mime.hasUrls():
             return
@@ -1578,21 +1681,14 @@ class MainWindow(QMainWindow):
             if not url.isLocalFile():
                 continue
             p = Path(url.toLocalFile())
-            if (
-                p.is_file()
-                and p.suffix.lower() in self._video_exts()
-                and not is_ignored_media_filename(p.name)
-            ):
+            target = self._drop_target(p)
+            if target is DropTarget.VIDEO and p.is_file():
                 self._tabs.setCurrentIndex(0)
                 self._v2e_tab.handle_dropped_path(str(p))
                 self._append_log(f"Dropped video: {p.name}")
                 event.acceptProposedAction()
                 return
-            if p.is_dir() or (
-                p.is_file()
-                and is_image_sequence_ext(p.suffix)
-                and not is_ignored_media_filename(p.name)
-            ):
+            if target is DropTarget.SEQUENCE and (p.is_dir() or p.is_file()):
                 self._tabs.setCurrentIndex(1)
                 self._e2v_tab.handle_dropped_path(str(p))
                 self._append_log(f"Dropped: {p.name}")
@@ -1601,6 +1697,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._settings.setValue("ui/geometry", self.saveGeometry())
+        self._settings.setValue("ui/log_open", self._log_toggle.isChecked())
+        if self._log_toggle.isChecked():
+            self._log_open_height = self._log_container.height()
+        self._settings.setValue("ui/log_height", self._log_open_height)
         # Flush prefs (input paths, post-convert toggles, …) before exit so a
         # subsequent launch restores a validated source without re-browsing.
         self._settings.sync()

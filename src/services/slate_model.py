@@ -487,5 +487,35 @@ class SlateModel(QObject):
         s.setValue("slate/wm_tiled", int(bool(merged["tiled"])))
         self.changed.emit("watermark_params")
 
+    # ------------------------------------------------------------------
+    # Whole document (editor Cancel)
+    # ------------------------------------------------------------------
+
+    def capture_document(self) -> dict[str, Any]:
+        """Everything the slate editor can change, as one comparable value."""
+        return {
+            "slate": self.capture_slate_snapshot(),
+            "burnin_fields": dict(self._burnin_fields),
+            "watermark_params": dict(self._watermark_params),
+            "slate_enabled": self._slate_enabled,
+            "burnin_enabled": self._burnin_enabled,
+            "watermark_enabled": self._watermark_enabled,
+        }
+
+    def restore_document(self, doc: dict[str, Any]) -> None:
+        """Put back a :meth:`capture_document` value and forget undo history.
+
+        Edits write through to the model and QSettings as they are typed, so
+        Cancel has to restore explicitly. The undo stack is cleared because
+        its commands describe edits that no longer exist.
+        """
+        self.apply_slate_snapshot(doc["slate"])
+        self.set_burnin_fields(doc["burnin_fields"])
+        self.set_watermark_params(doc["watermark_params"])
+        self.set_slate_enabled(doc["slate_enabled"])
+        self.set_burnin_enabled(doc["burnin_enabled"])
+        self.set_watermark_enabled(doc["watermark_enabled"])
+        self._undo.clear()
+
 
 __all__ = ["SlateModel"]

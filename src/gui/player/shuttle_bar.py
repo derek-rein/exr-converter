@@ -7,16 +7,12 @@ from collections.abc import Callable
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
+from ..icons import set_button_icon
+from ..style import set_style_property
 from ..timeline_slider import TimelineSlider
 
-_SHUTTLE_BTN_STYLE = (
-    "QPushButton { background: #2a2a2a; color: #e0e0e0;"
-    " border: 1px solid #3c3c3c; border-radius: 3px;"
-    " font-size: 12px; padding: 0; }"
-    "QPushButton:hover { background: #3c3c3c; }"
-    "QPushButton:pressed { background: #c87828; }"
-    "QPushButton:checked { background: #c87828; color: #fff; }"
-)
+BUTTON_SIZE = (26, 22)
+PLAY_BUTTON_SIZE = (34, 26)
 
 
 class ShuttleBar(QWidget):
@@ -40,15 +36,19 @@ class ShuttleBar(QWidget):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 0, 4, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(4)
 
-        self._btn_first = self._make_btn("\u23ee", "Go to first frame")
-        self._btn_back = self._make_btn("\u23ea", "Step back one frame")
-        self._btn_play = self._make_btn("\u25b6", "Play / pause")
+        self._btn_first = self._make_btn("skip-back", "Go to first frame")
+        self._btn_back = self._make_btn("step-back", "Step back one frame")
+        self._btn_play = self._make_btn("play", "Play / pause")
         self._btn_play.setCheckable(True)
-        self._btn_fwd = self._make_btn("\u23e9", "Step forward one frame")
-        self._btn_last = self._make_btn("\u23ed", "Go to last frame")
+        # The main control reads first: a step larger than its neighbours.
+        self._btn_play.setFixedSize(PLAY_BUTTON_SIZE[0], PLAY_BUTTON_SIZE[1])
+        set_button_icon(self._btn_play, "play", size=16)
+        self._btn_fwd = self._make_btn("step-forward", "Step forward one frame")
+        self._btn_last = self._make_btn("skip-forward", "Go to last frame")
 
+        # Focus stays off the buttons: Space / arrows belong to the player.
         for btn in (
             self._btn_first,
             self._btn_back,
@@ -56,7 +56,7 @@ class ShuttleBar(QWidget):
             self._btn_fwd,
             self._btn_last,
         ):
-            layout.addWidget(btn)
+            layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._btn_first.clicked.connect(self._on_first)
         self._btn_back.clicked.connect(self._on_back)
@@ -96,11 +96,13 @@ class ShuttleBar(QWidget):
         self._refresh_timer_interval()
 
     @staticmethod
-    def _make_btn(text: str, tooltip: str) -> QPushButton:
-        b = QPushButton(text)
-        b.setStyleSheet(_SHUTTLE_BTN_STYLE)
-        b.setFixedSize(26, 22)
+    def _make_btn(icon_name: str, tooltip: str) -> QPushButton:
+        b = QPushButton()
+        set_button_icon(b, icon_name, size=14)
+        set_style_property(b, "variant", "tool")
+        b.setFixedSize(BUTTON_SIZE[0], BUTTON_SIZE[1])
         b.setToolTip(tooltip)
+        b.setAccessibleName(tooltip)
         b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         return b
 
@@ -124,7 +126,7 @@ class ShuttleBar(QWidget):
         self._timeline.value_changed.emit(self._timeline.value())
 
     def _on_play_toggled(self, checked: bool) -> None:
-        self._btn_play.setText("\u23f8" if checked else "\u25b6")
+        set_button_icon(self._btn_play, "pause" if checked else "play", size=16)
         if checked:
             self._timer.start()
         else:

@@ -27,7 +27,7 @@ class TestColorSpaceAutoFlash:
         _populate_simple(btn, "ACEScg", "sRGB", select="ACEScg")
         assert btn.is_valid()
         assert not btn.is_auto_flash()
-        assert btn.styleSheet() == ""
+        assert btn.property("state") == ""
 
     def test_auto_select_flashes_then_clears(self) -> None:
         app = _app()
@@ -38,7 +38,7 @@ class TestColorSpaceAutoFlash:
         assert btn.try_select("sRGB", auto=True)
         assert btn.current_space() == "sRGB"
         assert btn.is_auto_flash()
-        assert "3a3020" in btn.styleSheet()
+        assert btn.property("state") == "auto"
 
         # Drive the single-shot timer to completion.
         deadline = 500
@@ -50,7 +50,7 @@ class TestColorSpaceAutoFlash:
             elapsed += 20
 
         assert not btn.is_auto_flash()
-        assert btn.styleSheet() == ""
+        assert btn.property("state") == ""
         assert btn.is_valid()
         assert btn.current_space() == "sRGB"
 
@@ -64,7 +64,7 @@ class TestColorSpaceAutoFlash:
 
         assert btn.try_select("sRGB", auto=False)
         assert not btn.is_auto_flash()
-        assert btn.styleSheet() == ""
+        assert btn.property("state") == ""
         assert btn.current_space() == "sRGB"
 
     def test_set_current_space_clears_auto_flash(self) -> None:
@@ -76,4 +76,4 @@ class TestColorSpaceAutoFlash:
         assert btn.is_auto_flash()
         btn.set_current_space("sRGB")
         assert not btn.is_auto_flash()
-        assert btn.styleSheet() == ""
+        assert btn.property("state") == ""

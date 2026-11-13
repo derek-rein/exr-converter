@@ -9,25 +9,27 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QRegularExpression, QSettings, Qt, QUrl
+from PySide6.QtCore import QRegularExpression, QSettings, QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
-    QFormLayout,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -48,6 +50,18 @@ from ..services.cache_prefs import (
     save_cache_budget_pct,
     total_ram_bytes,
 )
+from . import motion
+from .components import (
+    FILL,
+    LABEL_WIDTH,
+    NARROW,
+    NATURAL,
+    WIDE,
+    Card,
+    FormGrid,
+    inline_label,
+)
+from .style import set_style_property
 
 # QSettings keys (canonical registry: app_settings.Keys)
 PLAYER_MODE_KEY = Keys.PLAYER_MODE
@@ -413,6 +427,31 @@ def _known_player_candidates() -> list[tuple[str, str]]:
     return found
 
 
+# Under a radio button, its own notes and fields start where its text starts.
+_RADIO_TEXT_INDENT = 23
+# Tallest the dialog opens at; a 13-inch laptop screen fits it. The cards scroll.
+PREFERENCES_MAX_HEIGHT = 720
+
+
+def _hint(text: str, width: int = WIDE[1]) -> QLabel:
+    """A wrapped hint under a field, as wide as the WIDE controls."""
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setFixedWidth(width)
+    set_style_property(label, "role", "hint")
+    # Layouts size rows from sizeHint, which ignores wrapping; reserve every line.
+    label.ensurePolished()
+    label.setMinimumHeight(label.heightForWidth(width))
+    return label
+
+
+class _PreferencesBody(QWidget):
+    """Card column inside the scroll area; its minimum is its natural size."""
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+
 class PreferencesDialog(QDialog):
     """App preferences — currently the video player used by “Open result”."""
 
@@ -423,20 +462,20 @@ class PreferencesDialog(QDialog):
         self._settings = settings
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(12)
 
-        player_box = QGroupBox("Video player")
-        player_layout = QVBoxLayout(player_box)
+        body = _PreferencesBody()
+        cards = QVBoxLayout(body)
+        cards.setContentsMargins(0, 0, 6, 0)  # clear of the scroll bar
+        cards.setSpacing(8)
 
-        hint = QLabel(
-            "Used when <b>Open result</b> is checked after an EXR → video conversion. "
-            "Default is the built-in player (same OCIO viewer as sequence Preview). "
-            "Or use the system default / a custom app (IINA, VLC, mpv, ffplay, …)."
+        # --- Video player ---
+        player_box = Card(
+            "Video player", "Used when Open result is checked after an EXR → video conversion."
         )
-        hint.setWordWrap(True)
-        hint.setTextFormat(Qt.TextFormat.RichText)
-        hint.setStyleSheet("color: #aaa;")
-        player_layout.addWidget(hint)
+        player_form = FormGrid()
+        player_box.body.addLayout(player_form)
 
         self._mode_group = QButtonGroup(self)
         self._builtin_radio = QRadioButton("Built-in player")
@@ -456,11 +495,26 @@ class PreferencesDialog(QDialog):
         self._mode_group.addButton(self._builtin_radio)
         self._mode_group.addButton(self._system_radio)
         self._mode_group.addButton(self._custom_radio)
-        player_layout.addWidget(self._builtin_radio)
-        player_layout.addWidget(self._system_radio)
-        player_layout.addWidget(self._custom_radio)
 
+        # One vertical radio list in the control column; each option's detail
+        # sits under it, indented to its text.
+        choices = QWidget()
+        choice_list = QVBoxLayout(choices)
+        choice_list.setContentsMargins(0, 0, 0, 0)
+        choice_list.setSpacing(4)
+        choice_list.addWidget(self._builtin_radio)
+        builtin_note = _hint("Default. Same OCIO viewer as sequence Preview.")
+        builtin_note.setContentsMargins(_RADIO_TEXT_INDENT, 0, 0, 0)
+        choice_list.addWidget(builtin_note)
+        choice_list.addWidget(self._system_radio)
+        choice_list.addWidget(self._custom_radio)
+
+        custom = QWidget()
+        custom_col = QVBoxLayout(custom)
+        custom_col.setContentsMargins(_RADIO_TEXT_INDENT, 2, 0, 0)
+        custom_col.setSpacing(6)
         custom_row = QHBoxLayout()
+        custom_row.setSpacing(8)
         self._path_edit = QLineEdit()
         self._path_edit.setPlaceholderText(
             "/Applications/IINA.app  or  /usr/local/bin/mpv  or  mpv"
@@ -469,27 +523,37 @@ class PreferencesDialog(QDialog):
         self._browse_btn.clicked.connect(self._browse_player)
         custom_row.addWidget(self._path_edit, 1)
         custom_row.addWidget(self._browse_btn)
-        player_layout.addLayout(custom_row)
+        custom_col.addLayout(custom_row)
 
         detected = _known_player_candidates()
         if detected:
             quick = QHBoxLayout()
-            quick_lbl = QLabel("Detected:")
-            quick_lbl.setStyleSheet("color: #888;")
+            quick.setSpacing(4)
+            quick_lbl = QLabel("Detected")
+            set_style_property(quick_lbl, "role", "muted")
             quick.addWidget(quick_lbl)
+            quick.addSpacing(4)
             for label, path in detected:
                 btn = QPushButton(label)
                 btn.setToolTip(path)
                 btn.clicked.connect(lambda _checked=False, p=path: self._use_detected(p))
                 quick.addWidget(btn)
             quick.addStretch()
-            player_layout.addLayout(quick)
+            custom_col.addLayout(quick)
+        custom_col.addWidget(
+            _hint("Any app or command: IINA, VLC, mpv, ffplay, …", WIDE[1] - _RADIO_TEXT_INDENT)
+        )
+        choice_list.addWidget(custom)
 
-        root.addWidget(player_box)
+        open_with = player_form.add_row("Open with", choices, width=FILL)
+        # The label names the list, so it sits level with the first option.
+        player_form.setAlignment(open_with, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        cards.addWidget(player_box)
 
         # --- Slate thumbnail frame ---
-        slate_box = QGroupBox("Slate")
-        slate_form = QFormLayout(slate_box)
+        slate_box = Card("Slate")
+        slate_form = FormGrid()
+        slate_box.body.addLayout(slate_form)
         self._thumb_combo = QComboBox()
         for value, label in THUMBNAIL_FRAME_CHOICES:
             self._thumb_combo.addItem(label, int(value))
@@ -499,11 +563,13 @@ class PreferencesDialog(QDialog):
             "first, middle, or last. Converted to the slate authoring space "
             "(sRGB-like) so colour management matches the rest of the slate."
         )
-        slate_form.addRow("Thumbnail frame:", self._thumb_combo)
-        root.addWidget(slate_box)
+        slate_form.add_row("Thumbnail frame", self._thumb_combo, width=WIDE)
+        cards.addWidget(slate_box)
 
-        encode_box = QGroupBox("Video encoding")
-        encode_form = QFormLayout(encode_box)
+        # --- GPU encode / decode ---
+        encode_box = Card("Hardware acceleration")
+        encode_form = FormGrid()
+        encode_box.body.addLayout(encode_form)
         self._encoder_combo = QComboBox()
         self._encoder_combo.setObjectName("encoder_mode_combo")
         for value, label in ENCODER_MODES:
@@ -517,7 +583,10 @@ class PreferencesDialog(QDialog):
             "back to the software encoder if it fails. HEVC 12-bit, AV1, ProRes, DNxHR, "
             "CineForm and FFV1 always encode in software."
         )
-        encode_form.addRow("H.264 / HEVC:", self._encoder_combo)
+        encode_label = encode_form.add_row("H.264 / HEVC encoding", self._encoder_combo, width=WIDE)
+        # Two lines, so the label column stays as wide as in every other card.
+        encode_label.setWordWrap(True)
+        encode_label.setMaximumWidth(LABEL_WIDTH)
         self._decoder_combo = QComboBox()
         self._decoder_combo.setObjectName("decoder_mode_combo")
         for value, label in DECODER_MODES:
@@ -531,8 +600,8 @@ class PreferencesDialog(QDialog):
             "machine can, and decode in software otherwise. 4:2:2, 4:4:4, 12-bit, ProRes and "
             "DNxHR always decode in software."
         )
-        encode_form.addRow("Decoding:", self._decoder_combo)
-        root.addWidget(encode_box)
+        encode_form.add_row("Decoding", self._decoder_combo, width=WIDE)
+        cards.addWidget(encode_box)
 
         # Load current values
         mode = player_mode(settings)
@@ -555,19 +624,11 @@ class PreferencesDialog(QDialog):
                 break
 
         # --- Playback RAM cache budget ---
-        cache_box = QGroupBox("Playback cache")
-        cache_layout = QVBoxLayout(cache_box)
-        cache_hint = QLabel(
-            "How much system RAM the sequence player may use for decoded frames "
-            "(slate editor and file-browser Preview). Higher values mean longer "
-            "smooth play; lower values free memory for other apps."
+        cache_box = Card(
+            "Playback cache", "How much system RAM the player may use for decoded frames."
         )
-        cache_hint.setWordWrap(True)
-        cache_hint.setStyleSheet("color: #aaa;")
-        cache_layout.addWidget(cache_hint)
-
-        cache_row = QHBoxLayout()
-        cache_row.addWidget(QLabel("Budget:"))
+        cache_form = FormGrid()
+        cache_box.body.addLayout(cache_form)
         self._cache_slider = QSlider(Qt.Orientation.Horizontal)
         self._cache_slider.setRange(1, 90)
         self._cache_slider.setValue(load_cache_budget_pct(settings))
@@ -576,24 +637,74 @@ class PreferencesDialog(QDialog):
         self._cache_value.setMinimumWidth(120)
         self._cache_slider.valueChanged.connect(self._update_cache_label)
         self._update_cache_label(self._cache_slider.value())
-        cache_row.addWidget(self._cache_slider, 1)
-        cache_row.addWidget(self._cache_value)
-        cache_layout.addLayout(cache_row)
-        root.addWidget(cache_box)
+        # Slider and read-out are one WIDE field, so the row ends on the WIDE edge.
+        budget = QWidget()
+        budget_row = QHBoxLayout(budget)
+        budget_row.setContentsMargins(0, 0, 0, 0)
+        budget_row.setSpacing(8)
+        budget_row.addWidget(self._cache_slider, 1)
+        budget_row.addWidget(self._cache_value)
+        cache_form.add_row("Budget", budget, width=WIDE)
+        cache_form.addWidget(
+            _hint(
+                "For the slate editor and file-browser Preview. Higher values mean longer "
+                "smooth play; lower values free memory for other apps."
+            ),
+            cache_form.rowCount(),
+            1,
+        )
+        cards.addWidget(cache_box)
 
-        root.addWidget(self._build_invisible_wm_box(settings))
+        cards.addWidget(self._build_invisible_wm_box(settings))
 
-        # Boxes keep their natural height; spare space goes below them, not inside.
-        for box in (player_box, slate_box, encode_box, cache_box):
+        interface_box = Card("Interface")
+        interface_form = FormGrid()
+        interface_box.body.addLayout(interface_form)
+        self._reduce_motion_cb = QCheckBox("Reduce motion")
+        self._reduce_motion_cb.setToolTip(
+            "Turn off interface animation: the sliding tab underline, fades, "
+            "and the gliding progress line. Changes apply at once."
+        )
+        self._reduce_motion_cb.setChecked(settings.value(motion.SETTINGS_KEY, False, type=bool))
+        interface_form.add_row("", self._reduce_motion_cb, width=NATURAL)
+        cards.addWidget(interface_box)
+
+        # Cards keep their natural height; spare space goes below them, not inside.
+        for box in (player_box, slate_box, encode_box, cache_box, interface_box):
             box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        root.addStretch(1)
+        cards.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # The dialog's own background shows through, as around the cards before.
+        scroll.setWidget(body)  # turns the body's fill on, so clear it after
+        scroll.viewport().setAutoFillBackground(False)
+        body.setAutoFillBackground(False)
+        root.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        set_style_property(buttons.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+
+        # Open at the cards' natural size, up to what a small laptop screen holds.
+        margins = root.contentsMargins()
+        bar = self.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+        width = body.sizeHint().width() + bar + margins.left() + margins.right()
+        height = (
+            body.sizeHint().height()
+            + root.spacing()
+            + buttons.sizeHint().height()
+            + margins.top()
+            + margins.bottom()
+        )
+        self.resize(max(width, self.minimumWidth()), min(height, PREFERENCES_MAX_HEIGHT))
 
     def _update_cache_label(self, pct: int) -> None:
         budget_gb = total_ram_bytes() * pct / 100 / (1024**3)
@@ -677,6 +788,8 @@ class PreferencesDialog(QDialog):
             int(thumb_data) if thumb_data is not None else THUMBNAIL_FRAME_MID,
         )
         save_cache_budget_pct(self._settings, int(self._cache_slider.value()))
+        self._settings.setValue(motion.SETTINGS_KEY, self._reduce_motion_cb.isChecked())
+        motion.apply_saved_preference(self._settings)
         self._settings.setValue(Keys.ENCODER_MODE, self._encoder_combo.currentData())
         self._settings.setValue(Keys.DECODER_MODE, self._decoder_combo.currentData())
         set_decode_mode(decoder_mode(self._settings))
@@ -689,22 +802,14 @@ class PreferencesDialog(QDialog):
         )
         self.accept()
 
-    def _build_invisible_wm_box(self, settings: QSettings) -> QGroupBox:
-        box = QGroupBox("Invisible watermark")
-        box.setObjectName("invisible_wm_box")
-        layout = QVBoxLayout(box)
-        hint = QLabel(
-            "Payload for <b>Invisible WM</b> on EXR → Video (Adobe TrustMark). "
-            f"Up to {MAX_TEXT_CHARS} printable ASCII characters; token results longer "
-            f"than {MAX_TEXT_CHARS} are cut. "
-            "Tokens: {user} {host} {date} {time} {src}."
+    def _build_invisible_wm_box(self, settings: QSettings) -> Card:
+        box = Card(
+            "Invisible watermark", "Payload for Invisible WM on EXR → Video (Adobe TrustMark)."
         )
-        hint.setWordWrap(True)
-        hint.setTextFormat(Qt.TextFormat.RichText)
-        hint.setStyleSheet("color: #aaa;")
-        layout.addWidget(hint)
+        self._invisible_wm_box = box
+        form = FormGrid()
+        box.body.addLayout(form)
 
-        form = QFormLayout()
         self._wm_template = QLineEdit(invisible_wm_template(settings))
         self._wm_template.setObjectName("invisible_wm_template")
         self._wm_template.setMaxLength(MAX_TEXT_CHARS)
@@ -730,10 +835,24 @@ class PreferencesDialog(QDialog):
             f"TrustMark strength, {STRENGTH_MIN:.2f} to {STRENGTH_MAX:.2f}. "
             f"{DEFAULT_STRENGTH:.2f} is the normal strength."
         )
-        form.addRow("Payload:", self._wm_template)
-        form.addRow("Embeds now:", self._wm_preview)
-        form.addRow("Strength:", self._wm_strength)
-        layout.addLayout(form)
+        # The payload is short; what it embeds now reads best right beside it.
+        form.add_row(
+            "Payload",
+            self._wm_template,
+            inline_label("Embeds now"),
+            self._wm_preview,
+            width=NARROW,
+        )
+        form.addWidget(
+            _hint(
+                f"Up to {MAX_TEXT_CHARS} printable ASCII characters; token results longer "
+                f"than {MAX_TEXT_CHARS} are cut. "
+                "Tokens: {user} {host} {date} {time} {src}."
+            ),
+            form.rowCount(),
+            1,
+        )
+        form.add_row("Strength", self._wm_strength, width=NARROW)
         box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._wm_template.textChanged.connect(self._update_wm_preview)
         self._update_wm_preview(self._wm_template.text())
