@@ -17,9 +17,6 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
-    QGridLayout,
-    QGroupBox,
-    QHBoxLayout,
     QLabel,
     QSizePolicy,
     QSpinBox,
@@ -68,15 +65,14 @@ from .batch_common import (
     OutputLocation,
     SourceClipsPanel,
     WatermarkControls,
-    field_label,
-    limit_combo_width,
 )
 from .batch_rules import LOCATION_BESIDE, LOCATION_CUSTOM  # noqa: F401 (re-exported)
 from .color_widgets import ColorSpaceButton, lock_form_row_height
+from .components import FILL, NARROW, WIDE, Card, FormGrid, inline_label, sized
 from .convert_tab import _ConvertFormBody, _form_scroll_area
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import encoder_mode
-from .style import HINT_STYLE
+from .style import set_style_property
 from .token_line_edit import TokenLineEdit
 from .transcode_clips import ClipColorTree
 
@@ -133,7 +129,7 @@ class TranscodeTab(BatchTab):
             "clip inside; expand the folder to set clips one by one."
         )
         self._clips_hint.setWordWrap(True)
-        self._clips_hint.setStyleSheet(HINT_STYLE)
+        set_style_property(self._clips_hint, "role", "hint")
         in_group = self._sources = SourceClipsPanel(
             self.clip_tree,
             settings,
@@ -149,12 +145,9 @@ class TranscodeTab(BatchTab):
         layout.addWidget(in_group)
 
         # -- Output --
-        out_group = QGroupBox("Output")
-        grid = QGridLayout(out_group)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(6)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(3, 1)
+        out_group = Card("Output")
+        form = FormGrid()
+        out_group.body.addLayout(form)
 
         self.codec_combo = QComboBox()
         for spec in available_transcode_codecs():
@@ -165,10 +158,13 @@ class TranscodeTab(BatchTab):
         self._select(self.codec_combo, settings.value(f"{_K}/codec", DEFAULT_TRANSCODE_CODEC))
         self.container_combo = QComboBox()
         self.container_combo.setToolTip("File type. The choices follow the codec.")
-        grid.addWidget(field_label("Codec"), 0, 0)
-        grid.addWidget(self.codec_combo, 0, 1)
-        grid.addWidget(field_label("Container"), 0, 2)
-        grid.addWidget(self.container_combo, 0, 3, 1, 2)
+        form.add_row(
+            "Codec",
+            self.codec_combo,
+            inline_label("Container", self.container_combo),
+            sized(self.container_combo, NARROW),
+            width=WIDE,
+        )
 
         self.resolution_combo = QComboBox()
         for key in TRANSCODE_RESOLUTION_MENU:
@@ -181,6 +177,37 @@ class TranscodeTab(BatchTab):
             self.resolution_combo,
             settings.value(f"{_K}/resolution", DEFAULT_TRANSCODE_RESOLUTION),
         )
+        self.pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{_K}/pixel_aspect", self)
+        # Two picture-size choices share a row, as Scale and Pixel aspect do
+        # on the convert tabs.
+        form.add_row(
+            "Resolution",
+            self.resolution_combo,
+            inline_label("Pixel aspect", self.pixel_aspect_combo),
+            sized(self.pixel_aspect_combo, NARROW),
+            width=NARROW,
+        )
+
+        self.width_spin = QSpinBox()
+        self.height_spin = QSpinBox()
+        for spin, key, tip in (
+            (self.width_spin, "custom_width", "Width in pixels (0 = from height and aspect)"),
+            (self.height_spin, "custom_height", "Height in pixels (0 = from width and aspect)"),
+        ):
+            spin.setRange(0, 16384)
+            spin.setSingleStep(2)
+            spin.setToolTip(tip)
+            spin.setValue(int(settings.value(f"{_K}/{key}", 0, type=int)))
+        self._times_label = QLabel("×")
+        # Shown only for Custom size.
+        self._size_label = form.add_row(
+            "Size",
+            self.width_spin,
+            self._times_label,
+            sized(self.height_spin, NARROW),
+            width=NARROW,
+        )
+
         self.fps_combo = QComboBox()
         self.fps_combo.addItem("Keep source", _FPS_KEEP)
         for f in COMMON_FPS:
@@ -196,37 +223,9 @@ class TranscodeTab(BatchTab):
         self.fps_spin.setDecimals(3)
         self.fps_spin.setSuffix(" fps")
         self._restore_fps(float(settings.value(f"{_K}/fps", _FPS_KEEP, type=float)))
-        fps_row = QHBoxLayout()
-        fps_row.setSpacing(6)
-        fps_row.addWidget(self.fps_combo, 1)
-        fps_row.addWidget(self.fps_spin)
-        grid.addWidget(field_label("Resolution"), 1, 0)
-        grid.addWidget(self.resolution_combo, 1, 1)
-        grid.addWidget(field_label("Frame rate"), 1, 2)
-        grid.addLayout(fps_row, 1, 3, 1, 2)
+        # The custom rate box shows only for "Conform to custom…".
+        form.add_row("Frame rate", self.fps_combo, sized(self.fps_spin, NARROW), width=WIDE)
 
-        self._size_label = field_label("Size")
-        self.width_spin = QSpinBox()
-        self.height_spin = QSpinBox()
-        for spin, key, tip in (
-            (self.width_spin, "custom_width", "Width in pixels (0 = from height and aspect)"),
-            (self.height_spin, "custom_height", "Height in pixels (0 = from width and aspect)"),
-        ):
-            spin.setRange(0, 16384)
-            spin.setSingleStep(2)
-            spin.setToolTip(tip)
-            spin.setValue(int(settings.value(f"{_K}/{key}", 0, type=int)))
-        size_row = QHBoxLayout()
-        size_row.setSpacing(6)
-        size_row.addWidget(self.width_spin, 1)
-        self._times_label = QLabel("×")
-        size_row.addWidget(self._times_label)
-        size_row.addWidget(self.height_spin, 1)
-        size_row.addStretch(1)
-        grid.addWidget(self._size_label, 2, 0)
-        grid.addLayout(size_row, 2, 1, 1, 4)
-
-        self._quality_label = field_label("Quality")
         self.rate_combo = QComboBox()
         self.rate_combo.addItem("Constant quality (CRF)", RATE_CRF)
         self.rate_combo.addItem("Target bitrate", RATE_BITRATE)
@@ -246,35 +245,25 @@ class TranscodeTab(BatchTab):
             self.preset_combo.addItem(p, p)
         self.preset_combo.setToolTip("Encoder speed. Slower is smaller at the same quality.")
         self._select(self.preset_combo, settings.value(f"{_K}/preset", DEFAULT_PRESET))
-        q_row = QHBoxLayout()
-        q_row.setSpacing(6)
-        q_row.addWidget(self.crf_spin)
-        q_row.addWidget(self.bitrate_spin)
-        grid.addWidget(self._quality_label, 3, 0)
-        grid.addWidget(self.rate_combo, 3, 1)
-        grid.addLayout(q_row, 3, 2)
-        grid.addWidget(self.preset_combo, 3, 3, 1, 2)
+        # Intra-frame codecs show the note in place of the rate controls.
         self._intra_note = QLabel("Intra-frame codec: quality is set by the profile.")
-        self._intra_note.setStyleSheet(HINT_STYLE)
-        grid.addWidget(self._intra_note, 3, 1, 1, 4)
+        set_style_property(self._intra_note, "role", "hint")
+        self._quality_label = form.add_row(
+            "Quality",
+            self.rate_combo,
+            sized(self.crf_spin, NARROW),
+            sized(self.bitrate_spin, NARROW),
+            sized(self.preset_combo, NARROW),
+            self._intra_note,
+            width=WIDE,
+        )
 
         self.audio_combo = QComboBox()
         self.audio_combo.setToolTip(
             "First audio track. Copy keeps the source audio as is when the\n"
             "container can hold it, and encodes it otherwise."
         )
-        self.overwrite_combo = QComboBox()
-        for key, label in OVERWRITE_MODES:
-            self.overwrite_combo.addItem(label, key)
-        self.overwrite_combo.setToolTip(
-            "When the output file already exists: skip the clip, replace the file,\n"
-            "or add _1, _2, … to the new file name."
-        )
-        self._select(self.overwrite_combo, settings.value(f"{_K}/overwrite", DEFAULT_OVERWRITE))
-        grid.addWidget(field_label("Audio"), 4, 0)
-        grid.addWidget(self.audio_combo, 4, 1)
-        grid.addWidget(field_label("If file exists"), 4, 2)
-        grid.addWidget(self.overwrite_combo, 4, 3, 1, 2)
+        form.add_row("Audio", self.audio_combo, width=WIDE)
 
         output_dir = TokenLineEdit(
             groups=PATH_TOKEN_GROUPS,
@@ -294,6 +283,11 @@ class TranscodeTab(BatchTab):
             dialog_title="Transcode output folder",
         )
         self.location_combo = self._location.combo
+        self._location.add_to(form)
+        self._folder_label = self._location.folder_label
+        self.output_dir = output_dir
+        self._browse_out = self._location.browse_btn
+
         self.name_edit = TokenLineEdit(
             groups=PATH_TOKEN_GROUPS,
             tooltip=(
@@ -306,45 +300,39 @@ class TranscodeTab(BatchTab):
             str(settings.value(f"{_K}/pattern", DEFAULT_NAME_PATTERN) or DEFAULT_NAME_PATTERN)
         )
         self.name_edit.setPlaceholderText(DEFAULT_NAME_PATTERN)
-        grid.addWidget(field_label("Location"), 5, 0)
-        grid.addWidget(self.location_combo, 5, 1)
-        grid.addWidget(field_label("Name"), 5, 2)
-        grid.addWidget(self.name_edit, 5, 3, 1, 2)
-
-        self._folder_label = self._location.folder_label
-        self.output_dir = output_dir
-        self._browse_out = self._location.browse_btn
-        grid.addWidget(self._folder_label, 6, 0)
-        grid.addWidget(self.output_dir, 6, 1, 1, 3)
-        grid.addWidget(self._browse_out, 6, 4)
+        form.add_row("Name", self.name_edit, width=FILL)
         self._naming_hint = QLabel(
             "Right-click Name or Folder to insert variables such as <reel>, <name> "
             "or <srcresolution>. Use / in Name for sub-folders, and $VAR or ${VAR} "
             "for environment variables."
         )
-        self._naming_hint.setStyleSheet(HINT_STYLE)
+        set_style_property(self._naming_hint, "role", "hint")
         self._naming_hint.setWordWrap(True)
         # The hint explains Name / Folder, so it sits right under them.
-        grid.addWidget(self._naming_hint, 7, 1, 1, 4)
-        self.pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{_K}/pixel_aspect", self)
-        grid.addWidget(field_label("Pixel aspect"), 8, 0)
-        grid.addWidget(self.pixel_aspect_combo, 8, 1, 1, 2)
+        form.add_row("", self._naming_hint, width=FILL)
+
+        self.overwrite_combo = QComboBox()
+        for key, label in OVERWRITE_MODES:
+            self.overwrite_combo.addItem(label, key)
+        self.overwrite_combo.setToolTip(
+            "When the output file already exists: skip the clip, replace the file,\n"
+            "or add _1, _2, … to the new file name."
+        )
+        self._select(self.overwrite_combo, settings.value(f"{_K}/overwrite", DEFAULT_OVERWRITE))
+        form.add_row("If file exists", self.overwrite_combo, width=NARROW)
         layout.addWidget(out_group)
 
         # -- Color and watermark --
-        color_group = QGroupBox("Color and watermark")
-        color_grid = QGridLayout(color_group)
-        color_grid.setHorizontalSpacing(8)
-        color_grid.setVerticalSpacing(6)
-        color_grid.setColumnStretch(1, 1)
+        color_group = Card("Color and watermark")
+        color_form = FormGrid()
+        color_group.body.addLayout(color_form)
         self.dst_btn = ColorSpaceButton()
         self.dst_btn.setToolTip(
             "Output color space or display for every clip, from the OCIO config\n"
             "chosen at the top of the window. Each clip converts from its input\n"
             "space in the list above."
         )
-        color_grid.addWidget(field_label("Output space"), 0, 0)
-        color_grid.addWidget(self.dst_btn, 0, 1)
+        color_form.add_row("Output space", self.dst_btn, width=WIDE)
 
         self._watermark = WatermarkControls(
             settings,
@@ -359,23 +347,9 @@ class TranscodeTab(BatchTab):
         self.watermark_payload = self._watermark.payload
         self.watermark_strength = self._watermark.strength
         self._strength_label = self._watermark.strength_label
-        wm_row = self._watermark.row
-        color_grid.addWidget(self.watermark_cb, 1, 0)
-        color_grid.addLayout(wm_row, 1, 1)
+        self._watermark.add_to(color_form)
         layout.addWidget(color_group)
 
-        for combo, chars in (
-            (self.codec_combo, 18),
-            (self.container_combo, 12),
-            (self.resolution_combo, 12),
-            (self.fps_combo, 12),
-            (self.rate_combo, 14),
-            (self.preset_combo, 8),
-            (self.audio_combo, 12),
-            (self.overwrite_combo, 10),
-            (self.location_combo, 14),
-        ):
-            limit_combo_width(combo, chars)
         for g in (in_group, out_group, color_group):
             g.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addStretch()
@@ -389,10 +363,13 @@ class TranscodeTab(BatchTab):
             self.fps_spin,
             self.width_spin,
             self.height_spin,
+            self.pixel_aspect_combo,
             self.rate_combo,
             self.crf_spin,
             self.bitrate_spin,
             self.preset_combo,
+            # Same row height whether the rate controls or the note show.
+            self._intra_note,
             self.audio_combo,
             self.overwrite_combo,
             self.location_combo,

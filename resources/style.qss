@@ -16,12 +16,17 @@
    ========================================================================== */
 
 /* ---- Base ---- */
+/* No background here: a plain container shows what is behind it, so the
+   same widgets sit on the window or inside a card without a patch of the
+   wrong grey. Surfaces that own a colour set it below. */
 QWidget {
-    background-color: @BG;
     color: @FG;
     font-size: 13px;
     selection-background-color: @SEL_BG;
     selection-color: @SEL_FG;
+}
+QMainWindow, QDialog, QStackedWidget > QWidget, QSplitter > QWidget {
+    background-color: @BG;
 }
 QLabel {
     background-color: transparent;
@@ -64,25 +69,35 @@ QLabel#dimLabel {
     font-size: 11px;
 }
 
-/* ---- Sections (QGroupBox) ----
-   A section is a dim title over a hairline, not a box: fewer nested frames,
-   and the controls line up with the window edge. */
+/* ---- Cards ----
+   A card is a section you can see: one step lighter than the window, a
+   hairline edge, a generous radius. Card (components/card.py) is the
+   component; QGroupBox gets the same look so dialogs that still use it match. */
+QFrame#card {
+    background-color: @BG_CARD;
+    border: 1px solid @BORDER;
+    border-radius: 10px;
+}
+QLabel[role="card-title"] {
+    font-size: 13px;
+    font-weight: 600;
+    color: @SEL_FG;
+}
 QGroupBox {
-    border: none;
-    border-top: 1px solid @BORDER;
-    border-radius: 0;
-    margin-top: 20px;
-    padding: 4px 0 0 0;
+    background-color: @BG_CARD;
+    border: 1px solid @BORDER;
+    border-radius: 10px;
+    margin-top: 0;
+    padding: 38px 12px 12px 12px;
     font-weight: 600;
 }
 QGroupBox::title {
-    subcontrol-origin: margin;
+    subcontrol-origin: padding;
     subcontrol-position: top left;
-    left: 0;
-    top: 2px;
+    left: 16px;
+    top: 13px;
     padding: 0;
-    color: @FG_DIM;
-    font-size: 11px;
+    color: @SEL_FG;
 }
 QGroupBox::indicator {
     width: 14px;
@@ -96,8 +111,23 @@ QGroupBox::indicator:checked {
     border-color: @ACCENT_DARK;
     image: url(:/check.png);
 }
+/* A group inside a group is a sub-heading, not a second card. */
+QGroupBox QGroupBox {
+    background-color: transparent;
+    border: none;
+    border-top: 1px solid @BORDER;
+    border-radius: 0;
+    padding: 30px 0 4px 0;
+}
+QGroupBox QGroupBox::title {
+    left: 0;
+    top: 9px;
+    color: @FG_DIM;
+    font-size: 11px;
+}
 QGroupBox#ocioPanel {
-    border-top: none;
+    background-color: transparent;
+    border: none;
     margin-top: 0;
     padding: 0;
 }
@@ -115,9 +145,10 @@ QLineEdit, QSpinBox, QDoubleSpinBox {
     min-height: 22px;
 }
 QSpinBox, QDoubleSpinBox {
-    /* Room for up/down arrows without eating the value digits. */
+    /* Room for up/down arrows without eating the value digits. No min-width
+       here: a stylesheet minimum overrides setFixedWidth, and FormGrid sizes
+       these with its width presets. */
     padding-right: 20px;
-    min-width: 56px;
 }
 QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover {
     border-color: @BORDER_STRONG;
@@ -443,8 +474,8 @@ QTabWidget::pane {
     border-top: 1px solid @BORDER;
     background-color: @BG;
 }
-QTabBar {
-    background-color: transparent;
+QTabWidget, QTabBar {
+    background-color: @BG;
 }
 QTabBar::tab {
     background-color: transparent;
@@ -465,6 +496,15 @@ QTabBar::tab:hover:!selected {
 QScrollArea#convertTabScroll, QWidget#convertTabBody {
     background-color: @BG;
     border: none;
+}
+/* A scroll area is a viewport onto its content, not a surface: without this
+   its viewport paints the style's default grey behind cards. */
+QScrollArea {
+    background-color: transparent;
+    border: none;
+}
+QScrollArea > QWidget > QWidget {
+    background-color: transparent;
 }
 
 /* ---- Slider ---- */

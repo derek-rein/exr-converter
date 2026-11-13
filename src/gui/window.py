@@ -86,17 +86,25 @@ LOG_OPEN_HEIGHT = 190
 class AboutDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # Imported here so this class's migration stays out of the shared import block.
+        from .components import NATURAL, Card, FormGrid
+
         self.setWindowTitle("About EXR Converter")
         self.setMinimumSize(480, 480)
-        self.resize(520, 560)
+        self.resize(560, 600)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        # Header only outside the scroll area.
-        title = QLabel(f"<h2>EXR Converter</h2><p>Version {APP_VERSION}</p>")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        card = Card(
+            "EXR Converter", "Video to OpenEXR and back, with OpenColorIO color management."
+        )
+        version = QLabel(f"Version {APP_VERSION}")
+        set_style_property(version, "role", "muted")
+        card.add_header_widget(version)
+        form = FormGrid()
+        card.body.addLayout(form)
 
         try:
             import OpenImageIO as oiio
@@ -165,15 +173,22 @@ class AboutDialog(QDialog):
             f"{plugin_lines}"
         )
 
+        form.add_row("Author", QLabel("Derek Rein"), width=NATURAL)
+        links = QLabel(
+            '<a href="https://derekvfx.ca">derekvfx.ca</a> &nbsp;|&nbsp; '
+            '<a href="https://vfx.systems">vfx.systems</a>'
+        )
+        links.setOpenExternalLinks(True)
+        form.add_row("Links", links, width=NATURAL)
+        libraries = QLabel(deps)
+        libraries.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        set_style_property(libraries, "role", "muted")
+        libraries_label = form.add_row("Libraries", libraries, width=NATURAL)
+        form.setAlignment(libraries_label, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         body = QTextBrowser()
         body.setOpenExternalLinks(True)
         body.setHtml(
-            f"<p style='text-align:center;'>{deps}</p>"
-            "<hr>"
-            "<p>by <b>Derek Rein</b></p>"
-            '<p><a href="https://derekvfx.ca">derekvfx.ca</a> &nbsp;|&nbsp; '
-            '<a href="https://vfx.systems">vfx.systems</a></p>'
-            "<hr>"
             "<p><b>Bundled OCIO config:</b> ACES Studio Config v4 (ACES 2.0)<br>"
             "Sourced from <a href='https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES/releases'>"
             "AcademySoftwareFoundation/OpenColorIO-Config-ACES</a> (BSD-3-Clause).<br>"
@@ -205,31 +220,36 @@ class AboutDialog(QDialog):
             "— use the buttons below.</p>"
         )
         body.setReadOnly(True)
-        layout.addWidget(body, 1)
+        form.add_wide(body)
+        form.setRowStretch(form.rowCount() - 1, 1)
 
-        notice_row = QHBoxLayout()
+        notices: list[QPushButton] = []
         red_btn = QPushButton("RED redistributable notice…")
         red_btn.setToolTip("End-user terms for optional RED R3D / N-RAW libraries")
         red_btn.clicked.connect(self._show_red_notice)
-        notice_row.addWidget(red_btn)
+        notices.append(red_btn)
         braw_btn = QPushButton("Blackmagic RAW notice…")
         braw_btn.setToolTip("End-user terms for optional Blackmagic RAW libraries")
         braw_btn.clicked.connect(self._show_braw_notice)
-        notice_row.addWidget(braw_btn)
+        notices.append(braw_btn)
         try:
             from ..core.source_plugins import notices as plugin_notices
 
             for title_text, notice_text in plugin_notices():
-                btn = QPushButton(f"{title_text}\u2026")
+                btn = QPushButton(f"{title_text}…")
                 btn.clicked.connect(
                     lambda _checked=False, t=title_text, n=notice_text: self._show_notice(t, n)
                 )
-                notice_row.addWidget(btn)
+                notices.append(btn)
         except Exception:
             pass
-        layout.addLayout(notice_row)
+        for btn in notices:
+            set_style_property(btn, "variant", "ghost")
+        form.add_row("Notices", *notices, width=NATURAL, spacing=4)
+        layout.addWidget(card, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        set_style_property(buttons.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
 
@@ -238,11 +258,14 @@ class AboutDialog(QDialog):
         dlg.setWindowTitle(title)
         dlg.setMinimumSize(480, 360)
         lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(12)
         text = QPlainTextEdit()
         text.setReadOnly(True)
         text.setPlainText(notice.strip())
         lay.addWidget(text, 1)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        set_style_property(bb.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
         bb.accepted.connect(dlg.accept)
         lay.addWidget(bb)
         dlg.exec()
@@ -250,34 +273,12 @@ class AboutDialog(QDialog):
     def _show_red_notice(self) -> None:
         from ..core.r3d import RED_REDISTRIBUTABLE_NOTICE
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle("RED R3D redistributable notice")
-        dlg.setMinimumSize(480, 360)
-        lay = QVBoxLayout(dlg)
-        text = QPlainTextEdit()
-        text.setReadOnly(True)
-        text.setPlainText(RED_REDISTRIBUTABLE_NOTICE.strip())
-        lay.addWidget(text, 1)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        bb.accepted.connect(dlg.accept)
-        lay.addWidget(bb)
-        dlg.exec()
+        self._show_notice("RED R3D redistributable notice", RED_REDISTRIBUTABLE_NOTICE)
 
     def _show_braw_notice(self) -> None:
         from ..core.braw import BMD_REDISTRIBUTABLE_NOTICE
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Blackmagic RAW redistributable notice")
-        dlg.setMinimumSize(480, 360)
-        lay = QVBoxLayout(dlg)
-        text = QPlainTextEdit()
-        text.setReadOnly(True)
-        text.setPlainText(BMD_REDISTRIBUTABLE_NOTICE.strip())
-        lay.addWidget(text, 1)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        bb.accepted.connect(dlg.accept)
-        lay.addWidget(bb)
-        dlg.exec()
+        self._show_notice("Blackmagic RAW redistributable notice", BMD_REDISTRIBUTABLE_NOTICE)
 
 
 class MainWindow(QMainWindow):
@@ -493,7 +494,7 @@ class MainWindow(QMainWindow):
         QShortcut(convert_keys, self).activated.connect(self._start_from_shortcut)
         for index in range(self._tabs.count()):
             QShortcut(QKeySequence(f"Ctrl+{index + 1}"), self).activated.connect(
-                lambda i=index: self._tabs.setCurrentIndex(i)
+                lambda i=index: self._tabs.tabBar().set_current_instant(i)
             )
 
         self._reload_ocio()
@@ -503,7 +504,7 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(geom)
         else:
             # First launch: tall enough that the EXR and video tabs do not scroll.
-            self.resize(880, 860)
+            self.resize(880, 880)
         self._log_open_height = int(self._settings.value("ui/log_height", LOG_OPEN_HEIGHT))
         self._set_log_open(self._settings.value("ui/log_open", False, type=bool), animate=False)
 
@@ -798,6 +799,8 @@ class MainWindow(QMainWindow):
         self._shown_tab = index
         current = self._tabs.widget(index)
         if previous is None or current is None or previous is current or not self.isVisible():
+            return
+        if self._tabs.tabBar().last_change_was_instant():
             return
         crossfade_from(previous.grab(), current)
 

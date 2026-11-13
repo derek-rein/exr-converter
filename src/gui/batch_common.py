@@ -4,21 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+from typing import cast
 
-from PySide6.QtCore import QSettings, Qt, Signal
+from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QBoxLayout,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
-    QSizePolicy,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -37,33 +36,27 @@ from .batch_rules import (
     watermark_payload,
 )
 from .color_widgets import lock_form_row_height
+from .components import FILL, NARROW, WIDE, Card, FormGrid, inline_label, sized
 from .empty_hint import EmptyHint
 from .preferences import STRENGTH_DECIMALS, STRENGTH_STEP
 
 
-def field_label(text: str) -> QLabel:
-    """A right-aligned form label for the batch tabs' grids."""
-    label = QLabel(text)
-    label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-    return label
-
-
-def limit_combo_width(combo: QComboBox, characters: int) -> None:
-    """Size the closed combo from a character count so two can share a row.
-
-    The popup still lists the full item text. A combo sized to its longest
-    item would force the form wider than the other convert tabs.
-    """
-    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-    combo.setMinimumContentsLength(characters)
-    combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+def row_line(form: FormGrid, label: QLabel) -> QBoxLayout:
+    """The control line of the FormGrid row that *label* heads."""
+    index = form.indexOf(label)
+    # PySide types getItemPosition as object; it returns (row, column, rowSpan, columnSpan).
+    row = cast("tuple[int, int, int, int]", form.getItemPosition(index))[0]
+    item = form.itemAtPosition(row, 1)
+    line = item.layout() if item is not None else None
+    assert isinstance(line, QBoxLayout)
+    return line
 
 
 class OutputLocation:
     """The Location combo plus the Folder row a custom folder needs.
 
-    Holds the widgets only: each tab places them in its own grid. *output_dir*
-    is built by the tab (a plain or token line edit) and passed in.
+    *output_dir* is built by the tab (a plain or token line edit) and passed
+    in. :meth:`add_to` places the Location and Folder rows in the tab's form.
     """
 
     def __init__(
@@ -77,12 +70,17 @@ class OutputLocation:
         self.combo = QComboBox()
         self.combo.addItem(beside_label, LOCATION_BESIDE)
         self.combo.addItem("Custom folder", LOCATION_CUSTOM)
-        self.folder_label = field_label("Folder")
+        self.folder_label = QLabel("Folder")  # replaced by add_to()
         self.output_dir = output_dir
         self.browse_btn = QPushButton("Browse…")
         self._dialog_parent = dialog_parent
         self._dialog_title = dialog_title
         self.browse_btn.clicked.connect(self._pick_folder)
+
+    def add_to(self, form: FormGrid) -> None:
+        """Add the Location row, then the Folder row (path and Browse…)."""
+        form.add_row("Location", self.combo, width=WIDE)
+        self.folder_label = form.add_row("Folder", self.output_dir, self.browse_btn, width=FILL)
 
     def location(self) -> str:
         return str(self.combo.currentData() or LOCATION_BESIDE)
@@ -120,8 +118,8 @@ class OutputLocation:
 class WatermarkControls:
     """The invisible-watermark checkbox, payload field and strength box.
 
-    ``row`` lays out payload, "Strength" and the strength box; each tab
-    places the checkbox itself. Values load from ``<prefix>/watermark``,
+    :meth:`add_to` lays them out as one form row: checkbox, payload, then
+    "Strength" and its box. Values load from ``<prefix>/watermark``,
     ``<prefix>/watermark_text`` and ``<prefix>/watermark_strength``.
     """
 
@@ -150,12 +148,26 @@ class WatermarkControls:
             float(settings.value(f"{prefix}/watermark_strength", DEFAULT_STRENGTH, type=float))
         )
         self.strength.setToolTip("TrustMark strength. 1.00 is the normal strength.")
-        self.strength_label = QLabel("Strength")
-        self.row = QHBoxLayout()
-        self.row.setSpacing(6)
-        self.row.addWidget(self.payload, 1)
-        self.row.addWidget(self.strength_label)
-        self.row.addWidget(self.strength)
+        self.strength_label = inline_label("Strength", self.strength)
+
+    def add_to(self, form: FormGrid, label: str = "Watermark") -> QLabel:
+        """Add the watermark row: checkbox, payload, Strength and its box.
+
+        The payload is free text, so it takes the room the row has left and
+        the strength box ends on the card's trailing edge, like Browse….
+        """
+        row_label = form.add_row(
+            label,
+            self.check,
+            self.payload,
+            self.strength_label,
+            sized(self.strength, NARROW),
+            width=FILL,
+        )
+        line = row_line(form, row_label)
+        line.setStretchFactor(self.check, 0)
+        line.setStretchFactor(self.payload, 1)
+        return row_label
 
     def payload_text(self) -> str:
         """The payload to embed: ``""`` when off or empty."""
@@ -176,8 +188,8 @@ class WatermarkControls:
         )
 
 
-class SourceClipsPanel(QGroupBox):
-    """The "Source clips" group: the tab's clip view, then the button row.
+class SourceClipsPanel(Card):
+    """The "Source clips" card: the tab's clip view, then the button row.
 
     The row holds Add Clips… / Add Folder… / Remove / Clear and Include
     subfolders (loaded from ``<prefix>/recursive``). The tab connects the
@@ -195,8 +207,7 @@ class SourceClipsPanel(QGroupBox):
         hint: QWidget | None = None,
     ) -> None:
         super().__init__("Source clips")
-        main = QVBoxLayout(self)
-        main.setSpacing(4)
+        main = self.body
         main.addWidget(clip_view)
         if isinstance(clip_view, QAbstractItemView):
             self.empty_hint = EmptyHint(

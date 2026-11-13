@@ -23,6 +23,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 - Motion: the tab underline slides, tab pages fade in, progress glides between values, Convert reacts to hover and press. All of it is under 300 ms. Set `EXR_CONVERTER_REDUCE_MOTION=1` to turn it off.
 - The log is a drawer. Closed, it is one line with the latest status; click **Log** to open it. The height is remembered.
 - Keyboard shortcuts: Ctrl+Return (⌘Return on macOS) starts the conversion, and Ctrl+1 to Ctrl+4 switch tabs.
+- Sections are cards: a raised surface with a title and a one-line description. Labels share one column, so fields line up, and menus are sized to what they hold in place of stretching across the window. Related short fields share a row (Scale with Pixel aspect, Codec with Frame rate, Start frame with Padding).
+- Keyboard shortcuts: Ctrl+Return (⌘Return on macOS) starts the conversion, and Ctrl+1 to Ctrl+4 switch tabs. Switching tabs from the keyboard does not animate.
 
 ### Changed
 

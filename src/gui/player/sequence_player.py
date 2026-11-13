@@ -11,10 +11,9 @@ import math
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QTransform
+from PySide6.QtGui import QFont, QTransform
 from PySide6.QtWidgets import (
     QComboBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -210,21 +209,19 @@ class SequencePlayer(QWidget):
         self._timeline.value_changed.connect(self._on_timeline_changed)
 
         self._shuttle = ShuttleBar(self._timeline, fps=self._fps)
-        self._shuttle.setFixedHeight(ideal_h)
         self._shuttle.set_advance_callback(self._playback_tick)
         self._shuttle.playing_changed.connect(self._on_shuttle_play_toggled)
 
-        transport_row = QHBoxLayout()
-        transport_row.setContentsMargins(0, 0, 0, 0)
-        transport_row.setSpacing(0)
-        transport_row.addWidget(self._shuttle)
-        transport_row.addWidget(self._timeline, 1)
+        # Timeline (and in / out) stays directly under the viewer, full width.
+        timeline_row = QHBoxLayout()
+        timeline_row.setContentsMargins(0, 0, 0, 0)
+        timeline_row.setSpacing(0)
+        timeline_row.addWidget(self._timeline, 1)
         if show_in_out:
-            self._build_in_out_ui(transport_row, ideal_h)
-        root.addLayout(transport_row)
+            self._build_in_out_ui(timeline_row, ideal_h)
+        root.addLayout(timeline_row)
 
-        if self._show_cache_ui:
-            self._build_cache_ui(root)
+        self._build_transport_row(root)
 
         self._shot_cache.cache_changed.connect(self._on_shot_cache_changed)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -314,6 +311,7 @@ class SequencePlayer(QWidget):
         self._timeline.set_marker_frames({})
         self._current_frame = self._first_shot
         self._timeline.set_value(self._current_frame)
+        self._update_frame_readout()
         self._repopulate_display_views()
         self._sync_gpu_view_settings()
         self._sync_prefetch()
@@ -612,6 +610,7 @@ class SequencePlayer(QWidget):
         self._timeline.set_cached_frames(set())
         self._current_frame = 1
         self._timeline.set_value(1)
+        self._update_frame_readout()
         if self._gpu_plane is not None:
             try:
                 self._gpu_plane.set_overlay_rgba(None)
@@ -691,6 +690,7 @@ class SequencePlayer(QWidget):
         if self._current_frame < first or self._current_frame > last:
             self._current_frame = first
             self._timeline.set_value(first)
+        self._update_frame_readout()
 
     def set_markers(self, markers: dict[int, str]) -> None:
         self._timeline.set_marker_frames(dict(markers))
@@ -915,6 +915,65 @@ class SequencePlayer(QWidget):
         self._refresh_in_out_ui()
         self.in_out_changed.emit(in_point, out_point)
 
+    def _build_transport_row(self, parent_layout: QVBoxLayout) -> None:
+        """Transport centred under the viewer, frame read-out beside it.
+
+        An empty spacer mirrors the read-out on the left, so the play button
+        sits on the viewer's centre line. The cache strip, when shown, is its
+        own row below.
+        """
+        host = QWidget()
+        row = QHBoxLayout(host)
+        row.setContentsMargins(6, 4, 6, 4)
+        row.setSpacing(8)
+
+        self._transport_spacer = QWidget()
+        right = QWidget()
+        right_lay = QHBoxLayout(right)
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.setSpacing(0)
+        self._frame_readout = QLabel()
+        set_style_property(self._frame_readout, "role", "muted")
+        font = self._frame_readout.font()
+        font.setFeature(QFont.Tag("tnum"), 1)
+        self._frame_readout.setFont(font)
+        right_lay.addWidget(self._frame_readout)
+        right_lay.addStretch(1)
+
+        for w in (self._transport_spacer, right):
+            w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        row.addWidget(self._transport_spacer, 1)
+        row.addWidget(self._shuttle, 0)
+        row.addWidget(right, 1)
+        parent_layout.addWidget(host)
+
+        if self._show_cache_ui:
+            cache_row = QWidget()
+            cache_lay = QHBoxLayout(cache_row)
+            cache_lay.setContentsMargins(8, 0, 8, 4)
+            cache_lay.setSpacing(0)
+            self._build_cache_ui(cache_lay)
+            cache_lay.addStretch(1)
+            parent_layout.addWidget(cache_row)
+
+        self.frame_changed.connect(lambda _f: self._update_frame_readout())
+        self._update_frame_readout()
+
+    def _update_frame_readout(self) -> None:
+        """Current frame and timeline length, e.g. ``1004 \u00b7 12 frames``."""
+        first = self._timeline.first_frame
+        last = self._timeline.last_frame
+        total = max(0, last - first + 1)
+        noun = "frame" if total == 1 else "frames"
+        self._frame_readout.setText(f"{self._current_frame} \u00b7 {total} {noun}")
+        # Reserve room for the widest frame number so the text never jumps.
+        digits = max(len(str(first)), len(str(last)))
+        widest = f"{'8' * digits} \u00b7 {total} {noun}"
+        width = self._frame_readout.fontMetrics().horizontalAdvance(widest)
+        self._frame_readout.setMinimumWidth(width)
+        self._transport_spacer.setMinimumWidth(width)
+        self._frame_readout.parentWidget().setMinimumWidth(width)
+
     def _build_in_out_ui(self, row: QHBoxLayout, height: int) -> None:
         host = QWidget()
         lay = QHBoxLayout(host)
@@ -981,6 +1040,10 @@ class SequencePlayer(QWidget):
         strip.setContentsMargins(4, 1, 4, 1)
         strip.setSpacing(6)
 
+        gain_lbl = QLabel("Gain")
+        set_style_property(gain_lbl, "role", "caption")
+        strip.addWidget(gain_lbl)
+
         self._gain_value_label = QLabel("1.0")
         self._gain_value_label.setFixedWidth(28)
         self._gain_value_label.setAlignment(
@@ -995,14 +1058,13 @@ class SequencePlayer(QWidget):
             val_max=64.0,
             map_mode="log",
         )
-        self._gain_slider.setMinimumWidth(140)
+        self._gain_slider.setMinimumWidth(110)
         self._gain_slider.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         strip.addWidget(self._gain_slider, 1)
 
         strip.addSpacing(8)
 
-        gamma_lbl = QLabel("\u03b3")
-        gamma_lbl.setFixedWidth(10)
+        gamma_lbl = QLabel("Gamma")
         set_style_property(gamma_lbl, "role", "caption")
         strip.addWidget(gamma_lbl)
 
@@ -1020,7 +1082,7 @@ class SequencePlayer(QWidget):
             val_max=4.0,
             map_mode="pivot",
         )
-        self._gamma_slider.setMinimumWidth(140)
+        self._gamma_slider.setMinimumWidth(110)
         self._gamma_slider.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         strip.addWidget(self._gamma_slider, 1)
 
@@ -1184,22 +1246,16 @@ class SequencePlayer(QWidget):
     # Cache UI
     # ------------------------------------------------------------------
 
-    def _build_cache_ui(self, parent_layout: QVBoxLayout) -> None:
+    def _build_cache_ui(self, parent_layout: QHBoxLayout) -> None:
         """Compact pause/clear + usage only. Budget % lives in Preferences."""
         self._cache_host = QWidget()
         row = QHBoxLayout(self._cache_host)
-        row.setContentsMargins(8, 2, 8, 2)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setFrameShadow(QFrame.Shadow.Plain)
-        sep.setStyleSheet(f"color: {color('BORDER')};")
-        row.addWidget(sep)
 
         cache_lbl = QLabel("Cache")
         set_style_property(cache_lbl, "role", "muted")
-        row.addWidget(cache_lbl)
+        row.addWidget(cache_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._cache_bar = QProgressBar()
         self._cache_bar.setMaximum(1000)
@@ -1209,7 +1265,7 @@ class SequencePlayer(QWidget):
         self._cache_bar.setToolTip(
             "Playback cache memory in use (budget set under File → Preferences)"
         )
-        row.addWidget(self._cache_bar)
+        row.addWidget(self._cache_bar, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._cache_pause_btn = QToolButton()
         set_button_icon(self._cache_pause_btn, "pause", size=12)
@@ -1219,7 +1275,7 @@ class SequencePlayer(QWidget):
         self._cache_pause_btn.setAutoRaise(True)
         self._cache_pause_btn.setFixedSize(24, 22)
         self._cache_pause_btn.setToolTip("Pause background prefetch")
-        row.addWidget(self._cache_pause_btn)
+        row.addWidget(self._cache_pause_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._cache_clear_btn = QToolButton()
         set_button_icon(self._cache_clear_btn, "x", size=12)
@@ -1228,9 +1284,7 @@ class SequencePlayer(QWidget):
         self._cache_clear_btn.setAutoRaise(True)
         self._cache_clear_btn.setFixedSize(24, 22)
         self._cache_clear_btn.setToolTip("Clear playback cache")
-        row.addWidget(self._cache_clear_btn)
-
-        row.addStretch(1)
+        row.addWidget(self._cache_clear_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         parent_layout.addWidget(self._cache_host)
 
         self._cache_pause_btn.toggled.connect(self._on_cache_pause_toggled)

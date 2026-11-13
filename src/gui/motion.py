@@ -98,10 +98,16 @@ def ms(value: int) -> int:
 
 
 def ease_out():
-    """Decelerating curve used for nearly everything."""
-    from PySide6.QtCore import QEasingCurve
+    """Strong decelerating curve, cubic-bezier(0.23, 1, 0.32, 1).
 
-    return QEasingCurve(QEasingCurve.Type.OutCubic)
+    Qt's stock OutCubic is too gentle to read as intentional at these
+    durations; this one moves most of the distance in the first third.
+    """
+    from PySide6.QtCore import QEasingCurve, QPointF
+
+    curve = QEasingCurve(QEasingCurve.Type.BezierSpline)
+    curve.addCubicBezierSegment(QPointF(0.23, 1.0), QPointF(0.32, 1.0), QPointF(1.0, 1.0))
+    return curve
 
 
 class Animator:

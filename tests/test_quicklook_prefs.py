@@ -26,6 +26,7 @@ from src.core.quicklook_prefs import (
     set_format_enabled,
     set_quicklook_installed,
 )
+from src.gui.components import Card
 from src.gui.preferences import PreferencesDialog
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -160,6 +161,8 @@ def test_preview_info_plist_is_view_based():
 def test_preferences_dialog_has_no_quicklook_section(qapp, settings):
     dlg = PreferencesDialog(settings)
     titles = [box.title() for box in dlg.findChildren(QGroupBox)]
+    titles += [card.title() for card in dlg.findChildren(Card)]
+    assert "Invisible watermark" in titles  # the lookup sees the sections
     assert "Quick Look" not in titles
     assert dlg.findChild(QCheckBox, "ql_exr") is None
 

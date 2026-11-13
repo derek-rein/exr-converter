@@ -31,7 +31,24 @@ class SlidingTabBar(QTabBar):
         self._progress = motion.Animator(
             self, lambda _t: self.update(), value=1.0, duration_ms=motion.BASE
         )
+        self._instant = False
+        self._last_instant = False
         self.currentChanged.connect(self._on_current_changed)
+
+    def set_current_instant(self, index: int) -> None:
+        """Change tab with no slide: for keyboard shortcuts.
+
+        An action someone repeats from the keyboard should land at once;
+        motion there reads as lag.
+        """
+        self._instant = True
+        try:
+            self.setCurrentIndex(index)
+        finally:
+            self._instant = False
+
+    def last_change_was_instant(self) -> bool:
+        return self._last_instant
 
     def _target_rect(self) -> QRectF:
         index = self.currentIndex()
@@ -61,7 +78,8 @@ class SlidingTabBar(QTabBar):
         # redirects it without a jump.
         self._from = self._shown_rect()
         self._to = self._target_rect()
-        if self._from.isNull() or not self.isVisible():
+        self._last_instant = self._instant
+        if self._instant or self._from.isNull() or not self.isVisible():
             self._progress.set(1.0)
             return
         self._progress.set(0.0)

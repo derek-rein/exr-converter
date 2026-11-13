@@ -11,9 +11,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QGridLayout,
-    QGroupBox,
-    QHBoxLayout,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -42,11 +39,11 @@ from .batch_common import (
     OutputLocation,
     SourceClipsPanel,
     WatermarkControls,
-    field_label,
-    limit_combo_width,
+    row_line,
 )
 from .batch_rules import LOCATION_BESIDE, LOCATION_CUSTOM  # noqa: F401 (re-exported)
 from .color_widgets import lock_form_row_height
+from .components import FILL, NARROW, WIDE, Card, FormGrid, inline_label, sized
 from .convert_tab import _ConvertFormBody, _form_scroll_area
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import encoder_mode
@@ -79,8 +76,7 @@ class ProxyTab(BatchTab):
         self.clip_list.setObjectName("proxyClipList")
         self.clip_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.clip_list.setMinimumHeight(96)
-        # The watermark row is taller than the color note it replaced. A
-        # slightly shorter clip list keeps the tab within a row of the others.
+        # Capped so the whole tab fits the default window without scrolling.
         self.clip_list.setMaximumHeight(122)
         self.clip_list.setToolTip("Clips to proxy when you press Convert. Drop videos here too.")
         in_group = self._sources = SourceClipsPanel(
@@ -102,17 +98,11 @@ class ProxyTab(BatchTab):
         self.recursive_cb = in_group.recursive_cb
         layout.addWidget(in_group)
 
-        # -- Output (location, codec, and size share one group, two columns) --
-        out_group = QGroupBox("Output")
+        # -- Output --
+        out_group = Card("Output", _NO_COLOR_NOTE)
         out_group.setToolTip(_NO_COLOR_NOTE)
-        out_main = QVBoxLayout(out_group)
-        out_main.setSpacing(4)
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(6)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(3, 1)
+        form = FormGrid()
+        out_group.body.addLayout(form)
 
         output_dir = QLineEdit()
         output_dir.setPlaceholderText("Folder for all proxies")
@@ -124,8 +114,12 @@ class ProxyTab(BatchTab):
             dialog_title="Proxy output folder",
         )
         self.location_combo = self._location.combo
-        grid.addWidget(field_label("Location"), 0, 0)
-        grid.addWidget(self.location_combo, 0, 1, 1, 4)
+        # The Folder row shows only for a custom folder. Beside-source is the
+        # default and does not use this path.
+        self._location.add_to(form)
+        self._folder_label = self._location.folder_label
+        self.output_dir = self._location.output_dir
+        self._browse_out = self._location.browse_btn
 
         self.codec_combo = QComboBox()
         for spec in available_proxy_codecs():
@@ -134,6 +128,11 @@ class ProxyTab(BatchTab):
                 self.codec_combo.count() - 1, spec.format_label, Qt.ItemDataRole.ToolTipRole
             )
         self._select(self.codec_combo, settings.value(f"{_K}/codec", DEFAULT_PROXY_CODEC))
+        self.audio_cb = QCheckBox("Audio")
+        self.audio_cb.setToolTip("Carry the source audio into the proxy")
+        self.audio_cb.setChecked(settings.value(f"{_K}/audio", True, type=bool))
+        form.add_row("Codec", self.codec_combo, self.audio_cb, width=WIDE, spacing=14)
+
         self.resolution_combo = QComboBox()
         for res in PROXY_RESOLUTIONS:
             self.resolution_combo.addItem(res.label, res.key)
@@ -142,18 +141,16 @@ class ProxyTab(BatchTab):
             self.resolution_combo,
             settings.value(f"{_K}/resolution", DEFAULT_PROXY_RESOLUTION),
         )
-        self.audio_cb = QCheckBox("Audio")
-        self.audio_cb.setToolTip("Carry the source audio into the proxy")
-        self.audio_cb.setChecked(settings.value(f"{_K}/audio", True, type=bool))
-        grid.addWidget(field_label("Codec"), 1, 0)
-        grid.addWidget(self.codec_combo, 1, 1)
-        grid.addWidget(field_label("Resolution"), 1, 2)
-        grid.addWidget(self.resolution_combo, 1, 3)
-        grid.addWidget(self.audio_cb, 1, 4)
-
         self.pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{_K}/pixel_aspect", self)
-        grid.addWidget(field_label("Pixel aspect"), 5, 0)
-        grid.addWidget(self.pixel_aspect_combo, 5, 1, 1, 2)
+        # Two picture-size choices share a row, as Scale and Pixel aspect do
+        # on the convert tabs.
+        form.add_row(
+            "Resolution",
+            self.resolution_combo,
+            inline_label("Pixel aspect", self.pixel_aspect_combo),
+            sized(self.pixel_aspect_combo, NARROW),
+            width=NARROW,
+        )
 
         self.suffix_edit = QLineEdit(str(settings.value(f"{_K}/suffix", "") or ""))
         self.suffix_edit.setPlaceholderText("empty keeps the source name")
@@ -162,18 +159,7 @@ class ProxyTab(BatchTab):
         )
         self.skip_existing_cb = QCheckBox("Skip clips that already have a proxy")
         self.skip_existing_cb.setChecked(settings.value(f"{_K}/skip_existing", True, type=bool))
-        grid.addWidget(field_label("Suffix"), 2, 0)
-        grid.addWidget(self.suffix_edit, 2, 1, 1, 2)
-        grid.addWidget(self.skip_existing_cb, 2, 3, 1, 2)
-
-        # Shown only for a custom folder. Beside-source is the default and
-        # does not use this path, so the row stays out of the height budget.
-        self._folder_label = self._location.folder_label
-        self.output_dir = self._location.output_dir
-        self._browse_out = self._location.browse_btn
-        grid.addWidget(self._folder_label, 3, 0)
-        grid.addWidget(self.output_dir, 3, 1, 1, 3)
-        grid.addWidget(self._browse_out, 3, 4)
+        form.add_row("Suffix", self.suffix_edit, self.skip_existing_cb, width=WIDE, spacing=14)
 
         self._watermark = WatermarkControls(
             settings,
@@ -192,20 +178,16 @@ class ProxyTab(BatchTab):
         self.watermark_payload = self._watermark.payload
         self.watermark_strength = self._watermark.strength
         self._strength_label = self._watermark.strength_label
-        wm_row = self._watermark.row
-        wm_row.insertWidget(0, self.watermark_cb)
-        # Replaces the old one-line color note so the tab stays the same height
-        # as the other convert tabs. The sentence remains the group tooltip.
-        grid.addWidget(field_label("Watermark"), 4, 0)
-        grid.addLayout(wm_row, 4, 1, 1, 4)
+        self._watermark.add_to(form)
         self._sync_watermark_enabled()
-        out_main.addLayout(grid)
         layout.addWidget(out_group)
 
-        # -- Watch folder (always shown; status lives in the group title) --
-        self._watch_group = QGroupBox()
-        watch_row = QHBoxLayout(self._watch_group)
-        watch_row.setSpacing(6)
+        # -- Watch folder (always shown; status lives in the card title) --
+        self._watch_group = Card(
+            "Watch folder", "New clips that land here are proxied with the settings above."
+        )
+        watch_form = FormGrid()
+        self._watch_group.body.addLayout(watch_form)
         self.watch_dir = QLineEdit(str(settings.value(f"{_K}/watch_dir", "") or ""))
         self.watch_dir.setPlaceholderText("Folder to watch for new clips")
         self._browse_watch = QPushButton("Browse…")
@@ -224,19 +206,20 @@ class ProxyTab(BatchTab):
             self.watch_btn.setText(text)
             widths.append(self.watch_btn.sizeHint().width())
         self.watch_btn.setMinimumWidth(max(widths))
-        watch_row.addWidget(self.watch_dir, 1)
-        watch_row.addWidget(self._browse_watch)
-        watch_row.addSpacing(8)
-        watch_row.addWidget(self.existing_cb)
-        watch_row.addWidget(self.watch_btn)
+        watch_line = row_line(
+            watch_form,
+            watch_form.add_row(
+                "Folder",
+                self.watch_dir,
+                self._browse_watch,
+                self.existing_cb,
+                self.watch_btn,
+                width=FILL,
+            ),
+        )
+        watch_line.insertSpacing(watch_line.indexOf(self.existing_cb), 6)
         layout.addWidget(self._watch_group)
 
-        for combo, chars in (
-            (self.location_combo, 28),
-            (self.codec_combo, 18),
-            (self.resolution_combo, 12),
-        ):
-            limit_combo_width(combo, chars)
         for g in (in_group, out_group, self._watch_group):
             g.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addStretch()
@@ -249,6 +232,7 @@ class ProxyTab(BatchTab):
             self.skip_existing_cb,
             self.codec_combo,
             self.resolution_combo,
+            self.pixel_aspect_combo,
             self.audio_cb,
             self.watermark_cb,
             self.watermark_payload,

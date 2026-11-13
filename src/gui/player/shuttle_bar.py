@@ -11,6 +11,9 @@ from ..icons import set_button_icon
 from ..style import set_style_property
 from ..timeline_slider import TimelineSlider
 
+BUTTON_SIZE = (26, 22)
+PLAY_BUTTON_SIZE = (34, 26)
+
 
 class ShuttleBar(QWidget):
     """Tiny transport strip that drives a :class:`TimelineSlider`.
@@ -33,15 +36,19 @@ class ShuttleBar(QWidget):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 0, 4, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(4)
 
         self._btn_first = self._make_btn("skip-back", "Go to first frame")
         self._btn_back = self._make_btn("step-back", "Step back one frame")
         self._btn_play = self._make_btn("play", "Play / pause")
         self._btn_play.setCheckable(True)
+        # The main control reads first: a step larger than its neighbours.
+        self._btn_play.setFixedSize(PLAY_BUTTON_SIZE[0], PLAY_BUTTON_SIZE[1])
+        set_button_icon(self._btn_play, "play", size=16)
         self._btn_fwd = self._make_btn("step-forward", "Step forward one frame")
         self._btn_last = self._make_btn("skip-forward", "Go to last frame")
 
+        # Focus stays off the buttons: Space / arrows belong to the player.
         for btn in (
             self._btn_first,
             self._btn_back,
@@ -49,7 +56,7 @@ class ShuttleBar(QWidget):
             self._btn_fwd,
             self._btn_last,
         ):
-            layout.addWidget(btn)
+            layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._btn_first.clicked.connect(self._on_first)
         self._btn_back.clicked.connect(self._on_back)
@@ -93,7 +100,7 @@ class ShuttleBar(QWidget):
         b = QPushButton()
         set_button_icon(b, icon_name, size=14)
         set_style_property(b, "variant", "tool")
-        b.setFixedSize(26, 22)
+        b.setFixedSize(BUTTON_SIZE[0], BUTTON_SIZE[1])
         b.setToolTip(tooltip)
         b.setAccessibleName(tooltip)
         b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -119,7 +126,7 @@ class ShuttleBar(QWidget):
         self._timeline.value_changed.emit(self._timeline.value())
 
     def _on_play_toggled(self, checked: bool) -> None:
-        set_button_icon(self._btn_play, "pause" if checked else "play", size=14)
+        set_button_icon(self._btn_play, "pause" if checked else "play", size=16)
         if checked:
             self._timer.start()
         else:

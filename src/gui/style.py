@@ -21,19 +21,20 @@ from PySide6.QtWidgets import QWidget
 # ---------------------------------------------------------------------------
 PALETTE: dict[str, str] = {
     # Surfaces, darkest to lightest.
-    "BG_INPUT": "#1a1a1a",  # fields, lists, the log: things you type or read in
-    "BG": "#252525",  # window
+    "BG_INPUT": "#171717",  # fields, lists, the log: things you type or read in
+    "BG": "#1e1e1e",  # window
+    "BG_CARD": "#262626",  # cards: one step up from the window
     "BG_ALT": "#2d2d2d",  # menus, headers, raised strips
-    "BG_BTN": "#383838",
-    "BG_BTN_HOVER": "#434343",
-    "BG_BTN_PRESSED": "#4e4e4e",
+    "BG_BTN": "#353535",
+    "BG_BTN_HOVER": "#404040",
+    "BG_BTN_PRESSED": "#4b4b4b",
     # Text. FG_DIM is 5.6:1 on BG, so 11 px hints stay readable.
     "FG": "#dcdcdc",
     "FG_DIM": "#9a9a9a",
     "FG_DISABLED": "#6a6a6a",
     # Lines.
-    "BORDER": "#3a3a3a",
-    "BORDER_STRONG": "#555555",  # hover edge on a control
+    "BORDER": "#363636",
+    "BORDER_STRONG": "#525252",  # hover edge on a control
     # Accent (Nuke orange). ACCENT_FG is the text colour on an ACCENT fill.
     "ACCENT": "#e08a2e",
     "ACCENT_HOVER": "#eb9a45",

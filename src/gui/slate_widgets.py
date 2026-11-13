@@ -27,8 +27,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -38,13 +36,13 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QSplitter,
-    QStatusBar,
     QVBoxLayout,
     QWidget,
 )
 
 from ..core.pixel_aspect import PixelAspect, is_square
 from ..render.slate import SLATE_COLORSPACE, render_slate_frame
+from .components import FILL, NARROW, NATURAL, Card, FormGrid, StatusLine
 from .nuke_slider import NukeSlider
 from .player.preview_view import ZOOM_MAX, ZOOM_MIN
 from .player.preview_view import ImagePreviewView as SlatePreviewView
@@ -317,6 +315,83 @@ def oiio_colorspace_attr(path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+class _SwitchCard(Card):
+    """A :class:`Card` whose header check box turns its body on and off.
+
+    Stands in for a checkable ``QGroupBox``: ``toggled`` / ``isChecked`` /
+    ``setChecked`` keep that API, and unchecking disables everything in
+    :attr:`content` just as the group box disabled its children.
+    """
+
+    toggled = Signal(bool)
+
+    def __init__(self, title: str, description: str, *, checked: bool, status_tip: str) -> None:
+        super().__init__(title, description)
+        self._switch = QCheckBox()
+        self._switch.setAccessibleName(title)
+        self._switch.setChecked(bool(checked))
+        self._switch.setStatusTip(status_tip)
+        self.setStatusTip(status_tip)
+        self.add_header_widget(self._switch)
+
+        self.content = QWidget()
+        self.content.setEnabled(bool(checked))
+        self.body.addWidget(self.content)
+        self._switch.toggled.connect(self._on_switch_toggled)
+
+    def _on_switch_toggled(self, checked: bool) -> None:
+        self.content.setEnabled(bool(checked))
+        self.toggled.emit(bool(checked))
+
+    def isChecked(self) -> bool:  # noqa: N802 - mirrors QGroupBox
+        return self._switch.isChecked()
+
+    def setChecked(self, checked: bool) -> None:  # noqa: N802 - mirrors QGroupBox
+        self._switch.setChecked(bool(checked))
+
+
+# The editor's columns flank the viewer and stay narrow, so its forms use a
+# tighter label column than the app-wide LABEL_WIDTH ("Bottom center" fits).
+_EDITOR_LABEL_WIDTH = 96
+
+
+def _editor_form(parent: QWidget) -> FormGrid:
+    form = FormGrid(parent)
+    form.setColumnMinimumWidth(0, _EDITOR_LABEL_WIDTH)
+    return form
+
+
+def _show_window_behind(scroll: QScrollArea) -> None:
+    """Let the window colour show around the cards, not the viewport's default fill."""
+    scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+    scroll.viewport().setAutoFillBackground(False)
+    inner = scroll.widget()
+    if inner is not None:
+        inner.setAutoFillBackground(False)
+
+
+def _section_label(text: str, *, first: bool = False) -> QLabel:
+    """A sub-heading inside a card (replaces a group box nested in a group box)."""
+    label = QLabel(text)
+    set_style_property(label, "role", "section")
+    if not first:
+        label.setContentsMargins(0, 10, 0, 0)
+    return label
+
+
+def _captioned(caption: str, widget: QWidget) -> QVBoxLayout:
+    """*widget* under a small caption, for several short fields on one row."""
+    col = QVBoxLayout()
+    col.setContentsMargins(0, 0, 0, 0)
+    col.setSpacing(2)
+    label = QLabel(caption)
+    label.setBuddy(widget)
+    set_style_property(label, "role", "caption")
+    col.addWidget(label)
+    col.addWidget(widget)
+    return col
+
+
 class SlateFormPanel(QWidget):
     """View / editor for the slate metadata, burn-in fields and watermark.
 
@@ -353,29 +428,17 @@ class SlateFormPanel(QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
-        # --- Slate (checkable header toggles whether a slate frame renders) ---
-        slate_group = QGroupBox("Slate")
-        slate_group.setCheckable(True)
-        slate_group.setChecked(model.slate_enabled)
-        slate_group.setStatusTip("Render a slate frame in front of the shot")
-        slate_layout = QVBoxLayout(slate_group)
-        slate_layout.setSpacing(10)
+        # --- Slate (header switch toggles whether a slate frame renders) ---
+        slate_group = _SwitchCard(
+            "Slate",
+            "A frame in front of the shot.",
+            checked=model.slate_enabled,
+            status_tip="Render a slate frame in front of the shot",
+        )
         self._slate_group = slate_group
+        sf = _editor_form(slate_group.content)
 
-        # --- Top row: Show / Seq / Shot / Version (horizontal) ---
-        top_group = QGroupBox("Shot Identity")
-        top_layout = QHBoxLayout(top_group)
-        top_layout.setSpacing(8)
-
-        def _labeled_field(label_text: str, widget: QLineEdit) -> QVBoxLayout:
-            col = QVBoxLayout()
-            col.setSpacing(2)
-            lbl = QLabel(label_text)
-            set_style_property(lbl, "role", "caption")
-            col.addWidget(lbl)
-            col.addWidget(widget)
-            return col
-
+        # Show / Seq / Shot / Version share one row, each under a caption.
         self.show_edit = self._line_validated(fields.get("show", ""), "$SHOW")
         self.sequence_edit = self._line_validated(fields.get("sequence", ""), "$SEQ")
         self.shot_edit = self._line_validated(fields.get("shot", ""), "$SHOT")
@@ -384,26 +447,25 @@ class SlateFormPanel(QWidget):
         self.version_spin.setRange(0, 9999)
         self.version_spin.setPrefix("v")
         self.version_spin.setWrapping(True)
+        # Four digits at most: leave the width to Show / Seq / Shot.
+        self.version_spin.setMaximumWidth(80)
         self.version_spin.setValue(model.slate_version)
         self.version_spin.valueChanged.connect(self._emit_changed)
 
-        top_layout.addLayout(_labeled_field("Show", self.show_edit), 2)
-        top_layout.addLayout(_labeled_field("Seq", self.sequence_edit), 2)
-        top_layout.addLayout(_labeled_field("Shot", self.shot_edit), 2)
+        identity = QWidget()
+        identity_row = QHBoxLayout(identity)
+        identity_row.setContentsMargins(0, 0, 0, 0)
+        identity_row.setSpacing(8)
+        for caption, widget, stretch in (
+            ("Show", self.show_edit, 2),
+            ("Seq", self.sequence_edit, 2),
+            ("Shot", self.shot_edit, 2),
+            ("Version", self.version_spin, 1),
+        ):
+            identity_row.addLayout(_captioned(caption, widget), stretch)
 
-        ver_col = QVBoxLayout()
-        ver_col.setSpacing(2)
-        ver_lbl = QLabel("Version")
-        set_style_property(ver_lbl, "role", "caption")
-        ver_col.addWidget(ver_lbl)
-        ver_col.addWidget(self.version_spin)
-        top_layout.addLayout(ver_col, 1)
-        slate_layout.addWidget(top_group)
-
-        # --- Primary fields (always visible) ---
-        primary = QGroupBox("Slate Info")
-        pf = QFormLayout(primary)
-        pf.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        sf.add_wide(_section_label("Shot identity", first=True))
+        sf.add_wide(identity)
 
         self.notes_edit = QPlainTextEdit()
         self.notes_edit.setMaximumHeight(80)
@@ -419,38 +481,37 @@ class SlateFormPanel(QWidget):
             self.submit_for_combo.setCurrentIndex(sf_idx)
 
         self.artist_edit = self._line(fields.get("artist", ""), "Artist Name")
-
-        pf.addRow("Submitting For", self.submit_for_combo)
-        pf.addRow("Submit Notes", self.notes_edit)
         self.shot_types_edit = self._line(fields.get("shot_types", ""), "2d comp, 3d, matte paint…")
         self.scope_edit = self._line(fields.get("scope", ""), "VFX scope of work")
-        pf.addRow("Shot Types", self.shot_types_edit)
-        pf.addRow("Scope of Work", self.scope_edit)
-        slate_layout.addWidget(primary)
 
-        # --- Right-column fields (Vendor, Artist, Take, Logo) ---
-        right_group = QGroupBox("Artist / Studio")
-        rf = QFormLayout(right_group)
-        rf.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        sf.add_wide(_section_label("Slate info"))
+        sf.add_row("Submitting for", self.submit_for_combo, width=NARROW)
+        notes_label = sf.add_row("Submit notes", self.notes_edit, width=FILL)
+        # Multi-line field: the label reads against its first line, not its middle.
+        notes_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        notes_label.setContentsMargins(0, 6, 0, 0)
+        sf.add_row("Shot types", self.shot_types_edit, width=FILL)
+        sf.add_row("Scope of work", self.scope_edit, width=FILL)
 
         self.vendor_edit = self._line(fields.get("vendor", ""), "Studio / Vendor name")
         self.take_edit = self._line(fields.get("take", ""), "01")
         self.logo_edit = self._line(fields.get("logo", ""), "Logo text (blank to hide)")
 
-        rf.addRow("Vendor", self.vendor_edit)
-        rf.addRow("Artist", self.artist_edit)
-        rf.addRow("Take", self.take_edit)
-        rf.addRow("Logo / Studio", self.logo_edit)
-        slate_layout.addWidget(right_group)
+        sf.add_wide(_section_label("Artist / studio"))
+        sf.add_row("Vendor", self.vendor_edit, width=FILL)
+        sf.add_row("Artist", self.artist_edit, width=FILL)
+        sf.add_row("Take", self.take_edit, width=NARROW)
+        sf.add_row("Logo / studio", self.logo_edit, width=FILL)
         root.addWidget(slate_group)
 
-        # --- Burn-in (six corner cells, manual entry) ---
-        burnin_group = QGroupBox("Burn-in (per-frame overlay)")
-        burnin_group.setCheckable(True)
-        burnin_group.setChecked(model.burnin_enabled)
-        burnin_group.setStatusTip("Bake the corner burn-in text onto every frame")
-        bf = QFormLayout(burnin_group)
-        bf.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        # --- Burn-in (six positions, manual entry) ---
+        burnin_group = _SwitchCard(
+            "Burn-in",
+            "Text on every frame.",
+            checked=model.burnin_enabled,
+            status_tip="Bake the corner burn-in text onto every frame",
+        )
+        bf = _editor_form(burnin_group.content)
 
         burnin = model.burnin_fields
         self.burnin_top_left = self._line(burnin.get("top_left", ""), "Top left", tokenized=True)
@@ -468,35 +529,39 @@ class SlateFormPanel(QWidget):
             burnin.get("bottom_right", ""), "Bottom right", tokenized=True
         )
 
-        bf.addRow("Top Left", self.burnin_top_left)
-        bf.addRow("Top Center", self.burnin_top_center)
-        bf.addRow("Top Right", self.burnin_top_right)
-        bf.addRow("Bottom Left", self.burnin_bottom_left)
-        bf.addRow("Bottom Center", self.burnin_bottom_center)
-        bf.addRow("Bottom Right", self.burnin_bottom_right)
+        # Six rows, not a 3 x 2 grid: the column is ~300 px wide, and three
+        # fields across would truncate "Bottom center" and any token text.
+        bf.add_row("Top left", self.burnin_top_left, width=FILL)
+        bf.add_row("Top center", self.burnin_top_center, width=FILL)
+        bf.add_row("Top right", self.burnin_top_right, width=FILL)
+        bf.add_row("Bottom left", self.burnin_bottom_left, width=FILL)
+        bf.add_row("Bottom center", self.burnin_bottom_center, width=FILL)
+        bf.add_row("Bottom right", self.burnin_bottom_right, width=FILL)
 
         # 'Fill from slate' button — convenience for users who don't want to
         # type six fields by hand; pulls vendor/show/version/etc. via the
         # legacy :func:`burnin_fields_from_slate` helper.
         self._fill_burnin_btn = QPushButton("Fill from slate fields")
+        set_style_property(self._fill_burnin_btn, "variant", "ghost")
         self._fill_burnin_btn.setToolTip(
             "Replace burn-in cells with values derived from slate metadata"
         )
         self._fill_burnin_btn.clicked.connect(self._on_fill_burnin)
-        bf.addRow("", self._fill_burnin_btn)
+        bf.add_row("", self._fill_burnin_btn, width=NATURAL)
 
         self._burnin_group = burnin_group
         if self._embed_overlays:
             root.addWidget(burnin_group)
 
         # --- Watermark (drawn over every preview & output frame) ---
-        wm_group = QGroupBox("Watermark")
-        wm_group.setCheckable(True)
         wm_params = model.watermark_params
-        wm_group.setChecked(model.watermark_enabled)
-        wm_group.setStatusTip("Draw a diagonal watermark across every frame")
-        wmf = QFormLayout(wm_group)
-        wmf.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        wm_group = _SwitchCard(
+            "Watermark",
+            "Diagonal text across every frame.",
+            checked=model.watermark_enabled,
+            status_tip="Draw a diagonal watermark across every frame",
+        )
+        wmf = _editor_form(wm_group.content)
 
         self.watermark_text_edit = TokenLineEdit()
         self.watermark_text_edit.setPlaceholderText("FOR REVIEW ONLY")
@@ -521,11 +586,11 @@ class SlateFormPanel(QWidget):
         self.watermark_tiled_cb = QCheckBox("Tile across frame")
         self.watermark_tiled_cb.setChecked(bool(wm_params.get("tiled", True)))
 
-        wmf.addRow("Text", self.watermark_text_edit)
-        wmf.addRow("Opacity", self.watermark_opacity_spin)
-        wmf.addRow("Size", self.watermark_size_spin)
-        wmf.addRow("Angle", self.watermark_angle_spin)
-        wmf.addRow("", self.watermark_tiled_cb)
+        wmf.add_row("Text", self.watermark_text_edit, width=FILL)
+        wmf.add_row("Opacity", self.watermark_opacity_spin, width=NARROW)
+        wmf.add_row("Size", self.watermark_size_spin, width=NARROW)
+        wmf.add_row("Angle", self.watermark_angle_spin, width=NARROW)
+        wmf.add_row("", self.watermark_tiled_cb, width=NATURAL)
         if self._embed_overlays:
             root.addWidget(wm_group)
         self._watermark_group = wm_group
@@ -575,13 +640,13 @@ class SlateFormPanel(QWidget):
         self.watermark_angle_spin.valueChanged.connect(self._on_watermark_changed)
         self.watermark_tiled_cb.toggled.connect(self._on_watermark_changed)
         # Nested checkboxes (e.g. Tile) often still look enabled when a
-        # checkable QGroupBox is off — force children to match the master.
+        # switch card is off — force children to match the master.
         self._set_watermark_fields_enabled(self._watermark_group.isChecked())
 
         # Listen for external model changes so multiple views stay in sync.
         self._model.changed.connect(self._on_model_changed)
 
-        # Status tips — shown in the dialog's QStatusBar on hover
+        # Status tips — shown in the dialog's bottom status line on hover
         self.show_edit.setStatusTip("Production or show code (falls back to $SHOW env var)")
         self.sequence_edit.setStatusTip("Sequence name (falls back to $SEQ env var)")
         self.shot_edit.setStatusTip("Shot name (falls back to $SHOT env var)")
@@ -595,8 +660,8 @@ class SlateFormPanel(QWidget):
         self.scope_edit.setStatusTip("Description of VFX scope of work for this shot")
         self.logo_edit.setStatusTip("Text displayed as logo/studio branding (blank to hide)")
 
-    def overlay_groups(self) -> list[QGroupBox]:
-        """Return the burn-in + watermark group boxes.
+    def overlay_groups(self) -> list[QWidget]:
+        """Return the burn-in + watermark cards.
 
         Used by :class:`SlateDialog` when ``embed_overlays=False`` to host the
         overlay controls in a dedicated column to the right of the image view.
@@ -919,6 +984,8 @@ class SlateDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("Slate & Overlay Editor")
+        # Three columns (form, viewer, overlays) each need room to stay usable.
+        self.setMinimumSize(1150, 660)
         self.resize(1400, 850)
 
         self._model = model
@@ -989,8 +1056,9 @@ class SlateDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(self._form)
-        scroll.setMinimumWidth(300)
+        scroll.setMinimumWidth(320)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        _show_window_behind(scroll)
         splitter.addWidget(scroll)
 
         # --- Center: reusable sequence player ---
@@ -1047,8 +1115,9 @@ class SlateDialog(QDialog):
         overlay_scroll = QScrollArea()
         overlay_scroll.setWidgetResizable(True)
         overlay_scroll.setWidget(overlay_panel)
-        overlay_scroll.setMinimumWidth(280)
+        overlay_scroll.setMinimumWidth(330)
         overlay_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        _show_window_behind(overlay_scroll)
         splitter.addWidget(overlay_scroll)
 
         splitter.setStretchFactor(0, 0)
@@ -1057,24 +1126,29 @@ class SlateDialog(QDialog):
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
         splitter.setCollapsible(2, False)
-        splitter.setSizes([360, 740, 320])
+        splitter.setSizes([360, 680, 360])
 
         layout.addWidget(splitter, 1)
 
-        # --- Bottom: status bar ---
-        self._status_bar = QStatusBar()
-        self._status_bar.setSizeGripEnabled(False)
-        self._status_bar.setContentsMargins(8, 0, 0, 0)
-        self._status_bar.setStyleSheet("QStatusBar::item { border: 0; }")
+        # --- Bottom: status text left, buttons right ---
+        bottom = QWidget()
+        bottom.setObjectName("slateBottomBar")
+        bar = QHBoxLayout(bottom)
+        bar.setContentsMargins(12, 8, 4, 8)
+        bar.setSpacing(8)
+        # Fields carry status tips (not tooltips); event() routes them here.
+        self._status_bar = StatusLine()
+        set_style_property(self._status_bar, "role", "hint")
+        bar.addWidget(self._status_bar, 1)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         set_style_property(buttons.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        self._status_bar.addPermanentWidget(buttons)
-        self._status_bar.addPermanentWidget(SizeGrip(self._status_bar))
-        layout.addWidget(self._status_bar)
+        bar.addWidget(buttons)
+        bar.addWidget(SizeGrip(bottom), 0, Qt.AlignmentFlag.AlignBottom)
+        layout.addWidget(bottom)
 
         # --- Live preview wiring ---
         self._refresh_timer = QTimer()
