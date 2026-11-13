@@ -506,6 +506,7 @@ class VideoBrowserDialog(QDialog):
             show_cache_ui=False,
             prefer_gpu=True,
             show_in_out=True,
+            proxy_preview=True,
             parent=self._preview_page,
         )
         self._player.in_out_changed.connect(self._on_in_out_changed)

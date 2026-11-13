@@ -27,6 +27,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import numpy as np
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
+from ..core.preview_proxy import get_preview_cache, preview_cache_key
 from .cache_prefs import DEFAULT_LOOKBACK_RATIO
 from .frame_cache import FrameCache
 
@@ -42,6 +43,22 @@ _FORWARD_DECODE_LIMIT = 48
 _SCRUB_LOOKBACK_FRAMES = 2
 
 
+def _apply_transform(
+    rgb: np.ndarray,
+    transform: FrameTransform | None,
+) -> np.ndarray | None:
+    if transform is None:
+        # No OCIO: cache source-referred float. The viewer treats float as
+        # working space only when a transform was configured.
+        return np.ascontiguousarray(rgb, dtype=np.float16)
+    try:
+        out = transform(rgb)
+    except Exception:
+        log.debug("frame_transform raised", exc_info=True)
+        return None
+    return out
+
+
 def _decode_one(
     path: str,
     frame: int,
@@ -49,9 +66,21 @@ def _decode_one(
     decoder_holder: dict,
     lock: threading.Lock,
     fps: float = 0.0,
+    target: tuple[int, int, int] | None = None,
+    on_draft: Callable[[np.ndarray], None] | None = None,
+    reduced_flag: dict[str, bool] | None = None,
 ) -> np.ndarray | None:
     """Worker entry: decode one frame via a shared locked decoder."""
     from ..core.frame_source import open_preview_decoder
+
+    target_size = (target[0], target[1]) if target is not None else None
+    bucket = target[2] if target is not None else 0
+    if target is not None:
+        hit = get_preview_cache().get(preview_cache_key(path, frame, bucket))
+        if hit is not None:
+            if reduced_flag is not None:
+                reduced_flag["reduced"] = True
+            return _apply_transform(hit, transform)
 
     with lock:
         dec = decoder_holder.get("dec")
@@ -59,7 +88,7 @@ def _decode_one(
             if dec is not None:
                 dec.close()
             try:
-                dec = open_preview_decoder(path, fps=fps)
+                dec = open_preview_decoder(path, fps=fps, target_size=target_size)
             except Exception:
                 log.exception("Failed to open video for prefetch: %s", path)
                 decoder_holder["dec"] = None
@@ -72,17 +101,23 @@ def _decode_one(
             return None
     if rgb is None:
         return None
-    if transform is None:
-        # No OCIO: cache source-referred float (viewer treats float as working
-        # only when a transform was configured — keep passthrough for no-OCIO).
-        return np.ascontiguousarray(rgb, dtype=np.float16)
-    try:
-        out = transform(rgb)
-    except Exception:
-        log.debug("frame_transform raised frame=%s", frame, exc_info=True)
-        return None
-    # None = transform failed deliberately (do not poison cache as working).
-    return out
+    if reduced_flag is not None:
+        source = getattr(dec, "source_size", None)
+        if source is None:
+            reduced_flag["reduced"] = target is not None
+        else:
+            reduced_flag["reduced"] = int(rgb.shape[1]) < int(source[0]) or int(rgb.shape[0]) < int(
+                source[1]
+            )
+    if target is not None:
+        try:
+            get_preview_cache().put(preview_cache_key(path, frame, bucket), rgb)
+        except Exception:
+            log.debug("preview cache put failed", exc_info=True)
+    # on_draft is unused for video and camera RAW: a second decode would make
+    # the sharp frame later than the single reduced decode.
+    del on_draft
+    return _apply_transform(rgb, transform)
 
 
 class VideoPrefetchService(QObject):
@@ -100,6 +135,8 @@ class VideoPrefetchService(QObject):
         fps: float = 0.0,
         lookback_ratio: float = DEFAULT_LOOKBACK_RATIO,
         frame_transform: FrameTransform | None = None,
+        single_frame: bool = False,
+        preview_target: tuple[int, int, int] | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -114,6 +151,10 @@ class VideoPrefetchService(QObject):
         # reverse window (seek cost) instead of a large lookback ratio.
         self._lookback_ratio = max(0.0, min(1.0, lookback_ratio))
         self._frame_transform = frame_transform
+        self._single_frame = bool(single_frame)
+        self._preview_target = preview_target
+        self._full_res_only = False
+        self._draft_once = bool(single_frame and preview_target)
 
         self._current = self._shot_frames[0] if self._shot_frames else 1
         self._playing = False
@@ -151,6 +192,30 @@ class VideoPrefetchService(QObject):
             if dec is not None:
                 dec.close()
             self._decoder_holder["dec"] = None
+
+    @property
+    def full_res_only(self) -> bool:
+        """True once a frame had no cheaper decode than the full raster."""
+        return self._full_res_only
+
+    def set_preview_target(self, width: int, height: int, bucket: int) -> None:
+        """Switch browser-preview resolution and drop the open decoder."""
+        target = (int(width), int(height), int(bucket))
+        if target == self._preview_target:
+            return
+        self._preview_target = target
+        self._generation += 1
+        self._draft_once = False
+        with self._decoder_lock:
+            dec = self._decoder_holder.get("dec")
+            if dec is not None:
+                try:
+                    dec.close()
+                except Exception:
+                    log.debug("preview decoder close failed", exc_info=True)
+            self._decoder_holder["dec"] = None
+        self._rebuild_queue()
+        self._schedule_kick()
 
     def set_paused(self, paused: bool) -> None:
         self._paused = paused
@@ -196,6 +261,8 @@ class VideoPrefetchService(QObject):
         return _MIN_LOOKAHEAD_FRAMES
 
     def _lookback_ahead_counts(self) -> tuple[int, int]:
+        if self._single_frame:
+            return 0, 0
         capacity = min(self._cache_capacity(), _HARD_LOOKAHEAD_FRAMES + 32)
         if self._playing:
             return 0, min(capacity, _HARD_LOOKAHEAD_FRAMES)
@@ -278,6 +345,17 @@ class VideoPrefetchService(QObject):
                 and abs(frame - self._wanted) > _FORWARD_DECODE_LIMIT
             ):
                 continue
+            want_draft = self._draft_once
+            if want_draft:
+                self._draft_once = False
+            reduced_flag: dict[str, bool] = {"reduced": True}
+
+            def _on_draft(rgb: np.ndarray, fr: int = frame, g: int = gen) -> None:
+                try:
+                    self._delivery_ready.emit(fr, ("draft", rgb), g)
+                except RuntimeError:
+                    return
+
             fut = self._pool.submit(
                 _decode_one,
                 self._path,
@@ -286,32 +364,57 @@ class VideoPrefetchService(QObject):
                 self._decoder_holder,
                 self._decoder_lock,
                 self._fps,
+                self._preview_target,
+                _on_draft if want_draft else None,
+                reduced_flag,
             )
             self._inflight[frame] = fut
             # Weak ref: the pool thread must never hold the last reference, or the
             # QObject (and its QTimer) is destroyed off the GUI thread and crashes.
             ref = weakref.ref(self)
 
-            def _done(f: Future, fr: int = frame, g: int = gen, ref=ref) -> None:
+            def _done(
+                f: Future,
+                fr: int = frame,
+                g: int = gen,
+                ref=ref,
+                flag: dict[str, bool] = reduced_flag,
+            ) -> None:
                 svc = ref()
                 if svc is not None:
-                    svc._on_done(fr, f, g)
+                    svc._on_done(fr, f, g, flag)
 
             fut.add_done_callback(_done)
 
-    def _on_done(self, frame: int, fut: Future, generation: int) -> None:
+    def _on_done(
+        self,
+        frame: int,
+        fut: Future,
+        generation: int,
+        reduced_flag: dict[str, bool] | None = None,
+    ) -> None:
         if generation != self._generation:
             return
         try:
             rgb = fut.result()
         except Exception:
             rgb = None
+        if reduced_flag is not None and not reduced_flag.get("reduced", True):
+            self._full_res_only = True
         try:
             self._delivery_ready.emit(frame, rgb, generation)
         except RuntimeError:
             return
 
-    def _deliver(self, frame: int, rgb: np.ndarray | None, generation: int) -> None:
+    def _deliver(self, frame: int, payload: object, generation: int) -> None:
+        if isinstance(payload, tuple) and len(payload) == 2 and payload[0] == "draft":
+            if generation != self._generation:
+                return
+            image = payload[1]
+            if image is not None:
+                self.frame_loaded.emit(frame, image)
+            return
+        rgb = payload if isinstance(payload, np.ndarray) else None
         self._inflight.pop(frame, None)
         if generation != self._generation:
             self._schedule_kick()

@@ -206,6 +206,57 @@ def _apply_white_balance(
     return balanced
 
 
+def _channel_gains(
+    neutral: tuple[float, float, float],
+    has_neutral: bool,
+) -> tuple[float, float, float]:
+    if not has_neutral:
+        return (1.0, 1.0, 1.0)
+    gains: list[float] = []
+    for value in neutral:
+        if value > 1e-8:
+            gains.append(1.0 / float(value))
+        else:
+            gains.append(1.0)
+    while len(gains) < 3:
+        gains.append(1.0)
+    return (gains[0], gains[1], gains[2])
+
+
+def bin_bayer(
+    mosaic: np.ndarray,
+    cfa: tuple[int, int, int, int],
+    gains: tuple[float, float, float] = (1.0, 1.0, 1.0),
+) -> np.ndarray:
+    """One RGB pixel per 2x2 Bayer quad.
+
+    This is the half-size debayer: each quad is averaged in place. It does
+    not demosaic the full raster and then resize.
+    """
+    raw = np.asarray(mosaic)
+    height, width = int(raw.shape[0]), int(raw.shape[1])
+    height -= height % 2
+    width -= width % 2
+    if height < 2 or width < 2:
+        raise RuntimeError("CinemaDNG frame is too small to bin")
+    view = raw[:height, :width]
+    out_h = height // 2
+    out_w = width // 2
+    acc = np.zeros((out_h, out_w, 3), dtype=np.float32)
+    weight = np.zeros(3, dtype=np.float32)
+    for row in range(2):
+        for col in range(2):
+            channel = int(cfa[row * 2 + col])
+            if not 0 <= channel <= 2:
+                continue
+            acc[:, :, channel] += view[row::2, col::2]
+            weight[channel] += 1.0
+    for channel in range(3):
+        if weight[channel] > 0:
+            acc[:, :, channel] *= np.float32(gains[channel] / float(weight[channel]))
+    return acc
+
+
 def demosaic_bilinear(mosaic: np.ndarray, cfa: tuple[int, int, int, int]) -> np.ndarray:
     """Bilinear Bayer demosaic, one channel at a time.
 
@@ -264,6 +315,24 @@ def apply_orientation(rgb: np.ndarray, orientation: int) -> np.ndarray:
     return np.ascontiguousarray(rgb)
 
 
+def _grade(rgb: np.ndarray, meta: FrameMeta) -> tuple[np.ndarray, str]:
+    """Camera RGB (already white-balanced) to the output colorspace."""
+    graded = rgb.astype(np.float64, copy=False)
+    camera_to_d50 = _camera_to_xyz_d50(meta)
+    if camera_to_d50 is not None:
+        flat = graded.reshape(-1, 3)
+        xyz_d50 = flat @ camera_to_d50.T
+        xyz_d60 = xyz_d50 @ _D50_TO_D60.T
+        if is_dji(meta):
+            coded = xyz_d60 @ _P3_FROM_XYZ_D60.T
+        else:
+            coded = xyz_d60 @ _AP0_FROM_XYZ_D60.T
+        graded = coded.reshape(graded.shape)
+    graded = graded * exposure_scale(meta)
+    oriented = apply_orientation(graded.astype(np.float32, copy=False), int(meta.orientation))
+    return oriented, output_colorspace(meta)
+
+
 def develop(mosaic: np.ndarray, meta: FrameMeta) -> tuple[np.ndarray, str]:
     """Return float32 RGB and the OCIO name those pixels are in.
 
@@ -272,20 +341,23 @@ def develop(mosaic: np.ndarray, meta: FrameMeta) -> tuple[np.ndarray, str]:
     """
     cfa = meta.cfa
     balanced = _apply_white_balance(mosaic, cfa, meta.neutral, meta.has_neutral)
-    rgb = demosaic_bilinear(balanced, cfa).astype(np.float64, copy=False)
-    camera_to_d50 = _camera_to_xyz_d50(meta)
-    if camera_to_d50 is not None:
-        flat = rgb.reshape(-1, 3)
-        xyz_d50 = flat @ camera_to_d50.T
-        xyz_d60 = xyz_d50 @ _D50_TO_D60.T
-        if is_dji(meta):
-            coded = xyz_d60 @ _P3_FROM_XYZ_D60.T
-        else:
-            coded = xyz_d60 @ _AP0_FROM_XYZ_D60.T
-        rgb = coded.reshape(rgb.shape)
-    rgb = rgb * exposure_scale(meta)
-    oriented = apply_orientation(rgb.astype(np.float32, copy=False), int(meta.orientation))
-    return oriented, output_colorspace(meta)
+    rgb = demosaic_bilinear(balanced, cfa)
+    return _grade(rgb, meta)
+
+
+def develop_half(mosaic: np.ndarray, meta: FrameMeta) -> tuple[np.ndarray, str]:
+    """Same grade as :func:`develop`, from a 2x2 Bayer bin instead of a full demosaic."""
+    gains = _channel_gains(meta.neutral, meta.has_neutral)
+    rgb = bin_bayer(mosaic, meta.cfa, gains)
+    return _grade(rgb, meta)
+
+
+def half_covers(meta: FrameMeta, target_w: int, target_h: int) -> bool:
+    """True when a half-size debayer is at least as large as *target*."""
+    full_w, full_h = oriented_size(meta)
+    if target_w <= 0 or target_h <= 0:
+        return False
+    return int(target_w) <= max(1, full_w // 2) and int(target_h) <= max(1, full_h // 2)
 
 
 def oriented_size(meta: FrameMeta) -> tuple[int, int]:

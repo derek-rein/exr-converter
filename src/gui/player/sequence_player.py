@@ -26,7 +26,9 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.constants import APP_NAME, APP_ORG
+from ...core.exr_io import image_header_size
 from ...core.pixel_aspect import probe_media_aspect
+from ...core.preview_proxy import ProxyTarget, preview_level_key, proxy_storage_target
 from ...services.cache_prefs import cache_budget_bytes
 from ...services.exr_prefetch import ExrPrefetchService
 from ...services.frame_cache import FrameCache
@@ -89,11 +91,21 @@ class SequencePlayer(QWidget):
         show_cache_ui: bool = True,
         prefer_gpu: bool = True,
         show_in_out: bool = False,
+        proxy_preview: bool = False,
     ) -> None:
         super().__init__(parent)
         self._settings = settings if settings is not None else QSettings(APP_ORG, APP_NAME)
         self._show_cache_ui = show_cache_ui
         self._prefer_gpu = prefer_gpu
+        # Browser Preview only. The full viewer leaves this false and keeps
+        # full-frame prefetch.
+        self._proxy_preview = bool(proxy_preview)
+        self._proxy_target: ProxyTarget | None = None
+        self._proxy_level_key: tuple[str, int | str] | None = None
+        self._src_w = 0
+        self._src_h = 0
+        self._media_path = ""
+        self._proxy_size_waited = False
 
         self._ocio_cfg: object | None = None
         self._src_colorspace: str = ""
@@ -267,6 +279,12 @@ class SequencePlayer(QWidget):
         self._ec_gamma_prop = None
         self._exr_seq = None
         self._video_path = None
+        self._proxy_target = None
+        self._proxy_level_key = None
+        self._src_w = 0
+        self._src_h = 0
+        self._media_path = ""
+        self._proxy_size_waited = False
         self._shot_frames = []
         self._shot_frames_set = set()
         self._first_shot = None
@@ -315,6 +333,9 @@ class SequencePlayer(QWidget):
         src = ""
         aspect_factor = 1.0
         aspect_label = ""
+        width = 0
+        height = 0
+        probe_path = ""
         if frames:
             probe_path = paths[0] if paths else input_path
             src = resolve_sequence_src_colorspace(probe_path, ocio_cfg, preferred=src_colorspace)
@@ -325,12 +346,19 @@ class SequencePlayer(QWidget):
             except Exception:
                 aspect_factor = 1.0
                 aspect_label = ""
+            try:
+                width, height = image_header_size(probe_path)
+            except Exception:
+                width, height = 0, 0
         return {
             "frames": list(frames),
             "seq": seq,
             "src_colorspace": src,
             "pixel_aspect": aspect_factor,
             "pixel_aspect_label": aspect_label,
+            "width": width,
+            "height": height,
+            "probe_path": probe_path if frames else "",
         }
 
     @staticmethod
@@ -421,6 +449,11 @@ class SequencePlayer(QWidget):
                 float(info.get("pixel_aspect") or 1.0),
                 str(info.get("pixel_aspect_label") or ""),
             )
+            self._src_w = int(info.get("width") or 0)
+            self._src_h = int(info.get("height") or 0)
+            self._media_path = str(info.get("probe_path") or input_path)
+            if self._proxy_preview and self._src_w > 0 and self._src_h > 0:
+                self.set_resolution(self._src_w, self._src_h)
             log.info(
                 "SequencePlayer load: src=%r working=%r frames=%s–%s",
                 self._src_colorspace,
@@ -436,15 +469,10 @@ class SequencePlayer(QWidget):
 
         # Same OCIO path as the slate editor: worker applies src→working into
         # the RAM cache; the GPU/CPU viewer only does working→display.
-        self._prefetch = ExrPrefetchService(
-            self._exr_seq,
-            self._shot_cache,
-            self._shot_frames,
-            max_workers=_PREFETCH_WORKERS,
-            frame_transform=self._build_worker_frame_transform(),
-            parent=self,
-        )
+        self._prepare_proxy_target()
+        self._prefetch = self._new_exr_prefetch()
         self._prefetch.frame_loaded.connect(self._on_prefetch_frame_loaded)
+        self._arm_proxy_prefetch()
         return self._finish_media_load()
 
     def load_video(
@@ -538,10 +566,15 @@ class SequencePlayer(QWidget):
         self._last_shot = n_frames
 
         self._src_colorspace = str(info.get("src_colorspace") or "")
+        self._src_w = int(w)
+        self._src_h = int(h)
+        self._media_path = path
         self.set_pixel_aspect(
             float(info.get("pixel_aspect") or 1.0),
             str(info.get("pixel_aspect_label") or ""),
         )
+        if self._proxy_preview and w > 0 and h > 0:
+            self.set_resolution(int(w), int(h))
         log.info(
             "SequencePlayer load_video: %s frames=%s fps=%.3f src=%r working=%r",
             path,
@@ -551,15 +584,10 @@ class SequencePlayer(QWidget):
             self._resolve_working_space(),
         )
 
-        self._prefetch = VideoPrefetchService(
-            path,
-            self._shot_cache,
-            self._shot_frames,
-            fps=use_fps,
-            frame_transform=self._build_worker_frame_transform(),
-            parent=self,
-        )
+        self._prepare_proxy_target()
+        self._prefetch = self._new_video_prefetch()
         self._prefetch.frame_loaded.connect(self._on_prefetch_frame_loaded)
+        self._arm_proxy_prefetch()
         return self._finish_media_load()
 
     def clear(self) -> None:
@@ -621,23 +649,9 @@ class SequencePlayer(QWidget):
         if self._prefetch is not None:
             return True
         if self._exr_seq is not None and self._shot_frames:
-            self._prefetch = ExrPrefetchService(
-                self._exr_seq,
-                self._shot_cache,
-                self._shot_frames,
-                max_workers=_PREFETCH_WORKERS,
-                frame_transform=self._build_worker_frame_transform(),
-                parent=self,
-            )
+            self._prefetch = self._new_exr_prefetch()
         elif self._video_path and self._shot_frames:
-            self._prefetch = VideoPrefetchService(
-                self._video_path,
-                self._shot_cache,
-                self._shot_frames,
-                fps=self._fps,
-                frame_transform=self._build_worker_frame_transform(),
-                parent=self,
-            )
+            self._prefetch = self._new_video_prefetch()
         else:
             return False
         self._prefetch.frame_loaded.connect(self._on_prefetch_frame_loaded)
@@ -685,6 +699,127 @@ class SequencePlayer(QWidget):
     def refresh(self) -> None:
         """Re-render the current frame (form/overlay changes, etc.)."""
         self._refresh_current_frame()
+
+    def _proxy_decode_target(self) -> ProxyTarget | None:
+        if not self._proxy_preview or self._src_w <= 0 or self._src_h <= 0:
+            return None
+        widget_w = self._preview_stack.width()
+        widget_h = self._preview_stack.height()
+        if widget_w < 32 or widget_h < 32:
+            widget_w = self.width()
+            widget_h = self.height()
+        if widget_w < 32 or widget_h < 32:
+            return None
+        return proxy_storage_target(
+            self._src_w,
+            self._src_h,
+            widget_w,
+            widget_h,
+            float(self.devicePixelRatioF() or 1.0),
+            self._pixel_aspect,
+        )
+
+    def _preview_target_tuple(self) -> tuple[int, int, int] | None:
+        target = self._proxy_target
+        if target is None:
+            return None
+        return (target.width, target.height, target.bucket)
+
+    def _prepare_proxy_target(self) -> None:
+        if not self._proxy_preview:
+            return
+        target = self._proxy_decode_target()
+        self._proxy_target = target
+        if target is None or not self._media_path:
+            self._proxy_level_key = None
+            return
+        self._proxy_level_key = preview_level_key(
+            self._media_path,
+            self._src_w,
+            self._src_h,
+            target.width,
+            target.height,
+        )
+
+    def _new_exr_prefetch(self) -> ExrPrefetchService:
+        return ExrPrefetchService(
+            self._exr_seq,
+            self._shot_cache,
+            self._shot_frames,
+            max_workers=1 if self._proxy_preview else _PREFETCH_WORKERS,
+            frame_transform=self._build_worker_frame_transform(),
+            single_frame=self._proxy_preview,
+            preview_target=self._preview_target_tuple(),
+            parent=self,
+        )
+
+    def _new_video_prefetch(self) -> VideoPrefetchService:
+        return VideoPrefetchService(
+            self._video_path or "",
+            self._shot_cache,
+            self._shot_frames,
+            fps=self._fps,
+            frame_transform=self._build_worker_frame_transform(),
+            single_frame=self._proxy_preview,
+            preview_target=self._preview_target_tuple(),
+            parent=self,
+        )
+
+    def _arm_proxy_prefetch(self) -> None:
+        """Hold the first read until the pane has a size, so it is not full-res."""
+        if not self._proxy_preview or self._prefetch is None or self._proxy_target is not None:
+            return
+        self._prefetch.set_paused(True)
+        QTimer.singleShot(0, self._retry_proxy_size)
+
+    def _retry_proxy_size(self) -> None:
+        if not self._proxy_preview or self._prefetch is None:
+            return
+        self._prepare_proxy_target()
+        target = self._proxy_target
+        if target is None:
+            if not self._proxy_size_waited:
+                self._proxy_size_waited = True
+                QTimer.singleShot(0, self._retry_proxy_size)
+                return
+            self._prefetch.set_paused(False)
+            self._sync_prefetch()
+            self.refresh()
+            return
+        self._prefetch.set_preview_target(target.width, target.height, target.bucket)
+        self._prefetch.set_paused(False)
+        self._sync_prefetch()
+        self.refresh()
+
+    def _update_proxy_target(self) -> None:
+        if not self._proxy_preview or self._prefetch is None:
+            return
+        if getattr(self._prefetch, "full_res_only", False):
+            return
+        target = self._proxy_decode_target()
+        if target is None:
+            return
+        level = preview_level_key(
+            self._media_path,
+            self._src_w,
+            self._src_h,
+            target.width,
+            target.height,
+        )
+        if level == self._proxy_level_key:
+            return
+        if self._proxy_target is not None and target.bucket < self._proxy_target.bucket:
+            return
+        self._proxy_target = target
+        self._proxy_level_key = level
+        self._shot_cache.clear()
+        self._prefetch.set_preview_target(target.width, target.height, target.bucket)
+        self._prefetch.set_paused(False)
+        self.refresh()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._update_proxy_target()
 
     def fit_in_view(self) -> None:
         # Guard against QTimer.singleShot(0) firing after the dialog was closed.
@@ -1323,11 +1458,15 @@ class SequencePlayer(QWidget):
             self._composed_working_f32 = None
         self._display_f32 = None
 
-        # Adopt frame resolution from first cached image if host left defaults.
+        # Adopt frame resolution from the first cached image if the host left
+        # the constructor default. Browser Preview keeps the source plate size
+        # in the HUD; the uploaded frame may be a smaller proxy.
         try:
             h, w = int(rgb.shape[0]), int(rgb.shape[1])
-            if h > 0 and w > 0 and (self._width, self._height) == (1920, 1080):
-                # Only auto-adopt when still at constructor defaults and image differs.
+            if self._proxy_preview and self._src_w > 0 and self._src_h > 0:
+                if (self._width, self._height) != (self._src_w, self._src_h):
+                    self.set_resolution(self._src_w, self._src_h)
+            elif h > 0 and w > 0 and (self._width, self._height) == (1920, 1080):
                 if (w, h) != (1920, 1080):
                     self.set_resolution(w, h)
         except Exception:

@@ -9,6 +9,7 @@ import numpy as np
 from ..frame_source import MediaInfo, resize_rgb_f32, scaled_dims
 from ..pixel_aspect import aspect_from_default_scale
 from .color import LINEAR_P3_D60
+from .decode import read_rgb_preview
 from .input import frame_paths, probe_sequence, read_sequence_frame
 from .native import probe_meta
 
@@ -18,13 +19,21 @@ ProgressCancel = Callable[[], bool]
 class CinemaDNGPreviewDecoder:
     """Random-access preview of a CinemaDNG sequence. Indices are 1-based."""
 
-    def __init__(self, path: str, *, fps: float = 0.0) -> None:
+    def __init__(
+        self,
+        path: str,
+        *,
+        fps: float = 0.0,
+        target_size: tuple[int, int] | None = None,
+    ) -> None:
         self.path = path
         width, height, probed_fps, count, _colorspace = probe_sequence(path)
         self.fps = float(fps) if fps and fps > 0 else probed_fps
         self._width = width
         self._height = height
         self._count = count
+        self._target = target_size
+        self._last: tuple[int, np.ndarray] | None = None
 
     def close(self) -> None:
         return
@@ -36,7 +45,22 @@ class CinemaDNGPreviewDecoder:
     def get_frame(self, idx_1based: int) -> np.ndarray | None:
         if idx_1based < 1 or idx_1based > self._count:
             return None
-        rgb, _attrs = read_sequence_frame(self.path, idx_1based)
+        if self._last is not None and self._last[0] == idx_1based:
+            return self._last[1]
+        if self._target is None:
+            rgb, _attrs = read_sequence_frame(self.path, idx_1based)
+            self._last = (idx_1based, rgb)
+            return rgb
+        try:
+            _draft, rgb, _reduced = read_rgb_preview(
+                frame_paths(self.path)[idx_1based - 1],
+                self._target[0],
+                self._target[1],
+                with_draft=False,
+            )
+        except Exception:
+            return None
+        self._last = (idx_1based, rgb)
         return rgb
 
 

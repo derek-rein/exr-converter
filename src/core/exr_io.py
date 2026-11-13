@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import OpenImageIO as oiio
 
 from .cinemadng import read_rgb
+from .cinemadng.decode import display_size as dng_display_size
+from .cinemadng.decode import read_rgb_preview
 from .pixel_aspect import (
     ATTR_OPTICAL_SQUEEZE,
     ATTR_PIXEL_ASPECT,
@@ -12,6 +16,8 @@ from .pixel_aspect import (
     is_square,
     merge_for_write,
 )
+
+log = logging.getLogger(__name__)
 
 
 def _display_window(spec) -> tuple[int, int, int, int]:
@@ -134,6 +140,221 @@ def read_image_alpha(path: str) -> np.ndarray | None:
 def read_exr(path: str) -> np.ndarray:
     """Alias for :func:`read_image` (historical name; works for any OIIO still)."""
     return read_image(path)
+
+
+def image_header_size(path: str) -> tuple[int, int]:
+    """Display width and height from the header. Does not read pixels."""
+    if path.lower().endswith(".dng"):
+        return dng_display_size(path)
+    inp = oiio.ImageInput.open(path)
+    if not inp:
+        raise RuntimeError(f"Failed to open image {path!r}")
+    try:
+        spec = inp.spec()
+        width = int(spec.full_width) if spec.full_width > 0 else int(spec.width)
+        height = int(spec.full_height) if spec.full_height > 0 else int(spec.height)
+        if width <= 0 or height <= 0:
+            raise RuntimeError(f"Invalid image size in {path!r}")
+        return width, height
+    finally:
+        inp.close()
+
+
+def _level_size(spec) -> tuple[int, int]:
+    width = int(spec.full_width) if spec.full_width > 0 else int(spec.width)
+    height = int(spec.full_height) if spec.full_height > 0 else int(spec.height)
+    return width, height
+
+
+def _rgb_span(spec) -> tuple[int, int] | None:
+    """Contiguous channel range that includes R, G, and B, or the first channels."""
+    names = [str(name).split(".")[-1].lower() for name in spec.channelnames]
+    index = {name: i for i, name in enumerate(names)}
+
+    def find(*options: str) -> int | None:
+        for option in options:
+            if option in index:
+                return index[option]
+        return None
+
+    red, green, blue = find("r", "red"), find("g", "green"), find("b", "blue")
+    count = int(spec.nchannels)
+    if red is None or green is None or blue is None:
+        if count >= 3:
+            return 0, 3
+        if count == 1:
+            return 0, 1
+        return None
+    return min(red, green, blue), max(red, green, blue) + 1
+
+
+def _as_rgb(arr: np.ndarray, spec, chbegin: int) -> np.ndarray:
+    pixels = np.asarray(arr, dtype=np.float32)
+    if pixels.ndim == 2:
+        pixels = pixels[:, :, np.newaxis]
+    if pixels.ndim != 3 or pixels.size == 0:
+        raise RuntimeError("Preview read returned no pixels")
+    names = [str(name).split(".")[-1].lower() for name in list(spec.channelnames)[chbegin:]]
+    index = {name: i for i, name in enumerate(names)}
+
+    def find(*options: str) -> int | None:
+        for option in options:
+            if option in index and index[option] < pixels.shape[2]:
+                return index[option]
+        return None
+
+    red, green, blue = find("r", "red"), find("g", "green"), find("b", "blue")
+    if red is None or green is None or blue is None:
+        if pixels.shape[2] >= 3:
+            rgb = pixels[:, :, :3]
+        elif pixels.shape[2] == 1:
+            rgb = np.repeat(pixels, 3, axis=2)
+        else:
+            raise RuntimeError("Preview read has no RGB channels")
+    else:
+        rgb = np.stack([pixels[:, :, red], pixels[:, :, green], pixels[:, :, blue]], axis=2)
+    return np.ascontiguousarray(rgb, dtype=np.float32)
+
+
+def _crop_display(arr: np.ndarray, spec) -> np.ndarray:
+    if spec.full_width <= 0 or spec.full_height <= 0:
+        return arr
+    x0 = int(spec.full_x - spec.x)
+    y0 = int(spec.full_y - spec.y)
+    height, width = int(arr.shape[0]), int(arr.shape[1])
+    x0 = max(0, min(x0, max(0, width - 1)))
+    y0 = max(0, min(y0, max(0, height - 1)))
+    x1 = max(x0 + 1, min(width, x0 + int(spec.full_width)))
+    y1 = max(y0 + 1, min(height, y0 + int(spec.full_height)))
+    if x0 == 0 and y0 == 0 and x1 == width and y1 == height:
+        return arr
+    return np.ascontiguousarray(arr[y0:y1, x0:x1])
+
+
+def _collect_levels(inp) -> list[tuple[int, int, int, int, int, int, int]]:
+    """``(pixels, sub, mip, chbegin, chend, width, height)`` for each RGB level."""
+    found: list[tuple[int, int, int, int, int, int, int]] = []
+    sub = 0
+    while sub < 16 and inp.seek_subimage(sub, 0):
+        mip = 0
+        seen: set[tuple[int, int]] = set()
+        while mip < 16 and inp.seek_subimage(sub, mip):
+            spec = inp.spec()
+            span = _rgb_span(spec)
+            width, height = _level_size(spec)
+            if span is None or width <= 0 or height <= 0:
+                break
+            key = (width, height)
+            if key in seen:
+                break
+            seen.add(key)
+            begin, end = span
+            found.append((width * height, sub, mip, begin, end, width, height))
+            mip += 1
+        sub += 1
+    return found
+
+
+def _read_level(inp, sub: int, mip: int, begin: int, end: int) -> np.ndarray:
+    if not inp.seek_subimage(sub, mip):
+        raise RuntimeError("Preview level is not in this file")
+    spec = inp.spec()
+    arr = inp.read_image(sub, mip, begin, end, oiio.FLOAT)
+    rgb = _as_rgb(np.asarray(arr), spec, begin)
+    return _crop_display(rgb, spec)
+
+
+def read_image_preview(
+    path: str,
+    target_w: int,
+    target_h: int,
+    *,
+    with_draft: bool = False,
+    on_draft: object | None = None,
+) -> tuple[np.ndarray | None, np.ndarray, bool]:
+    """``(draft or None, RGB, reduced)`` for a browser preview.
+
+    Uses an OpenEXR mip or ripmap, or a smaller RGB subimage, when one still
+    covers *target*. Otherwise this is :func:`read_image` (same pixels, no
+    extra scale). *reduced* is false in that case. CinemaDNG goes through
+    :func:`read_rgb_preview`.
+
+    *on_draft* is called with the small frame before the sharp read, so the
+    UI can show it while the covering level is still loading.
+    """
+    if path.lower().endswith(".dng"):
+        return read_rgb_preview(path, target_w, target_h, with_draft=with_draft)
+    try:
+        return _read_image_preview(
+            path,
+            target_w,
+            target_h,
+            with_draft=with_draft,
+            on_draft=on_draft,
+        )
+    except Exception:
+        log.debug("Reduced preview read failed for %s", path, exc_info=True)
+        return None, read_image(path), False
+
+
+def _read_image_preview(
+    path: str,
+    target_w: int,
+    target_h: int,
+    *,
+    with_draft: bool,
+    on_draft: object | None = None,
+) -> tuple[np.ndarray | None, np.ndarray, bool]:
+    target_w = max(1, int(target_w))
+    target_h = max(1, int(target_h))
+    inp = oiio.ImageInput.open(path)
+    if not inp:
+        raise RuntimeError(f"Failed to open image {path!r}")
+    draft: np.ndarray | None = None
+    try:
+        levels = _collect_levels(inp)
+        if not levels:
+            raise RuntimeError(f"No preview level in {path!r}")
+        covering = [level for level in levels if level[5] >= target_w and level[6] >= target_h]
+        pool = covering if covering else [max(levels, key=lambda level: level[0])]
+        chosen = min(pool, key=lambda level: level[0])
+        _pixels, sub, mip, begin, end, _width, _height = chosen
+        # One full RGB (or fewer) level is exactly what read_image does.
+        same_as_full = len(levels) == 1 and sub == 0 and mip == 0 and begin == 0 and end <= 3
+        if same_as_full:
+            final_box = None
+            reduced = False
+        else:
+            reduced = mip != 0 or sub != 0
+            if with_draft and reduced:
+                # Only a much smaller level. A draft that is merely one step
+                # down costs enough that the sharp frame arrives no sooner
+                # than a full read.
+                budget = max(1, chosen[0] // 16)
+                drafts = [
+                    level
+                    for level in levels
+                    if level[0] <= budget and max(level[5], level[6]) >= 64 and level[0] < chosen[0]
+                ]
+                if drafts and chosen[0] >= 1280 * 720:
+                    draft_level = max(drafts, key=lambda level: level[0])
+                    draft = _read_level(
+                        inp,
+                        draft_level[1],
+                        draft_level[2],
+                        draft_level[3],
+                        draft_level[4],
+                    )
+                    if draft is not None and callable(on_draft):
+                        on_draft(draft)
+            final_box = _read_level(inp, sub, mip, begin, end)
+            if final_box.shape[1] < _width or final_box.shape[0] < _height:
+                reduced = True
+    finally:
+        inp.close()
+    if final_box is None:
+        return None, read_image(path), False
+    return draft, final_box, reduced
 
 
 def read_exr_uint16(path: str) -> np.ndarray | None:
