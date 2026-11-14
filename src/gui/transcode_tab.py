@@ -10,7 +10,7 @@ its metadata) and all clips share one output space. Jobs run on the serial
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
@@ -99,6 +99,23 @@ _ICON_FAILED = "✗"
 
 def _fps_text(fps: float) -> str:
     return str(int(fps)) if fps == int(fps) else f"{fps:.3f}"
+
+
+@dataclass(frozen=True)
+class QualitySettings:
+    """Rate control for the long-GOP codecs (H.264, HEVC, AV1).
+
+    One plain value, held by the tab and replaced whole by the Quality dialog.
+    ``crf`` belongs to the current codec: each codec keeps its own saved CRF.
+    """
+
+    rate_control: str = RATE_CRF
+    crf: int = 18
+    bitrate_mbps: float = DEFAULT_BITRATE_MBPS
+    preset: str = DEFAULT_PRESET
+
+
+_RATE_OPTIONS = (("Constant quality (CRF)", RATE_CRF), ("Target bitrate", RATE_BITRATE))
 
 
 class TranscodeTab(BatchTab):
@@ -248,29 +265,8 @@ class TranscodeTab(BatchTab):
         )
         form.add_row("Audio", self.audio_combo, width=WIDE)
 
-        self.rate_combo = QComboBox(body)
-        self.rate_combo.addItem("Constant quality (CRF)", RATE_CRF)
-        self.rate_combo.addItem("Target bitrate", RATE_BITRATE)
-        self._select(self.rate_combo, settings.value(f"{_K}/rate_control", RATE_CRF))
-        self.crf_spin = QSpinBox(body)
-        self.crf_spin.setPrefix("CRF ")
-        self.crf_spin.setToolTip("Lower is better quality and bigger files.")
-        self.bitrate_spin = QDoubleSpinBox(body)
-        self.bitrate_spin.setRange(0.1, 2000.0)
-        self.bitrate_spin.setDecimals(1)
-        self.bitrate_spin.setSuffix(" Mb/s")
-        self.bitrate_spin.setValue(
-            float(settings.value(f"{_K}/bitrate", DEFAULT_BITRATE_MBPS, type=float))
-        )
-        self.preset_combo = QComboBox(body)
-        for p in X26X_PRESETS:
-            self.preset_combo.addItem(p, p)
-        self.preset_combo.setToolTip("Encoder speed. Slower is smaller at the same quality.")
-        self._select(self.preset_combo, settings.value(f"{_K}/preset", DEFAULT_PRESET))
-        # The editors for these four are in the Quality dialog. These stay as the
-        # tab's state (saved, read by current_settings) and are never shown.
-        for hidden in (self.rate_combo, self.crf_spin, self.bitrate_spin, self.preset_combo):
-            hidden.hide()
+        # Rate control is a plain value, edited in the Quality dialog (the gear).
+        self._quality = self._load_quality(settings, self.codec_key())
 
         output_dir = TokenLineEdit(
             groups=PATH_TOKEN_GROUPS,
@@ -364,10 +360,6 @@ class TranscodeTab(BatchTab):
             self.width_spin,
             self.height_spin,
             self.pixel_aspect_combo,
-            self.rate_combo,
-            self.crf_spin,
-            self.bitrate_spin,
-            self.preset_combo,
             self.audio_combo,
             self.overwrite_combo,
             self.location_combo,
@@ -403,14 +395,6 @@ class TranscodeTab(BatchTab):
         self.height_spin.valueChanged.connect(lambda v: self._changed("custom_height", int(v)))
         self.fps_combo.currentIndexChanged.connect(lambda _: self._on_fps_changed())
         self.fps_spin.valueChanged.connect(lambda _: self._on_fps_changed())
-        self.rate_combo.currentIndexChanged.connect(
-            lambda _: self._changed("rate_control", self.rate_control())
-        )
-        self.crf_spin.valueChanged.connect(lambda v: self._save(f"crf_{self.codec_key()}", int(v)))
-        self.bitrate_spin.valueChanged.connect(lambda v: self._save("bitrate", float(v)))
-        self.preset_combo.currentIndexChanged.connect(
-            lambda _: self._save("preset", self.preset_combo.currentData())
-        )
         self.audio_combo.currentIndexChanged.connect(
             lambda _: self._save("audio", self.audio_mode())
         )
@@ -455,8 +439,35 @@ class TranscodeTab(BatchTab):
     def resolution_key(self) -> str:
         return str(self.resolution_combo.currentData() or DEFAULT_TRANSCODE_RESOLUTION)
 
+    def quality(self) -> QualitySettings:
+        return self._quality
+
     def rate_control(self) -> str:
-        return str(self.rate_combo.currentData() or RATE_CRF)
+        return self._quality.rate_control
+
+    def set_quality(self, quality: QualitySettings) -> None:
+        """Adopt *quality* (clamping CRF to the codec's range) and save it."""
+        lo, hi = CRF_RANGE.get(self.codec_key(), (0, 51))
+        quality = replace(quality, crf=min(max(int(quality.crf), lo), hi))
+        self._quality = quality
+        self._save("rate_control", quality.rate_control)
+        self._save(f"crf_{self.codec_key()}", quality.crf)
+        self._save("bitrate", quality.bitrate_mbps)
+        self._save("preset", quality.preset)
+
+    @staticmethod
+    def _load_quality(settings: QSettings, codec_key: str) -> QualitySettings:
+        """The saved rate control, with the CRF saved for *codec_key*."""
+        lo, hi = CRF_RANGE.get(codec_key, (0, 51))
+        rate = str(settings.value(f"{_K}/rate_control", RATE_CRF) or RATE_CRF)
+        preset = str(settings.value(f"{_K}/preset", DEFAULT_PRESET) or DEFAULT_PRESET)
+        crf = int(settings.value(f"{_K}/crf_{codec_key}", DEFAULT_CRF.get(codec_key, 18), type=int))
+        return QualitySettings(
+            rate_control=rate if rate in dict(_RATE_OPTIONS).values() else RATE_CRF,
+            crf=min(max(crf, lo), hi),
+            bitrate_mbps=float(settings.value(f"{_K}/bitrate", DEFAULT_BITRATE_MBPS, type=float)),
+            preset=preset if preset in X26X_PRESETS else DEFAULT_PRESET,
+        )
 
     def audio_mode(self) -> str:
         return str(self.audio_combo.currentData() or DEFAULT_AUDIO_MODE)
@@ -527,9 +538,9 @@ class TranscodeTab(BatchTab):
         settings.remove(old_strength)
 
     def _open_quality_dialog(self) -> None:
-        dlg = _QualityDialog(self)
+        dlg = _QualityDialog(self.codec_key(), self.codec_combo.currentText(), self._quality, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            dlg.apply()
+            self.set_quality(dlg.quality())
 
     def _restore_fps(self, saved: float) -> None:
         for i in range(self.fps_combo.count()):
@@ -558,12 +569,8 @@ class TranscodeTab(BatchTab):
         several = self.container_combo.count() > 1
         self.container_combo.setEnabled(several)
         self._container_label.setEnabled(several)
-        lo, hi = CRF_RANGE.get(key, (0, 51))
-        self.crf_spin.blockSignals(True)
-        self.crf_spin.setRange(lo, hi)
-        saved = self._settings.value(f"{_K}/crf_{key}", DEFAULT_CRF.get(key, 18), type=int)
-        self.crf_spin.setValue(int(saved))
-        self.crf_spin.blockSignals(False)
+        # The CRF belongs to the codec: switch to the one saved for this codec.
+        self._quality = replace(self._quality, crf=self._load_quality(self._settings, key).crf)
         self._on_container_changed(save=save)
 
     def _on_container_changed(self, *, save: bool = True) -> None:
@@ -685,10 +692,10 @@ class TranscodeTab(BatchTab):
             custom_height=int(self.height_spin.value()),
             fps=self.fps(),
             audio=self.audio_mode(),
-            rate_control=self.rate_control(),
-            crf=int(self.crf_spin.value()),
-            bitrate_mbps=float(self.bitrate_spin.value()),
-            preset=str(self.preset_combo.currentData() or DEFAULT_PRESET),
+            rate_control=self._quality.rate_control,
+            crf=self._quality.crf,
+            bitrate_mbps=self._quality.bitrate_mbps,
+            preset=self._quality.preset,
             color_src=dst,
             color_dst=dst,
             config_source=self._config_source,
@@ -795,14 +802,15 @@ class TranscodeTab(BatchTab):
 class _QualityDialog(QDialog):
     """Rate control, quality value and preset for the long-GOP codecs.
 
-    Edits copies of the tab's hidden controls; :meth:`apply` writes them back
-    (which saves them), so Cancel changes nothing.
+    Takes a :class:`QualitySettings` and returns a new one from :meth:`quality`;
+    it never touches the tab, so Cancel changes nothing.
     """
 
-    def __init__(self, tab: TranscodeTab) -> None:
-        super().__init__(tab)
-        self._tab = tab
-        self.setWindowTitle(f"Quality Settings — {tab.codec_combo.currentText()}")
+    def __init__(
+        self, codec_key: str, codec_name: str, current: QualitySettings, parent: QWidget
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Quality Settings — {codec_name}")
         self.setMinimumWidth(440)
 
         root = QVBoxLayout(self)
@@ -814,33 +822,32 @@ class _QualityDialog(QDialog):
         card.body.addLayout(form)
 
         self.rate = QComboBox()
-        for i in range(tab.rate_combo.count()):
-            self.rate.addItem(tab.rate_combo.itemText(i), tab.rate_combo.itemData(i))
-        self.rate.setCurrentIndex(tab.rate_combo.currentIndex())
+        for label, key in _RATE_OPTIONS:
+            self.rate.addItem(label, key)
+        self.rate.setCurrentIndex(max(0, self.rate.findData(current.rate_control)))
+        lo, hi = CRF_RANGE.get(codec_key, (0, 51))
         self.crf = QSpinBox()
         self.crf.setPrefix("CRF ")
-        self.crf.setRange(tab.crf_spin.minimum(), tab.crf_spin.maximum())
-        self.crf.setValue(tab.crf_spin.value())
-        self.crf.setToolTip(tab.crf_spin.toolTip())
+        self.crf.setRange(lo, hi)
+        self.crf.setValue(current.crf)
+        self.crf.setToolTip("Lower is better quality and bigger files.")
         self.bitrate = QDoubleSpinBox()
-        self.bitrate.setRange(tab.bitrate_spin.minimum(), tab.bitrate_spin.maximum())
-        self.bitrate.setDecimals(tab.bitrate_spin.decimals())
-        self.bitrate.setSuffix(tab.bitrate_spin.suffix())
-        self.bitrate.setValue(tab.bitrate_spin.value())
+        self.bitrate.setRange(0.1, 2000.0)
+        self.bitrate.setDecimals(1)
+        self.bitrate.setSuffix(" Mb/s")
+        self.bitrate.setValue(current.bitrate_mbps)
         self.preset = QComboBox()
-        for i in range(tab.preset_combo.count()):
-            self.preset.addItem(tab.preset_combo.itemText(i), tab.preset_combo.itemData(i))
-        self.preset.setCurrentIndex(tab.preset_combo.currentIndex())
-        self.preset.setToolTip(tab.preset_combo.toolTip())
+        for name in X26X_PRESETS:
+            self.preset.addItem(name, name)
+        self.preset.setCurrentIndex(max(0, self.preset.findData(current.preset)))
+        self.preset.setToolTip("Encoder speed. Slower is smaller at the same quality.")
 
         form.add_row("Rate control", self.rate, width=WIDE)
         # CRF and bitrate share one row; only the one that applies shows.
-        self._value_label = form.add_row(
-            "Value", self.crf, sized(self.bitrate, NARROW), width=NARROW
-        )
+        form.add_row("Value", self.crf, sized(self.bitrate, NARROW), width=NARROW)
         form.add_row("Preset", self.preset, width=WIDE)
-        self.rate.currentIndexChanged.connect(lambda _: self._sync())
-        self._sync()
+        self.rate.currentIndexChanged.connect(lambda _: self._show_value_for_rate())
+        self._show_value_for_rate()
         root.addWidget(card)
 
         buttons = QDialogButtonBox(
@@ -851,14 +858,15 @@ class _QualityDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(DialogFooter(buttons))
 
-    def _sync(self) -> None:
+    def _show_value_for_rate(self) -> None:
         by_bitrate = self.rate.currentData() == RATE_BITRATE
         self.crf.setVisible(not by_bitrate)
         self.bitrate.setVisible(by_bitrate)
 
-    def apply(self) -> None:
-        tab = self._tab
-        tab.rate_combo.setCurrentIndex(self.rate.currentIndex())
-        tab.crf_spin.setValue(self.crf.value())
-        tab.bitrate_spin.setValue(self.bitrate.value())
-        tab.preset_combo.setCurrentIndex(self.preset.currentIndex())
+    def quality(self) -> QualitySettings:
+        return QualitySettings(
+            rate_control=str(self.rate.currentData()),
+            crf=self.crf.value(),
+            bitrate_mbps=self.bitrate.value(),
+            preset=str(self.preset.currentData()),
+        )

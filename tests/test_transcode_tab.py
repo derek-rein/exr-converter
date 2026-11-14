@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
+from dataclasses import replace
 
 import pytest
 from PySide6.QtGui import QAction
@@ -85,7 +86,7 @@ def test_codec_drives_container_quality_and_audio(tab: TranscodeTab, qapp) -> No
     assert tab._quality_btn.isVisible()
     audio = [tab.audio_combo.itemData(i) for i in range(tab.audio_combo.count())]
     assert "pcm" not in audio
-    _select(tab.rate_combo, "bitrate")
+    tab.set_quality(replace(tab.quality(), rate_control="bitrate"))
     qapp.processEvents()
     _load_ocio(tab)
     s = tab.current_settings()
@@ -429,3 +430,55 @@ def test_old_watermark_payload_never_overwrites_preferences(qapp, settings) -> N
     finally:
         t.shutdown()
         t.deleteLater()
+
+
+def test_quality_is_a_plain_value_that_saves_and_clamps(qapp, settings) -> None:
+    from src.gui.transcode_tab import QualitySettings
+
+    tab = TranscodeTab(settings)
+    try:
+        _select(tab.codec_combo, "h264")
+        tab.set_quality(QualitySettings("bitrate", 99, 25.0, "slow"))
+        q = tab.quality()
+        assert (q.rate_control, q.bitrate_mbps, q.preset) == ("bitrate", 25.0, "slow")
+        assert q.crf == 51  # H.264 tops out at 51
+        assert settings.value("transcode/preset") == "slow"
+    finally:
+        tab.shutdown()
+        tab.deleteLater()
+
+
+def test_each_codec_keeps_its_own_crf(qapp, settings) -> None:
+    from src.gui.transcode_tab import QualitySettings
+
+    tab = TranscodeTab(settings)
+    try:
+        _select(tab.codec_combo, "h264")
+        tab.set_quality(replace(tab.quality(), crf=22))
+        _select(tab.codec_combo, "av1")
+        assert tab.quality().crf == 28  # AV1's default, not H.264's 22
+        _select(tab.codec_combo, "h264")
+        assert tab.quality().crf == 22
+        assert isinstance(tab.quality(), QualitySettings)
+    finally:
+        tab.shutdown()
+        tab.deleteLater()
+
+
+def test_quality_dialog_returns_a_new_value_and_cancel_changes_nothing(qapp, settings) -> None:
+    from src.gui.transcode_tab import QualitySettings, _QualityDialog
+
+    tab = TranscodeTab(settings)
+    try:
+        _select(tab.codec_combo, "h264")
+        before = tab.quality()
+        dlg = _QualityDialog("h264", "H.264", before, tab)
+        dlg.rate.setCurrentIndex(dlg.rate.findData("bitrate"))
+        dlg.bitrate.setValue(40.0)
+        out = dlg.quality()
+        assert out == QualitySettings("bitrate", before.crf, 40.0, before.preset)
+        assert tab.quality() == before  # the dialog never touches the tab
+        assert dlg.crf.maximum() == 51
+    finally:
+        tab.shutdown()
+        tab.deleteLater()
