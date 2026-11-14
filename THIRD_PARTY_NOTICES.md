@@ -32,6 +32,15 @@ indemnity in Adobe's favor. Those terms are why this app does not ship the
 SDK. The sentence above is the notice for the DNG technology the reader
 implements.
 
+## Lucide icons
+
+The interface icons under `resources/icons/lucide` (and the PNGs rasterised
+from them in `resources/icons/ui` and `resources/images`) come from Lucide.
+
+- Project: https://lucide.dev
+- License: ISC. Copyright Lucide Icons and Contributors. The license text is
+  in `resources/icons/lucide/LICENSE`.
+
 ## ONNX Runtime
 
 Inference uses the `onnxruntime` package (CPU execution provider only).
@@ -42,6 +51,19 @@ Inference uses the `onnxruntime` package (CPU execution provider only).
 Release builds include the ONNX Runtime shared library inside the app. On
 macOS that library is signed and notarized with the rest of the application
 under Medeu Global LLC.
+
+## oxideav-prores
+
+The experimental cross-platform ProRes writer (`prores_ox_*` codecs) uses the
+`oxideav-prores` crate, version 0.1.1, built into the `exr_prores` extension.
+
+- Project: https://github.com/OxideAV/oxideav-prores
+- License: MIT. Copyright 2026 Karpelès Lab Inc.
+
+A patched copy of the crate source lives in
+`native/exr_prores/vendor/oxideav-prores`. The patch changes the 4:4:4 chroma
+block order and is described in `EXR_CONVERTER_PATCH.md` in that folder. The
+crate's `LICENSE` file is kept alongside the source.
 
 ## PyAV and FFmpeg
 
@@ -60,25 +82,3 @@ The sequence browser's fuzzy search scores names with the `rapidfuzz` package.
 - License: MIT. Copyright 2020-present Max Bachmann, Copyright 2011 Adam Cohen.
 
 Release builds include its compiled extension modules inside the app.
-
-## oxideav-prores
-
-The experimental cross-platform ProRes writer (`prores_ox_*` codecs) uses the
-`oxideav-prores` crate, version 0.1.1, built into the `exr_prores` extension.
-
-- Project: https://github.com/OxideAV/oxideav-prores
-- License: MIT. Copyright 2026 Karpelès Lab Inc.
-
-A patched copy of the crate source lives in
-`native/exr_prores/vendor/oxideav-prores`. The patch changes the 4:4:4 chroma
-block order and is described in `EXR_CONVERTER_PATCH.md` in that folder. The
-crate's `LICENSE` file is kept alongside the source.
-
-## Lucide icons
-
-The interface icons under `resources/icons/lucide` (and the PNGs rasterised
-from them in `resources/icons/ui` and `resources/images`) come from Lucide.
-
-- Project: https://lucide.dev
-- License: ISC. Copyright Lucide Icons and Contributors. The license text is
-  in `resources/icons/lucide/LICENSE`.
