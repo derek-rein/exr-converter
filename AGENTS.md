@@ -65,6 +65,8 @@ as a short pointer, not a second full copy.
 
 ```text
 main.py                 # GUI / CLI entry
+skills.md               # Agent Skills text for the CLI (Help → Agent Skills shows it)
+installer.iss           # Windows installer (Inno Setup)
 src/
   core/                 # convert, video, EXR I/O, OCIO, codecs constants, sequences
   gui/                  # PySide6 window, tabs, slate UI, preferences, style
@@ -81,6 +83,8 @@ native/
 resources/              # icons, style.qss, OCIO config, screenshots
 scripts/                # bump_app_version.py, ensure_ocio.py, sign_windows.ps1, build_oxideav_prores.py, build_quicklook_appex.py, trustmark_detect.py
 packaging/macos/quicklook/  # Swift Quick Look + thumbnail appex (view LUT + flipbook; macOS release embeds under Contents/PlugIns)
+packaging/linux/       # desktop entry, launcher, Rocky 8 build
+packaging/windows/     # exr-converter.cmd launcher shipped by the installer
 tests/                  # pytest; integration + fixtures under tests/fixtures/
 docs/                   # user-facing Markdown (vfx.systems/docs/exr-converter loads it)
 .github/workflows/      # ci.yml, docs.yml, release.yml, auto-tag-release.yml
