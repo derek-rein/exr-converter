@@ -61,11 +61,17 @@ def test_selecting_a_tab_does_not_move_the_others() -> None:
     from src.gui.animated_tabs import SlidingTabBar
 
     QApplication.instance() or QApplication([])
+    from PySide6.QtWidgets import QStyleFactory
+
     import src.rc_resources  # noqa: F401
     from src.gui.style import load_stylesheet
 
     bar = SlidingTabBar()
+    # The app runs on Fusion everywhere (main.py); the platform style (macOS) sizes
+    # the selected tab differently and is not what users see.
+    bar.setStyle(QStyleFactory.create("Fusion"))
     bar.setStyleSheet(load_stylesheet())  # the stylesheet is what makes the selected tab bold
+    bar.resize(1000, 40)
     for name in ("Video → EXR", "EXR → Video", "Video → Proxy", "Transcode"):
         bar.addTab(name)
     bar.show()
