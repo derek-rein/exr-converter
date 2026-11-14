@@ -29,7 +29,9 @@ DEFAULT_REF = "bridge-v1"
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--sdk", default=None)
     ap.add_argument("--out", type=Path, default=ROOT / "build" / "r3d")
     ap.add_argument("--repo", default=os.environ.get("R3D_BRIDGE_REPO", DEFAULT_REPO))

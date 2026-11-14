@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="image/x-dpx">
+    <comment>DPX image</comment>
+    <glob pattern="*.dpx" weight="60"/>
+    <glob pattern="*.DPX" weight="60"/>
+  </mime-type>
+  <mime-type type="video/x-red-r3d">
+    <comment>RED R3D clip</comment>
+    <glob pattern="*.r3d" weight="60"/>
+    <glob pattern="*.R3D" weight="60"/>
+  </mime-type>
+  <mime-type type="video/x-blackmagic-raw">
+    <comment>Blackmagic RAW clip</comment>
+    <glob pattern="*.braw" weight="60"/>
+    <glob pattern="*.BRAW" weight="60"/>
+  </mime-type>
+</mime-info>

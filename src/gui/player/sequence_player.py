@@ -1347,12 +1347,21 @@ class SequencePlayer(QWidget):
     def keyPressEvent(self, event) -> None:  # noqa: N802
         """Left/Right step one frame; Space play/pause when focused."""
         key = event.key()
+        jump = 10 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
         if key == Qt.Key.Key_Left:
-            self._step_frame(-1)
+            self._step_frame(-jump)
             event.accept()
             return
         if key == Qt.Key.Key_Right:
-            self._step_frame(1)
+            self._step_frame(jump)
+            event.accept()
+            return
+        if key == Qt.Key.Key_Home:
+            self.go_to_first()
+            event.accept()
+            return
+        if key == Qt.Key.Key_End:
+            self.go_to_last()
             event.accept()
             return
         if key == Qt.Key.Key_Space and not event.isAutoRepeat():
@@ -1369,6 +1378,20 @@ class SequencePlayer(QWidget):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def step_frames(self, delta: int) -> None:
+        """Step the playhead by *delta* frames (wraps at the ends)."""
+        self._step_frame(delta)
+
+    def go_to_first(self) -> None:
+        if self.is_playing():
+            self.set_playing(False)
+        self._goto_frame(self._timeline.first_frame)
+
+    def go_to_last(self) -> None:
+        if self.is_playing():
+            self.set_playing(False)
+        self._goto_frame(self._timeline.last_frame)
 
     def _step_frame(self, delta: int) -> None:
         """Step playhead by *delta* frames (wraps at ends)."""

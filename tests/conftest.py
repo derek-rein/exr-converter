@@ -23,7 +23,9 @@ def qapp() -> QApplication:
     """A process-wide ``QApplication`` (Qt allows only one)."""
     app = QApplication.instance()
     if app is None:
-        app = QApplication([])
+        from src.gui.app import ExrApplication  # a QApplication that also takes open-file events
+
+        app = ExrApplication([])
     return app
 
 

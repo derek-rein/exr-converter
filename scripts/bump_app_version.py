@@ -4,6 +4,7 @@
 Runtime code reads that file via ``APP_VERSION`` in ``src/core/constants.py``.
 Tags use plain semver: v1.2.3.
 """
+
 from __future__ import annotations
 
 import argparse

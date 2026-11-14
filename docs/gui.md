@@ -62,6 +62,44 @@ Interface motion (sliding tab underline, gliding progress, button and source car
 fades) is short. Set the environment variable `EXR_CONVERTER_REDUCE_MOTION=1` to
 turn it off.
 
+## Quick viewer
+
+Double-click an `.exr`, `.dpx`, `.r3d`, or `.braw` file (once the app is offered
+for it, see below) and a viewer window opens on that frame. From one frame it
+finds the whole sequence, plays it from the RAM cache with the same OCIO display,
+exposure, gamma, and desqueeze as the sequence player, and shows missing frames
+as holes. The main window is not built, so it comes up sooner than the full app.
+A later double-click opens in the copy already running.
+
+| Key | Action |
+|-----|--------|
+| Space | Play and pause |
+| Left / Right | Step one frame (Shift: ten) |
+| Home / End | First and last frame |
+| I / O | Set in and out |
+| F | Fit to window |
+| Ctrl+E | Open in EXR Converter (the full app, on this file) |
+| Esc, Ctrl+W | Close the viewer |
+
+**Open in EXR Converter** is also a button under the viewer. The viewer stays open.
+
+**Which files:** the app registers for EXR, DPX, R3D, and BRAW. It appears under
+Open With and never becomes the default unless you choose it:
+
+- **macOS:** Open With lists it as an alternate; Get Info, Open with, Change All
+  makes it the default.
+- **Windows:** the installer task **Offer EXR Converter in Open With** (on by
+  default) adds it to Open With and to Settings, Default apps. Windows does not let
+  an app set itself as default; choose it there.
+- **Linux:** the RPM adds `MimeType` entries and MIME definitions. For a tarball or
+  AppImage, copy `exr-converter.desktop` and `exr-converter-mime.xml` from the
+  folder to `~/.local/share/applications` and `~/.local/share/mime/packages`, then
+  run `update-desktop-database ~/.local/share/applications` and
+  `update-mime-database ~/.local/share/mime`.
+
+The OCIO config is the one saved in the app's preferences (the bundled ACES Studio
+config until you pick another).
+
 The **OCIO config** menu is one row above the tabs and applies to all of
 them. The status beside it shows how many color spaces loaded; hover it for
 the config name, or for the error when a config fails to load.

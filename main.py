@@ -5,15 +5,16 @@ from __future__ import annotations
 import os
 import sys
 
-from src.cli import build_parser, run_cli
 from src.core.app_paths import attach_parent_console, leave_read_only_install_cwd
 from src.core.constants import APP_NAME, APP_ORG, APP_VERSION
 from src.core.mp_support import configure_multiprocessing
+from src.launch import GuiArgs, UnknownOptions, needs_cli, parse_gui_args
 
 
 def main() -> int:
+    argv = sys.argv[1:]
     # A console-less Windows build has no stdout: attach one for CLI use.
-    if len(sys.argv) > 1:
+    if argv:
         attach_parent_console()
 
     # Before anything can start a worker pool (CLI and GUI convert both do).
@@ -22,6 +23,16 @@ def main() -> int:
     # Store launch uses the MSIX package root as the working directory. That
     # folder is read-only. Move to the user profile before any relative write.
     leave_read_only_install_cwd()
+
+    # The GUI and the viewer start without the command-line pipeline (PyAV, NumPy,
+    # the watermark detector); only a subcommand, --help or --version load it.
+    if not needs_cli(argv):
+        try:
+            return run_gui(parse_gui_args(argv))
+        except UnknownOptions:
+            pass  # let the full parser report them
+
+    from src.cli import build_parser, run_cli
 
     parser = build_parser()
     args = parser.parse_args()
@@ -32,12 +43,29 @@ def main() -> int:
     if args.headless:
         parser.error("Use: main.py video2exr ... or main.py exr2video ...")
 
-    from PySide6.QtWidgets import QApplication
+    return run_gui(
+        GuiArgs(
+            open=args.open,
+            gui_ocio=args.gui_ocio,
+            mode=args.mode,
+            smoke_test=args.smoke_test,
+        )
+    )
+
+
+def run_gui(args: GuiArgs) -> int:
+    """Start the GUI, or the viewer for files, or hand the files to a running copy."""
+    if args.paths:
+        # A double-click while the app is already running: give it the files and go.
+        from src.core import handoff
+
+        if handoff.send_paths(args.paths):
+            return 0
 
     import src.rc_resources  # noqa: F401 — register Qt resources
+    from src.gui.app import ExrApplication
     from src.gui.ocio_gpu_plane import configure_default_gl_format
     from src.gui.style import install_theme
-    from src.gui.window import MainWindow
 
     # Core Profile 4.1 for OCIO GLSL GPU display in the slate viewer.
     # Must be set before the QApplication (and any GL context) is created.
@@ -50,7 +78,7 @@ def main() -> int:
         os.environ.setdefault("QT_WIDGETS_RHI", "1")
         os.environ.setdefault("QT_WIDGETS_RHI_BACKEND", "opengl")
 
-    app = QApplication(sys.argv)
+    app = ExrApplication(sys.argv)
     app.setOrganizationName(APP_ORG)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
@@ -58,7 +86,8 @@ def main() -> int:
     # Theme: the saved choice (System by default; dark when the system will not say).
     from PySide6.QtCore import QSettings
 
-    install_theme(app, QSettings(APP_ORG, APP_NAME))
+    settings = QSettings(APP_ORG, APP_NAME)
+    install_theme(app, settings)
     # macOS: do not setWindowIcon — Dock must use the .app bundle's .icns
     # (CFBundleIconFile). A runtime PNG becomes NSApplication.applicationIconImage
     # and draws a sharp full-bleed square while the app is running.
@@ -79,14 +108,26 @@ def main() -> int:
         # Quick Look stays off until turned on in File → Quick Look….
         apply_default_install_state(get_app_settings().qsettings)
 
-    win = MainWindow()
-    # Nuke / shell launch: pre-fill media + OCIO before the event loop runs.
-    open_path = getattr(args, "open", None)
-    gui_ocio = getattr(args, "gui_ocio", None)
-    mode = getattr(args, "mode", None)
-    if open_path or gui_ocio or (mode and mode != "auto"):
-        win.apply_startup(open_path=open_path, ocio_path=gui_ocio, mode=mode)
-    win.show()
+    from src.gui.session import AppSession
+
+    session = AppSession(app, settings)
+    session.start_server()
+    # Finder delivers a double-clicked file as an event after start-up, not as an
+    # argument, so let the first events through before choosing the main window.
+    if sys.platform == "darwin" and not args.paths:
+        app.processEvents()
+    files = [*args.paths, *app.take_pending_files()]
+
+    if files:
+        session.view(files)
+        if not session.viewer_windows():
+            return 0  # nothing viewable was given
+    else:
+        win = session.main_window()
+        # Nuke / shell launch: pre-fill media + OCIO before the event loop runs.
+        if args.open or args.gui_ocio or (args.mode and args.mode != "auto"):
+            win.apply_startup(open_path=args.open, ocio_path=args.gui_ocio, mode=args.mode)
+        win.show()
 
     if args.smoke_test:
         # Fail the build if the frozen app linked OCIO 2.4 (Nuitka/oiio trap).

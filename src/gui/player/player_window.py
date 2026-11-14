@@ -35,6 +35,7 @@ class SequencePlayerWindow(QDialog):
         parent: QWidget | None = None,
         title: str | None = None,
         media_kind: str = "sequence",
+        prefer_video_monitoring: bool = True,
     ) -> None:
         # parent=None so this is a true top-level window (not clipped / stacked
         # under the main window on multi-monitor setups).
@@ -85,6 +86,7 @@ class SequencePlayerWindow(QDialog):
             fps=fps,
             title=title,
             media_kind=kind,
+            prefer_video_monitoring=prefer_video_monitoring,
         )
         if not ok:
             log.warning("Player: could not open %s (%s)", input_path, kind)
@@ -101,6 +103,7 @@ class SequencePlayerWindow(QDialog):
         fps: float,
         title: str | None,
         media_kind: str = "sequence",
+        prefer_video_monitoring: bool = True,
     ) -> bool:
         kind = "video" if media_kind == "video" else "sequence"
         prefix = "Video Player" if kind == "video" else "Sequence Player"
@@ -127,7 +130,7 @@ class SequencePlayerWindow(QDialog):
             fps=fps if fps > 0 else 24.0,
             ocio_cfg=ocio_cfg,
             src_colorspace=src_colorspace or "",
-            prefer_video_monitoring=True,
+            prefer_video_monitoring=prefer_video_monitoring,
         )
         if ok:
             try:

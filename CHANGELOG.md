@@ -15,6 +15,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Added
 
+- Quick viewer: double-click an EXR, DPX, R3D, or BRAW file (or run `exr-converter plate.1001.exr`, or `--view PATH`) and it opens in the sequence player on that frame, with the whole sequence found from the one file, without building the main window. A later double-click opens in the copy that is already running, so only the first one waits for start-up. **Open in EXR Converter** (Ctrl+E) steps up to the full app. Keys: Space, Left / Right, Shift+Left / Right (10 frames), Home / End, I / O, F, Esc.
+- The app offers itself in Open With for EXR, DPX, R3D, and BRAW and never becomes anyone's default on its own: macOS (viewer role, alternate rank), Windows (installer task **Offer EXR Converter in Open With**; the Default apps page lists it), and Linux (`MimeType` in the desktop entry, MIME definitions for DPX, R3D, and BRAW installed by the RPM).
 - Light and dark themes. **Preferences → Interface → Theme** is System (the default; follows the operating system and changes with it while the app runs), Light, or Dark. System uses dark when the platform does not report a setting. Switching applies at once.
 - Windows installer option **Add EXR Converter to PATH**, plus an `exr-converter` command that waits for the app and shows its output and exit code, so `exr-converter proxy -i clip.mov` works from any terminal (and from agents). Uninstalling removes the PATH entry.
 - **Help → Agent Skills** shows the `skills.md` instructions that let a coding agent (Claude Code, Codex, Cursor) drive the command line, with the command for this install filled in (the app or AppImage path, or the source checkout), and a **Copy to clipboard** button. The same file is `skills.md` in the repository.
@@ -28,6 +30,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
+- Finding the sequence for a chosen frame lists the folder once and keeps only that sequence's names, about 15 times faster than grouping every file in the folder on a 10,000-frame sequence.
+- The GUI and the viewer start without loading the command-line pipeline (PyAV, NumPy conversion code, the watermark detector); only subcommands, `--help`, and `--version` do.
 - Menus and fields in the forms stretch with the card again (codec, preset, EXR compression, slate fields) in place of a fixed width; only short number boxes stay narrow.
 - Form fields grow with the card. The scrollbar sits in a gutter so it no longer overlaps the last column of controls.
 - Browser Preview decodes the frame on screen at a size that covers the pane, including screen pixel density and anamorphic squeeze. R3D, N-RAW, and Blackmagic RAW use the SDK reduced-resolution decode. OpenEXR uses a mip or ripmap when the file has one, and reads RGB only. CinemaDNG uses a smaller embedded preview when one covers the pane, or a half-size debayer when the pane fits in half the frame. Video scales in the decoder. The full viewer and convert output are unchanged.

@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.core.file_types import merge_document_types  # noqa: E402
 from src.core.quicklook_formats import (  # noqa: E402
     merge_type_declarations,
     supported_content_types,
@@ -321,7 +322,9 @@ def install_into_app(app: Path, arch: str) -> None:
         info = plistlib.load(handle)
     if not isinstance(info, dict):
         raise SystemExit(f"Info.plist is not a dictionary: {plist_path}")
-    merged = merge_type_declarations(info)
+    # The host app also offers itself in Open With for EXR, DPX, R3D and BRAW
+    # (viewer role, alternate rank: never the default unless the user picks it).
+    merged = merge_document_types(merge_type_declarations(info))
     with plist_path.open("wb") as handle:
         plistlib.dump(merged, handle, fmt=plistlib.FMT_XML)
     for appex in sorted(staging.glob("*.appex")):

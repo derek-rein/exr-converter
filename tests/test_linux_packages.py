@@ -87,9 +87,9 @@ def test_staged_tree_launcher_and_rez(tmp_path: Path) -> None:
     assert "{root}" in rez_package_py("9.9.9")
     assert (folder / "resources" / "ocio" / "marker.txt").read_text(encoding="utf-8") == "ocio"
     desktop = (folder / "exr-converter.desktop").read_text(encoding="utf-8")
-    assert "Exec=exr-converter\n" in desktop
+    assert "Exec=exr-converter %F\n" in desktop
     rpm_desktop = desktop_text(exec_line=f"{OPT_PREFIX}/exr-converter")
-    assert f"Exec={OPT_PREFIX}/exr-converter\n" in rpm_desktop
+    assert f"Exec={OPT_PREFIX}/exr-converter %F\n" in rpm_desktop
     assert VENDOR == "Medeu Global LLC"
 
 

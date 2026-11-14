@@ -586,6 +586,11 @@ def find_exr_sequence(input_path: str) -> tuple[list[str], str]:
     Supported extensions: see :data:`IMAGE_SEQUENCE_EXTS` (``.exr``, ``.dng``,
     ``.dpx``, ``.png``, ``.jpg`` / ``.jpeg``, ``.webp``).
     """
+    # A real frame file: find just its sequence instead of grouping the folder.
+    fast = _scan_one_sequence(input_path)
+    if fast is not None:
+        return fast[0], fast[1]
+
     p, scan_dir, pattern_stem = _scan_dir_and_pattern(input_path)
 
     seqs = _find_image_seqs(scan_dir)
@@ -623,6 +628,21 @@ def find_exr_sequence(input_path: str) -> tuple[list[str], str]:
     return [seq.frame(f) for f in frames], seq.basename().rstrip("._")
 
 
+def _scan_one_sequence(
+    input_path: str,
+) -> tuple[list[str], str, list[int], int, fileseq.FileSequence] | None:
+    """:func:`find_exr_sequence_info` for an existing frame file, or None to use the full scan."""
+    from .sequence_scan import scan_around
+
+    try:
+        scan = scan_around(input_path)
+        if scan is None or len(scan.frames) < 2:
+            return None  # a lone frame: the full scan decides how to treat a still
+        return scan.paths(), scan.name, list(scan.frames), scan.pad, scan.file_sequence()
+    except Exception:
+        return None
+
+
 def find_exr_sequence_info(
     input_path: str,
 ) -> tuple[list[str], str, list[int], int, fileseq.FileSequence]:
@@ -633,6 +653,11 @@ def find_exr_sequence_info(
     Accepts directories, real frame files, and Nuke-style ``####`` / ``%04d``
     patterns whose parent directory exists.
     """
+    # A real frame file: find just its sequence instead of grouping the folder.
+    fast = _scan_one_sequence(input_path)
+    if fast is not None:
+        return fast
+
     p, scan_dir, pattern_stem = _scan_dir_and_pattern(input_path)
 
     seqs = _find_image_seqs(scan_dir)

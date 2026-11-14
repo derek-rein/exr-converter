@@ -61,6 +61,7 @@ Global flags (before the subcommand; convert flags may also appear after it):
 | `--smoke-test` | CI: launch GUI briefly, verify OCIO, ssl, and fuzzy search, exit |
 | `--open PATH` | **GUI only:** open this media on launch |
 | `--gui-ocio PATH` | **GUI only:** load this OCIO config on launch |
+| `--view PATH` / bare `PATH` | **GUI only:** open this file in the quick viewer, on that frame (repeatable) |
 | `--mode auto\|video2exr\|exr2video\|proxy\|transcode` | **GUI only:** which tab (`auto` from `--open`; `proxy` = Video → Proxy and `transcode` = Transcode, where `--open` adds that path to the clip list) |
 
 **Interrupt:** during CLI convert, **Ctrl-C** sets a cancel flag so the
@@ -70,6 +71,19 @@ with status **130**.
 ---
 
 ## GUI launch (for shells & Nuke)
+
+Give one or more files to open them in the **quick viewer** instead of the main
+window. This is what a double-click in Finder, Explorer, or a Linux file manager
+runs. The viewer opens on the frame you pass and finds the rest of the sequence:
+
+```bash
+exr-converter /show/shot/plate.1042.exr          # a bare path is a file to view
+exr-converter --view /show/shot/plate.1042.exr   # the same, explicitly (repeatable)
+exr-converter clip.R3D clip2.braw                # one viewer window per file
+```
+
+If a copy of the app is already running, the files open there and the new
+process exits at once. See [GUI](./gui.md#quick-viewer).
 
 ```bash
 # Open GUI with an EXR sequence already loaded (EXR → Video tab)

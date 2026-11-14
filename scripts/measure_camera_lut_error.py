@@ -386,9 +386,7 @@ def measure_formulas(config: OCIO.Config) -> list[ErrorRow]:
     )
     # OCIO PR 2343 unit-test sample. Their tolerance is 1e-6 against the half LUT.
     apple_sample = np.array([[0.5, 0.4, 0.3]], dtype=np.float64)
-    apple_got = _apply(
-        _space_cpu(config, "Apple Log 2", "ACES2065-1"), apple_sample
-    )[0]
+    apple_got = _apply(_space_cpu(config, "Apple Log 2", "ACES2065-1"), apple_sample)[0]
     apple_expect = np.array([0.160302015, 0.091223177, 0.026405713])
     rows.append(
         _row(

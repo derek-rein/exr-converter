@@ -2,7 +2,8 @@
 Type=Application
 Name=EXR Converter
 Comment=Convert video and OpenEXR with OpenColorIO
-Exec=exr-converter
+Exec=exr-converter %F
 Icon=exr-converter
 Terminal=false
 Categories=Graphics;Video;
+MimeType=image/x-exr;image/x-dpx;video/x-red-r3d;video/x-blackmagic-raw;

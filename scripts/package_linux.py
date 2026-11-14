@@ -23,6 +23,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = ROOT / "packaging" / "linux" / "exr-converter"
 DESKTOP = ROOT / "packaging" / "linux" / "exr-converter.desktop"
+MIME_XML = ROOT / "packaging" / "linux" / "exr-converter-mime.xml"
+POSTINSTALL = ROOT / "packaging" / "linux" / "postinstall.sh"
+POSTREMOVE = ROOT / "packaging" / "linux" / "postremove.sh"
 LICENSE = ROOT / "LICENSE"
 ICON = ROOT / "resources" / "icons" / "icon.png"
 
@@ -141,6 +144,8 @@ def stage_tree(dist: Path, stage_root: Path, version: str) -> Path:
         encoding="utf-8",
     )
     shutil.copyfile(ICON, folder / "exr-converter.png")
+    # For a tarball or AppImage user to register by hand (see docs/linux.md).
+    shutil.copyfile(MIME_XML, folder / "exr-converter-mime.xml")
     return folder
 
 
@@ -166,6 +171,12 @@ def nfpm_config(folder: Path, version: str, work: Path) -> Path:
     desktop.write_text(desktop_text(exec_line=f"{OPT_PREFIX}/{LAUNCHER_NAME}"), encoding="utf-8")
     icon = work / "exr-converter.png"
     shutil.copyfile(ICON, icon)
+    mime = work / "exr-converter-mime.xml"
+    shutil.copyfile(MIME_XML, mime)
+    post_install = work / "postinstall.sh"
+    shutil.copyfile(POSTINSTALL, post_install)
+    post_remove = work / "postremove.sh"
+    shutil.copyfile(POSTREMOVE, post_remove)
     depends = "\n".join(f'  - "{item}"' for item in RPM_DEPENDS)
     text = f"""name: exr-converter
 arch: amd64
@@ -185,11 +196,16 @@ contents:
     type: tree
   - src: {desktop}
     dst: /usr/share/applications/exr-converter.desktop
+  - src: {mime}
+    dst: /usr/share/mime/packages/exr-converter.xml
   - src: {icon}
     dst: /usr/share/icons/hicolor/256x256/apps/exr-converter.png
   - src: {OPT_PREFIX}/{LAUNCHER_NAME}
     dst: /usr/bin/exr-converter
     type: symlink
+scripts:
+  postinstall: {post_install}
+  postremove: {post_remove}
 depends:
 {depends}
 """
