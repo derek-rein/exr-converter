@@ -1,5 +1,5 @@
 ; Inno Setup script for EXR Converter
-; Populated by CI — {#AppVersion} is injected at build time via /D flag.
+; CI injects {#AppVersion} at build time with the /D flag.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
