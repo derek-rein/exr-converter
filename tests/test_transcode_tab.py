@@ -390,3 +390,42 @@ def test_invisible_wm_uses_preferences_payload_per_clip(tab: TranscodeTab) -> No
     marked = tab.settings_for("/x/shotA.mov", base)
     assert marked.watermark_text == "shotA"
     assert marked.watermark_strength == 0.5
+
+
+def test_invisible_wm_src_token_keeps_the_whole_clip_name(tab: TranscodeTab) -> None:
+    from src.services.app_settings import Keys
+
+    tab._settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, "{src}")
+    base = TranscodeSettings(codec_key="prores_422", container="mov", color_src="a", color_dst="a")
+    tab.input_space = lambda _s: "ACEScg"  # type: ignore[method-assign]
+    tab.watermark_cb.setChecked(True)
+    # Digits at the end of a clip name are part of the name, not a frame number.
+    assert tab.settings_for("/x/shot_010.mov", base).watermark_text == "shot_010"
+
+
+def test_old_per_tab_watermark_payload_moves_to_preferences(qapp, settings) -> None:
+    from src.services.app_settings import Keys
+
+    settings.setValue("transcode/watermark_text", "JOB42")
+    settings.setValue("transcode/watermark_strength", 0.8)
+    t = TranscodeTab(settings)
+    try:
+        assert str(settings.value(Keys.INVISIBLE_WM_TEMPLATE)) == "JOB42"
+        assert float(settings.value(Keys.INVISIBLE_WM_STRENGTH)) == 0.8
+        assert not settings.contains("transcode/watermark_text")
+    finally:
+        t.shutdown()
+        t.deleteLater()
+
+
+def test_old_watermark_payload_never_overwrites_preferences(qapp, settings) -> None:
+    from src.services.app_settings import Keys
+
+    settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, "mine")
+    settings.setValue("transcode/watermark_text", "JOB42")
+    t = TranscodeTab(settings)
+    try:
+        assert str(settings.value(Keys.INVISIBLE_WM_TEMPLATE)) == "mine"
+    finally:
+        t.shutdown()
+        t.deleteLater()

@@ -78,7 +78,7 @@ from .convert_tab import _ConvertFormBody, _form_scroll_area
 from .filename_filter import BAD_PATH_CHARS, BAD_PATTERN_CHARS, install_filename_filter
 from .icons import set_button_icon
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
-from .preferences import encoder_mode, resolve_invisible_watermark, sequence_display_name
+from .preferences import encoder_mode, resolve_invisible_watermark
 from .style import set_style_property
 from .token_line_edit import TokenLineEdit
 from .transcode_clips import ClipColorTree
@@ -106,6 +106,7 @@ class TranscodeTab(BatchTab):
 
     def __init__(self, settings: QSettings, parent: QWidget | None = None):
         super().__init__(settings, _K, "transcode", parent)
+        self._migrate_watermark_settings(settings)
         self._queue = TranscodeQueue(self)
         self._config_source = ""
         self._config_path = ""
@@ -247,21 +248,21 @@ class TranscodeTab(BatchTab):
         )
         form.add_row("Audio", self.audio_combo, width=WIDE)
 
-        self.rate_combo = QComboBox()
+        self.rate_combo = QComboBox(body)
         self.rate_combo.addItem("Constant quality (CRF)", RATE_CRF)
         self.rate_combo.addItem("Target bitrate", RATE_BITRATE)
         self._select(self.rate_combo, settings.value(f"{_K}/rate_control", RATE_CRF))
-        self.crf_spin = QSpinBox()
+        self.crf_spin = QSpinBox(body)
         self.crf_spin.setPrefix("CRF ")
         self.crf_spin.setToolTip("Lower is better quality and bigger files.")
-        self.bitrate_spin = QDoubleSpinBox()
+        self.bitrate_spin = QDoubleSpinBox(body)
         self.bitrate_spin.setRange(0.1, 2000.0)
         self.bitrate_spin.setDecimals(1)
         self.bitrate_spin.setSuffix(" Mb/s")
         self.bitrate_spin.setValue(
             float(settings.value(f"{_K}/bitrate", DEFAULT_BITRATE_MBPS, type=float))
         )
-        self.preset_combo = QComboBox()
+        self.preset_combo = QComboBox(body)
         for p in X26X_PRESETS:
             self.preset_combo.addItem(p, p)
         self.preset_combo.setToolTip("Encoder speed. Slower is smaller at the same quality.")
@@ -499,6 +500,32 @@ class TranscodeTab(BatchTab):
             return False
         return self.clip_tree.all_valid()
 
+    @staticmethod
+    def _migrate_watermark_settings(settings: QSettings) -> None:
+        """Carry a payload and strength saved on this tab into Preferences, once.
+
+        Before, Transcode kept its own invisible-watermark payload and strength.
+        They now come from Preferences, so a user's own values are copied there
+        (only when Preferences has none yet) instead of silently reverting to the
+        default payload.
+        """
+        from ..services.app_settings import Keys
+        from .preferences import clean_invisible_wm_template
+
+        old_text, old_strength = f"{_K}/watermark_text", f"{_K}/watermark_strength"
+        if not (settings.contains(old_text) or settings.contains(old_strength)):
+            return
+        if not settings.contains(Keys.INVISIBLE_WM_TEMPLATE):
+            text = clean_invisible_wm_template(str(settings.value(old_text, "") or ""))
+            if text:
+                settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, text)
+            if settings.contains(old_strength) and not settings.contains(
+                Keys.INVISIBLE_WM_STRENGTH
+            ):
+                settings.setValue(Keys.INVISIBLE_WM_STRENGTH, settings.value(old_strength))
+        settings.remove(old_text)
+        settings.remove(old_strength)
+
     def _open_quality_dialog(self) -> None:
         dlg = _QualityDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -680,7 +707,7 @@ class TranscodeTab(BatchTab):
         if self.watermark_cb.isChecked():
             # The payload may use {src}, so it is filled in per clip.
             text, strength = resolve_invisible_watermark(
-                self._settings, source_name=sequence_display_name(source)
+                self._settings, source_name=Path(source).stem
             )
             settings = replace(settings, watermark_text=text, watermark_strength=strength)
         return settings

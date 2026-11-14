@@ -20,7 +20,7 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
-- Transcode: the invisible watermark is an **Invisible WM** checkbox beside Output space. Its payload and strength come from Preferences, like EXR → Video. Your saved on/off choice carries over.
+- Transcode: the invisible watermark is an **Invisible WM** checkbox beside Output space. Its payload and strength come from Preferences, like EXR → Video. Your saved on/off choice carries over, and a payload and strength you had saved on this tab move into Preferences (unless Preferences already has its own).
 - File-name fields (the Video → Proxy suffix, Transcode name pattern, output folders and paths) drop characters a file name can't hold as you type or paste. The proxy suffix is also cleaned on the command line.
 - Transcode: rate control, CRF / bitrate and preset are in a gear dialog beside Codec (as on EXR → Video), shown only for codecs that have them. Custom folder fills in on the Location row instead of adding a row, here and on Video → Proxy, so the form no longer shifts.
 - Transcode: the Size row shows only when Resolution is Custom. The explanatory paragraphs under Source clips and under Name moved into tooltips.
