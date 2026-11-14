@@ -43,6 +43,15 @@ Release builds include the ONNX Runtime shared library inside the app. On
 macOS that library is signed and notarized with the rest of the application
 under Medeu Global LLC.
 
+## PyAV and FFmpeg
+
+Video decode and encode use PyAV, which ships the FFmpeg libraries inside its
+wheel. The app does not call a system FFmpeg.
+
+- PyAV: https://github.com/PyAV-Org/PyAV, BSD-3-Clause.
+- FFmpeg and the codec libraries bundled with the PyAV wheel have their own
+  licenses: https://ffmpeg.org/legal.html
+
 ## RapidFuzz
 
 The sequence browser's fuzzy search scores names with the `rapidfuzz` package.

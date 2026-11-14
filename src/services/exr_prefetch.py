@@ -165,6 +165,8 @@ class ExrPrefetchService(QObject):
         self._playing = False
         self._paused = False
         self._generation = 0
+        # Set by shutdown(): the pool is gone, so nothing may be scheduled again.
+        self._closed = False
 
         self._queue: deque[int] = deque()
         self._queued: set[int] = set()
@@ -185,6 +187,7 @@ class ExrPrefetchService(QObject):
         self._delivery_ready.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
 
     def shutdown(self) -> None:
+        self._closed = True
         self._generation += 1
         self._queue.clear()
         self._queued.clear()
@@ -331,6 +334,8 @@ class ExrPrefetchService(QObject):
         self._queued = want_set
 
     def _schedule_kick(self) -> None:
+        if self._closed:
+            return
         if not self._kick_timer.isActive():
             self._kick_timer.start()
 
@@ -344,6 +349,8 @@ class ExrPrefetchService(QObject):
         frames first, and the user would see backwards frames cached when
         scrubbing.
         """
+        if self._closed:
+            return
         if self._paused:
             return
         gen = self._generation

@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 from src.cli import build_parser, run_cli
-from src.core.app_paths import leave_read_only_install_cwd
+from src.core.app_paths import attach_parent_console, leave_read_only_install_cwd
 from src.core.constants import APP_NAME, APP_ORG, APP_VERSION
 from src.core.mp_support import configure_multiprocessing
 
 
 def main() -> int:
+    # A console-less Windows build has no stdout: attach one for CLI use.
+    if len(sys.argv) > 1:
+        attach_parent_console()
+
     # Before anything can start a worker pool (CLI and GUI convert both do).
     configure_multiprocessing()
 
@@ -31,20 +36,29 @@ def main() -> int:
 
     import src.rc_resources  # noqa: F401 — register Qt resources
     from src.gui.ocio_gpu_plane import configure_default_gl_format
-    from src.gui.style import apply_app_palette, load_stylesheet
+    from src.gui.style import install_theme
     from src.gui.window import MainWindow
 
     # Core Profile 4.1 for OCIO GLSL GPU display in the slate viewer.
     # Must be set before the QApplication (and any GL context) is created.
     configure_default_gl_format()
 
+    # Put the main window on Qt's GL compositor from the start. Otherwise the first
+    # browser dialog (it holds a QOpenGLWidget) makes Qt tear down and recreate
+    # the main window's native window: it closes and reopens with the dialog.
+    if sys.platform != "darwin":
+        os.environ.setdefault("QT_WIDGETS_RHI", "1")
+        os.environ.setdefault("QT_WIDGETS_RHI_BACKEND", "opengl")
+
     app = QApplication(sys.argv)
     app.setOrganizationName(APP_ORG)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
     app.setStyle("Fusion")
-    app.setStyleSheet(load_stylesheet())
-    apply_app_palette(app)
+    # Theme: the saved choice (System by default; dark when the system will not say).
+    from PySide6.QtCore import QSettings
+
+    install_theme(app, QSettings(APP_ORG, APP_NAME))
     # macOS: do not setWindowIcon — Dock must use the .app bundle's .icns
     # (CFBundleIconFile). A runtime PNG becomes NSApplication.applicationIconImage
     # and draws a sharp full-bleed square while the app is running.

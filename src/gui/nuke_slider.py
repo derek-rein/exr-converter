@@ -15,7 +15,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
-from .style import color
+from .style import color, on_theme_changed
 
 
 class NukeSlider(QWidget):
@@ -34,12 +34,23 @@ class NukeSlider(QWidget):
 
     valueChanged = Signal(float)
 
-    _BG = QColor(color("BG_INPUT"))
-    _GROOVE = QColor(color("BORDER"))
-    _TICK = QColor(color("BORDER_STRONG"))
-    _LABEL_COLOR = QColor(color("FG_DIM"))
-    _INDICATOR = QColor(color("ACCENT"))
-    _DEFAULT_MARK = QColor(color("SCROLLBAR"))
+    _BG = QColor()
+    _GROOVE = QColor()
+    _TICK = QColor()
+    _LABEL_COLOR = QColor()
+    _INDICATOR = QColor()
+    _DEFAULT_MARK = QColor()
+
+    @classmethod
+    def load_colors(cls) -> None:
+        """Read the palette; runs at import and after a theme switch."""
+        cls._BG = QColor(color("BG_INPUT"))
+        cls._GROOVE = QColor(color("BORDER"))
+        cls._TICK = QColor(color("BORDER_STRONG"))
+        cls._LABEL_COLOR = QColor(color("FG_DIM"))
+        cls._INDICATOR = QColor(color("ACCENT"))
+        cls._DEFAULT_MARK = QColor(color("SCROLLBAR"))
+
     _PIVOT = 1.0
     # asinh steepness: higher → more track budget near the pivot.
     _PIVOT_K = 1.6
@@ -428,5 +439,8 @@ class NukeSlider(QWidget):
         self.update()
         self.valueChanged.emit(self._value)
 
+
+NukeSlider.load_colors()
+on_theme_changed(NukeSlider.load_colors)
 
 __all__ = ["NukeSlider"]

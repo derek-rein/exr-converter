@@ -131,16 +131,16 @@ def probe_video(path: str) -> tuple[int, int, float, int]:
 
     if is_r3d_path(path):
         if not r3d_available():
-            from .r3d import unavailable_reason
+            from .r3d import R3DUnavailableError, unavailable_reason
 
-            raise RuntimeError(unavailable_reason())
+            raise R3DUnavailableError(unavailable_reason())
         return probe_r3d(path)
 
     if is_braw_path(path):
         if not braw_available():
-            from .braw import unavailable_reason
+            from .braw import BRAWUnavailableError, unavailable_reason
 
-            raise RuntimeError(unavailable_reason())
+            raise BRAWUnavailableError(unavailable_reason())
         return probe_braw(path)
 
     if is_libav_unsafe_media(path):

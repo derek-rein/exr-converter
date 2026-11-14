@@ -16,6 +16,43 @@ def is_frozen_app() -> bool:
     return False
 
 
+def attach_parent_console() -> bool:
+    """Give a console-less Windows build a stdout / stderr when run from a shell.
+
+    Release builds use ``--windows-console-mode=disable`` so the GUI opens no
+    console window, which also leaves ``sys.stdout`` as ``None``: ``--help`` and
+    every CLI message would vanish. Use the handles the shell redirected (pipes,
+    files), or else the shell's console. Returns True when it installed streams.
+    """
+    if sys.platform != "win32" or (sys.stdout is not None and sys.stderr is not None):
+        return False
+    import msvcrt
+
+    kernel32 = ctypes.windll.kernel32
+    attached = bool(kernel32.AttachConsole(-1))  # ATTACH_PARENT_PROCESS
+    installed = False
+    for name, std_handle in (("stdout", -11), ("stderr", -12)):
+        if getattr(sys, name) is not None:
+            continue
+        stream = None
+        handle = kernel32.GetStdHandle(std_handle)
+        if handle not in (None, 0, -1):
+            try:
+                fd = msvcrt.open_osfhandle(handle, os.O_WRONLY | os.O_TEXT)
+                stream = os.fdopen(fd, "w", encoding="utf-8", errors="replace", buffering=1)
+            except OSError:
+                stream = None
+        if stream is None and attached:
+            try:
+                stream = open("CONOUT$", "w", encoding="utf-8", errors="replace", buffering=1)  # noqa: SIM115
+            except OSError:
+                stream = None
+        if stream is not None:
+            setattr(sys, name, stream)
+            installed = True
+    return installed
+
+
 def package_root_from_file(file_path: str | Path, *, parents: int = 2) -> Path:
     """Repo / install root from a module ``__file__`` (``parents=2`` → src/core → root)."""
     try:

@@ -171,7 +171,7 @@ Windows:<dist>/r3d/
 
 | Symptom | Fix |
 |---------|-----|
-| `R3D bridge library not found` | `make r3d-bridge` / set `EXR_CONVERTER_R3D_BRIDGE` |
+| `R3D is unavailable in this build` | Expected from source. Use a Release binary, or `make r3d-bridge` / set `EXR_CONVERTER_R3D_BRIDGE` |
 | `RED Redistributable libraries not found` | Set `EXR_CONVERTER_R3D_LIBS` or rebuild bridge (copies redistributables) |
 | `R3D bridge init failed` | Wrong folder (must contain `REDR3D.*`); SDK version mismatch |
 | CI skips R3D | Secret `R3D_SDK_READ_TOKEN` not set or cannot read private release |

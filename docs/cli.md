@@ -30,7 +30,13 @@ exr-converter --help
 "/Applications/EXR Converter.app/Contents/MacOS/exr_converter" --help
 ```
 
+On Windows, tick **Add EXR Converter to PATH** in the installer to run `exr-converter` from any terminal. It is a small launcher that waits for the app and shows its output and exit code (the app itself has no console window). Without it, call `exr-converter.cmd` in the install folder.
+
 On Linux, `exr-converter` is the launcher in the tarball and the RPM. Install options are in [Linux](./linux.md).
+
+For coding agents: **Help → Agent Skills** in the app (or
+[`skills.md`](https://github.com/derek-rein/exr-converter/blob/main/skills.md) in the repository)
+is a short guide to this CLI with your install path filled in.
 
 Related: [Linux](./linux.md) · [GUI](./gui.md) · [ProRes and VideoToolbox](./prores.md) · [Nuke integration](./nuke.md) · [README](https://github.com/derek-rein/exr-converter/blob/main/README.md)
 

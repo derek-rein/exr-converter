@@ -2,6 +2,7 @@
   <qresource prefix="/">
     <file alias="icon.png">resources/icons/icon.png</file>
     <file alias="style.qss">resources/style.qss</file>
+    <file alias="skills.md">skills.md</file>
     <file alias="arrow_down.png">resources/images/arrow_down.png</file>
     <file alias="arrow_down@2x.png">resources/images/arrow_down@2x.png</file>
     <file alias="arrow_down_accent.png">resources/images/arrow_down_accent.png</file>

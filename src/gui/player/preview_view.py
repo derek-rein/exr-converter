@@ -6,6 +6,7 @@ from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QWheelEvent
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
+from ..drag_mode import Drag
 from ..viewer_chrome import paint_format_label
 
 ZOOM_MIN = 0.05
@@ -52,8 +53,7 @@ class ImagePreviewView(QGraphicsView):
         self._border: QGraphicsRectItem | None = None
         self._ensure_border()
 
-        self._panning = False
-        self._zooming = False
+        self._drag = Drag.NONE
         self._last_pos: QPointF | None = None
         self._zoom_anchor_view: QPointF | None = None
 
@@ -127,15 +127,18 @@ class ImagePreviewView(QGraphicsView):
         self.setTransform(t)
 
     def mousePressEvent(self, event):  # noqa: N802
+        if self._drag is not Drag.NONE:
+            event.accept()  # one drag at a time: ignore a second button
+            return
         btn = event.button()
         if btn in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton):
-            self._panning = True
+            self._drag = Drag.PAN
             self._last_pos = event.position()
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         if btn == Qt.MouseButton.RightButton:
-            self._zooming = True
+            self._drag = Drag.ZOOM
             self._last_pos = event.position()
             self._zoom_anchor_view = event.position()
             event.accept()
@@ -144,13 +147,13 @@ class ImagePreviewView(QGraphicsView):
 
     def mouseMoveEvent(self, event):  # noqa: N802
         pos = event.position()
-        if self._panning and self._last_pos is not None:
+        if self._drag is Drag.PAN and self._last_pos is not None:
             delta = pos - self._last_pos
             self._last_pos = pos
             self._translate_view(delta.x(), delta.y())
             event.accept()
             return
-        if self._zooming and self._last_pos is not None:
+        if self._drag is Drag.ZOOM and self._last_pos is not None:
             dx = pos.x() - self._last_pos.x()
             self._last_pos = pos
             s = 1.02 ** (dx * 0.5)
@@ -163,14 +166,17 @@ class ImagePreviewView(QGraphicsView):
 
     def mouseReleaseEvent(self, event):  # noqa: N802
         btn = event.button()
-        if btn in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton) and self._panning:
-            self._panning = False
+        if (
+            btn in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton)
+            and self._drag is Drag.PAN
+        ):
+            self._drag = Drag.NONE
             self._last_pos = None
             self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
             event.accept()
             return
-        if btn == Qt.MouseButton.RightButton and self._zooming:
-            self._zooming = False
+        if btn == Qt.MouseButton.RightButton and self._drag is Drag.ZOOM:
+            self._drag = Drag.NONE
             self._last_pos = None
             self._zoom_anchor_view = None
             event.accept()

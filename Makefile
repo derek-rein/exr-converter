@@ -20,10 +20,12 @@ APP_VERSION := $(shell python3 scripts/bump_app_version.py show | sed -n 's/^VER
 ENTRY    := main.py
 # Drop any inherited VIRTUAL_ENV (e.g. from another activated project) so uv
 # silently uses this project's .venv instead of warning about the mismatch.
-UV       := env -u VIRTUAL_ENV uv
+# unexport, not `env -u`: Windows GNU Make has no env(1).
+unexport VIRTUAL_ENV
+UV       := uv
 PYTHON   := $(UV) run python
 # Qt rcc from the PySide6 package (console-script wrappers can point at a stale venv).
-RCC      := $(PYTHON) -c 'import subprocess,sys; from pathlib import Path; import PySide6; r=Path(PySide6.__file__).resolve().parent/"Qt"/"libexec"/"rcc"; sys.exit(subprocess.call([str(r),"-g","python",*sys.argv[1:]]))'
+RCC      := $(PYTHON) -c "import subprocess,sys; from pathlib import Path; import PySide6; root=Path(PySide6.__file__).resolve().parent; r=next(p for p in (root/'Qt'/'libexec'/'rcc', root/'rcc.exe', root/'rcc') if p.exists()); sys.exit(subprocess.call([str(r),'-g','python',*sys.argv[1:]]))"
 BUMP     := python3 scripts/bump_app_version.py
 PART     ?= patch
 # PUSH=1 (default): push branch + tag so GitHub receives the tag and runs .github/workflows/release.yml
@@ -36,7 +38,7 @@ export NUITKA_ASSUME_YES_FOR_DOWNLOADS := 1
 help:
 	@echo "EXR Converter"
 	@echo ""
-	@echo "  make run                               # launch the GUI"
+	@echo "  make run                               # launch the GUI (no private SDK fetch)"
 	@echo "  make sync                              # uv sync + ensure OCIO 2.5+ linkage"
 	@echo "  make ensure-ocio                       # repair OpenColorIO if runtime is older than 2.5"
 	@echo "  make lint / fmt                        # ruff check / format"
@@ -100,7 +102,9 @@ cinemadng:
 
 # ── Run ──────────────────────────────────────────────────────────────────────
 
-run: ensure-ocio cinemadng
+# Private SDKs (R3D, BRAW, ARRI, camera RAW) and native extras (CinemaDNG,
+# oxideav) are fetched/built on GitHub Actions. Local run is Python + OCIO.
+run: ensure-ocio
 	$(PYTHON) $(ENTRY)
 
 # ── Lint & Format ────────────────────────────────────────────────────────────

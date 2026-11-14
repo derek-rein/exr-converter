@@ -9,11 +9,12 @@ from typing import Any
 
 import numpy as np
 
+from ..sdk_support import OptionalSdkError
 from .constants import BRAW_SRC_COLORSPACE_CANDIDATES, CLIP_META_KEYS, DECODE_FULL
 from .native import clip_info_struct_type, get_lib, last_error, unavailable_reason
 
 
-class BRAWUnavailableError(RuntimeError):
+class BRAWUnavailableError(OptionalSdkError):
     """Raised when BRAW support is requested but the bridge/SDK is missing."""
 
 

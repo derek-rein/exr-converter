@@ -56,6 +56,7 @@ from ..core.fs_skip import (
     VIDEO_EXTS,
 )
 from ..core.local_fs import can_probe_media, path_is_dir
+from ..core.sdk_support import OptionalSdkError
 from .browser_path import folder_path_for_copy
 from .browser_state import (
     VIEW_GRID,
@@ -68,7 +69,7 @@ from .browser_tree import BrowserTreeModel, VolumePoller, background_pool
 from .browser_volumes import VolumeInfo
 from .icons import icon as ui_icon
 from .icons import set_button_icon
-from .style import _PALETTE, STATUS_DIM
+from .style import _PALETTE, set_style_property
 
 log = logging.getLogger(__name__)
 
@@ -168,7 +169,7 @@ def _places_divider_item(list_widget: QListWidget) -> None:
     frame_layout.setSpacing(0)
     line = QWidget()
     line.setFixedHeight(1)
-    line.setStyleSheet(f"background: {_PALETTE['BORDER']};")
+    set_style_property(line, "role", "rule")
     frame_layout.addWidget(line)
     list_widget.setItemWidget(divider, frame)
 
@@ -536,6 +537,9 @@ class _BrowserJobs(QObject):
         def job() -> None:
             try:
                 res: object = fn()
+            except OptionalSdkError as e:
+                log.debug("Browser job skipped: %s", e)
+                res = e
             except Exception as e:  # handed to on_done; logged for debugging
                 log.debug("Browser job failed", exc_info=True)
                 res = e
@@ -713,7 +717,7 @@ class _SearchableTree(QWidget):
 
         self._search_status = QLabel()
         self._search_status.setVisible(False)
-        self._search_status.setStyleSheet(STATUS_DIM)
+        set_style_property(self._search_status, "role", "status")
         layout.addWidget(self._search_status)
 
         self._worker = _DirSearchWorker(self, ext_filter=ext_filter, dirs_only=dirs_only)

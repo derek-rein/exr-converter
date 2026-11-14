@@ -42,6 +42,15 @@ QToolTip {
 QLabel[role="muted"] {
     color: @FG_DIM;
 }
+QLabel[role="status"] {
+    color: @FG_DIM;
+    font-size: 11px;
+    padding: 2px 0;
+}
+/* A 1 px divider drawn by a bare widget. */
+QWidget[role="rule"] {
+    background: @BORDER;
+}
 QLabel[role="hint"] {
     color: @FG_DIM;
     font-size: 11px;
@@ -486,6 +495,7 @@ QTabBar::tab {
     color: @FG_DIM;
 }
 /* The accent underline is painted by SlidingTabBar so it can travel. */
+/* Bold is wider; SlidingTabBar.tabSizeHint reserves the bold width on every tab. */
 QTabBar::tab:selected {
     color: @SEL_FG;
     font-weight: 600;
@@ -589,6 +599,11 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 }
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background: transparent;
+}
+
+/* The form pages: the track starts and ends level with the first and last card. */
+QScrollArea#convertTabScroll QScrollBar:vertical {
+    margin: 12px 2px 12px 2px;
 }
 
 /* ---- Lists, trees, tables ---- */
@@ -783,9 +798,20 @@ QDialogButtonBox QPushButton {
     min-width: 70px;
 }
 
+/* ---- Action bar (When done, Cancel, Convert) ---- */
+QWidget#actionBar {
+    border-top: 1px solid @BORDER_STRONG;
+}
+
+/* ---- Dialog footer (OK / Cancel) ---- */
+QWidget#dialogFooter {
+    border-top: 1px solid @BORDER_STRONG;
+}
+
 /* ---- Log drawer ---- */
 QWidget#logDrawer {
-    border-top: 1px solid @BORDER;
+    background-color: @BG_CARD;
+    border-top: 1px solid @BORDER_STRONG;
 }
 QPushButton#logToggle {
     padding: 2px 8px 2px 4px;

@@ -121,15 +121,15 @@ class SequencePlayer(QWidget):
         self._preview_pixmap_item = None
         self._gpu_plane: OcioGpuImagePlane | None = None
         self._use_gpu = False
-        self._gpu_init_failed = False
 
         self._viewer_display_proc = None
         self._ec_exposure_prop = None
         self._ec_gamma_prop = None
         self._last_viewer_display: tuple[str, str, str] | None = None
 
-        self._exr_seq = None
-        self._video_path: str | None = None
+        # What is loaded: an image sequence object, a video path, or nothing. One
+        # field, so the two kinds cannot both be set; _exr_seq and _video_path read it.
+        self._source: object | str | None = None
         self._shot_frames: list[int] = []
         self._shot_frames_set: set[int] = set()
         self._first_shot: int | None = None
@@ -192,7 +192,6 @@ class SequencePlayer(QWidget):
                 log.exception("GPU OCIO preview init failed; using CPU path")
                 self._gpu_plane = None
                 self._use_gpu = False
-                self._gpu_init_failed = True
         else:
             log.info("SequencePlayer: CPU display path (prefer_gpu=%s)", prefer_gpu)
 
@@ -250,7 +249,6 @@ class SequencePlayer(QWidget):
             log.debug("GPU plane release_gl failed", exc_info=True)
         # Keep plane as a child of the stack; mark dead so we never re-use it.
         self._gpu_plane = None
-        self._gpu_init_failed = True
 
     # ------------------------------------------------------------------
     # Public API
@@ -276,8 +274,7 @@ class SequencePlayer(QWidget):
         self._viewer_display_proc = None
         self._ec_exposure_prop = None
         self._ec_gamma_prop = None
-        self._exr_seq = None
-        self._video_path = None
+        self._source = None
         self._proxy_target = None
         self._proxy_level_key = None
         self._src_w = 0
@@ -443,7 +440,7 @@ class SequencePlayer(QWidget):
             self._shot_frames_set = set(self._shot_frames)
             self._first_shot = self._shot_frames[0]
             self._last_shot = self._shot_frames[-1]
-            self._exr_seq = info["seq"]
+            self._source = info["seq"]
             self._src_colorspace = str(info.get("src_colorspace") or "")
             self.set_pixel_aspect(
                 float(info.get("pixel_aspect") or 1.0),
@@ -559,7 +556,7 @@ class SequencePlayer(QWidget):
             else:
                 self.set_resolution(int(w), int(h))
 
-        self._video_path = path
+        self._source = path
         self._shot_frames = list(range(1, n_frames + 1))
         self._shot_frames_set = set(self._shot_frames)
         self._first_shot = 1
@@ -595,8 +592,7 @@ class SequencePlayer(QWidget):
         self.set_playing(False)
         self.shutdown_prefetch_only()
         self._shot_cache.clear()
-        self._exr_seq = None
-        self._video_path = None
+        self._source = None
         self._shot_frames = []
         self._shot_frames_set = set()
         self._first_shot = None
@@ -826,9 +822,10 @@ class SequencePlayer(QWidget):
     def fit_in_view(self) -> None:
         # Guard against QTimer.singleShot(0) firing after the dialog was closed.
         try:
-            if self._use_gpu and self._gpu_plane is not None:
+            plane = self._gpu()
+            if plane is not None:
                 try:
-                    self._gpu_plane.fit_in_view()
+                    plane.fit_in_view()
                 except RuntimeError:
                     return
             self._preview.fit_in_view()
@@ -1167,8 +1164,33 @@ class SequencePlayer(QWidget):
             self._display_view_combo.setCurrentIndex(default_idx)
         self._display_view_combo.blockSignals(False)
 
+    @property
+    def _exr_seq(self):
+        """The loaded image sequence, or None (a video or nothing is loaded)."""
+        return None if isinstance(self._source, str) else self._source
+
+    @property
+    def _video_path(self) -> str | None:
+        """The loaded video's path, or None (a sequence or nothing is loaded)."""
+        return self._source if isinstance(self._source, str) else None
+
     def _exposure_stops(self) -> float:
         return math.log2(max(float(getattr(self, "_gain", 1.0)), 1e-10))
+
+    def _gpu(self) -> OcioGpuImagePlane | None:
+        """The GPU plane to draw with, or None when this player is on the CPU path.
+
+        The GPU path is in use only while it is switched on *and* its plane is
+        alive. A plane that has died is switched off here, once, so every caller
+        falls back together.
+        """
+        plane = self._gpu_plane
+        if plane is None or not self._use_gpu:
+            return None
+        if not plane.is_alive():
+            self._use_gpu = False
+            return None
+        return plane
 
     def _on_gpu_failed(self, reason: str) -> None:
         log.error("Falling back to CPU OCIO preview: %s", reason)
@@ -1177,19 +1199,17 @@ class SequencePlayer(QWidget):
         self._apply_display_transform()
 
     def _sync_gpu_view_settings(self) -> None:
-        if self._gpu_plane is None or not self._use_gpu:
-            return
-        if not self._gpu_plane.is_alive():
-            self._use_gpu = False
+        plane = self._gpu()
+        if plane is None:
             return
         working = self._resolve_working_space() or self._comp_src_space
         display, view = "", ""
         idx = self._display_view_combo.currentIndex()
         if 0 <= idx < len(self._display_view_pairs):
             display, view = self._display_view_pairs[idx]
-        self._gpu_plane.set_ocio_view(self._ocio_cfg, working, display, view)
-        self._gpu_plane.set_exposure_stops(self._exposure_stops())
-        self._gpu_plane.set_gamma(float(getattr(self, "_gamma", 1.0)))
+        plane.set_ocio_view(self._ocio_cfg, working, display, view)
+        plane.set_exposure_stops(self._exposure_stops())
+        plane.set_gamma(float(getattr(self, "_gamma", 1.0)))
 
     @staticmethod
     def _style_viewer_value_label(label: QLabel, value: float, *, default: float = 1.0) -> None:
@@ -1214,8 +1234,9 @@ class SequencePlayer(QWidget):
         self._style_viewer_value_label(self._gain_value_label, gain)
 
         stops = self._exposure_stops()
-        if self._use_gpu and self._gpu_plane is not None and self._gpu_plane.is_alive():
-            self._gpu_plane.set_exposure_stops(stops)
+        plane = self._gpu()
+        if plane is not None:
+            plane.set_exposure_stops(stops)
             return
         if self._ec_exposure_prop is not None:
             self._ec_exposure_prop.setDouble(stops)
@@ -1234,8 +1255,9 @@ class SequencePlayer(QWidget):
         self._gamma_value_label.setText(txt)
         self._style_viewer_value_label(self._gamma_value_label, gamma)
 
-        if self._use_gpu and self._gpu_plane is not None and self._gpu_plane.is_alive():
-            self._gpu_plane.set_gamma(gamma)
+        plane = self._gpu()
+        if plane is not None:
+            plane.set_gamma(gamma)
             return
         if self._display_f32 is not None:
             self._paint_display_with_viewer_gamma(self._display_f32)
@@ -1693,14 +1715,15 @@ class SequencePlayer(QWidget):
 
         is_shot = self._is_shot_frame(self._current_frame)
 
-        if self._use_gpu and self._gpu_plane is not None and self._gpu_plane.is_alive():
+        plane = self._gpu()
+        if plane is not None:
             h, w = int(working.shape[0]), int(working.shape[1])
             if is_shot and self._hooks is not None:
                 ov, ov_key = self._hooks.gpu_overlay_rgba(w, h, self._current_frame)
-                self._gpu_plane.set_overlay_rgba(ov, key=ov_key)
+                plane.set_overlay_rgba(ov, key=ov_key)
             else:
-                self._gpu_plane.set_overlay_rgba(None)
-            self._gpu_plane.set_working_image(working)
+                plane.set_overlay_rgba(None)
+            plane.set_working_image(working)
             self._composed_working_f32 = None
             self._display_f32 = None
             return
@@ -1764,9 +1787,10 @@ class SequencePlayer(QWidget):
         self._apply_display_transform()
 
     def _refresh_gain_gamma(self) -> None:
-        if self._use_gpu and self._gpu_plane is not None:
-            self._gpu_plane.set_exposure_stops(self._exposure_stops())
-            self._gpu_plane.set_gamma(float(getattr(self, "_gamma", 1.0)))
+        plane = self._gpu()
+        if plane is not None:
+            plane.set_exposure_stops(self._exposure_stops())
+            plane.set_gamma(float(getattr(self, "_gamma", 1.0)))
             return
 
         if self._display_f32 is None:
@@ -1842,9 +1866,10 @@ class SequencePlayer(QWidget):
     def _reapply_display_with_ec(self) -> None:
         import numpy as np
 
-        if self._use_gpu and self._gpu_plane is not None:
-            self._gpu_plane.set_exposure_stops(self._exposure_stops())
-            self._gpu_plane.set_gamma(float(getattr(self, "_gamma", 1.0)))
+        plane = self._gpu()
+        if plane is not None:
+            plane.set_exposure_stops(self._exposure_stops())
+            plane.set_gamma(float(getattr(self, "_gamma", 1.0)))
             return
 
         if self._composed_working_f32 is None or self._viewer_display_proc is None:

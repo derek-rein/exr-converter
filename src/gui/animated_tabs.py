@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QEvent, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPaintEvent, QResizeEvent
 from PySide6.QtWidgets import QTabBar, QWidget
 
@@ -33,7 +33,56 @@ class SlidingTabBar(QTabBar):
         )
         self._instant = False
         self._last_instant = False
+        # Selected-state widths by label, and the probe bar that measures them.
+        self._selected_widths: dict[str, int] = {}
+        self._probe: QTabBar | None = None
         self.currentChanged.connect(self._on_current_changed)
+
+    def tabSizeHint(self, index: int) -> QSize:  # noqa: N802
+        """Every tab is as wide as it is when selected (bold), so selecting never shifts.
+
+        The stylesheet makes the selected label bold, which is wider. Qt sizes
+        each tab for its own state, so an unselected tab would grow by the
+        difference the moment it is picked, and push its neighbours along. The
+        selected width comes from the style itself (a probe bar with that tab
+        selected), not from a font estimate, so it matches to the pixel.
+        """
+        hint = super().tabSizeHint(index)
+        selected = self._selected_width(self.tabText(index))
+        if selected > hint.width():
+            hint.setWidth(selected)
+        return hint
+
+    def _selected_width(self, text: str) -> int:
+        """Width the style gives a tab with *text* when it is the selected one."""
+        cached = self._selected_widths.get(text)
+        if cached is not None:
+            return cached
+        # The probe takes the application's style and stylesheet, as this bar does.
+        probe = self._probe
+        if probe is None:
+            probe = self._probe = QTabBar()
+            probe.addTab("")
+        probe.setStyleSheet(self.styleSheet())
+        probe.setFont(self.font())
+        probe.setTabText(0, text)
+        probe.setCurrentIndex(0)
+        probe.ensurePolished()
+        width = probe.tabSizeHint(0).width()
+        self._selected_widths[text] = width
+        return width
+
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802
+        if event.type() in (
+            QEvent.Type.StyleChange,
+            QEvent.Type.FontChange,
+            QEvent.Type.ApplicationFontChange,
+            QEvent.Type.PaletteChange,
+        ):
+            widths = self.__dict__.get("_selected_widths")  # not set yet during __init__
+            if widths is not None:
+                widths.clear()
+        super().changeEvent(event)
 
     def set_current_instant(self, index: int) -> None:
         """Change tab with no slide: for keyboard shortcuts.

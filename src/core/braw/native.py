@@ -5,7 +5,6 @@ from __future__ import annotations
 import atexit
 import ctypes
 import logging
-import sys
 
 from ..app_paths import is_frozen_app
 from .paths import bridge_candidates, find_redistributable_dir
@@ -151,17 +150,14 @@ def ensure_initialized() -> bool:
 
     lib = _load_library()
     if lib is None:
-        tried = ", ".join(str(p) for p in bridge_candidates()[:12])
-        _init_error = (
-            "BRAW bridge library not found. Build with "
-            "`python3 scripts/build_braw_bridge.py` after installing the "
-            f"Blackmagic RAW SDK (see docs/braw.md). Tried: {tried}"
-        )
-        log.warning(
-            "%s (frozen=%s exe=%s)",
-            _init_error,
-            is_frozen_app(),
-            sys.executable,
+        from ..sdk_support import log_missing_bridge
+
+        _init_error = log_missing_bridge(
+            log,
+            kind="Blackmagic RAW",
+            docs="docs/braw.md",
+            candidates=bridge_candidates(),
+            frozen=is_frozen_app(),
         )
         return False
 

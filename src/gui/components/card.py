@@ -45,7 +45,10 @@ class Card(QFrame):
         titles.addWidget(self._title)
         self._description = QLabel(description)
         set_style_property(self._description, "role", "hint")
-        self._description.setVisible(bool(description))
+        # Not setVisible(True): the label has no parent yet, so that would show it
+        # as a window of its own until the card adopts it.
+        if not description:
+            self._description.hide()
         titles.addWidget(self._description)
         self._header.addLayout(titles, 1)
         outer.addLayout(self._header)

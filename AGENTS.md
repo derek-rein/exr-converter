@@ -118,7 +118,7 @@ docs/                   # user-facing Markdown (vfx.systems/docs/exr-converter l
 
 ```bash
 make sync          # uv sync + ensure OCIO 2.5+ linkage
-make run           # GUI
+make run           # GUI (Python + OCIO; private SDKs are CI/Release only)
 make lint          # ruff check
 make fmt           # ruff format + fix
 make typecheck     # basedpyright
@@ -544,6 +544,7 @@ Branch protection on `main` should require `ci-ok`.
 |-----|---------|
 | [AGENTS.md](./AGENTS.md) | This file — agent/process context, release & deploy, **docs rules** |
 | [CHANGELOG.md](./CHANGELOG.md) | User-facing history (**must update**) |
+| [skills.md](./skills.md) | Agent Skills text for the CLI (shown in Help → Agent Skills; `src/core/agent_skill.py` fills in the install path). **Update when CLI flags change** |
 | [README.md](./README.md) | Product overview, install, short CLI |
 | [docs/](./docs/) | User-facing Markdown (**must update** when behavior changes) |
 | [docs/cli.md](./docs/cli.md) | CLI (incl. `proxy` / `--watch`, `transcode`) + GUI launch flags |

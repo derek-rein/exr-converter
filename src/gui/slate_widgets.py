@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 
 from ..core.pixel_aspect import PixelAspect, is_square
 from ..render.slate import SLATE_COLORSPACE, render_slate_frame
-from .components import FILL, NARROW, NATURAL, Card, FormGrid, StatusLine
+from .components import FILL, NARROW, NATURAL, WIDE, Card, FormGrid, StatusLine
 from .nuke_slider import NukeSlider
 from .player.preview_view import ZOOM_MAX, ZOOM_MIN
 from .player.preview_view import ImagePreviewView as SlatePreviewView
@@ -485,7 +485,7 @@ class SlateFormPanel(QWidget):
         self.scope_edit = self._line(fields.get("scope", ""), "VFX scope of work")
 
         sf.add_wide(_section_label("Slate info"))
-        sf.add_row("Submitting for", self.submit_for_combo, width=NARROW)
+        sf.add_row("Submitting for", self.submit_for_combo, width=WIDE)
         notes_label = sf.add_row("Submit notes", self.notes_edit, width=FILL)
         # Multi-line field: the label reads against its first line, not its middle.
         notes_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -500,7 +500,7 @@ class SlateFormPanel(QWidget):
         sf.add_wide(_section_label("Artist / studio"))
         sf.add_row("Vendor", self.vendor_edit, width=FILL)
         sf.add_row("Artist", self.artist_edit, width=FILL)
-        sf.add_row("Take", self.take_edit, width=NARROW)
+        sf.add_row("Take", self.take_edit, width=FILL)
         sf.add_row("Logo / studio", self.logo_edit, width=FILL)
         root.addWidget(slate_group)
 

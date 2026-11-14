@@ -27,7 +27,7 @@ from ..core.quicklook_prefs import (
     set_format_enabled,
     set_quicklook_installed,
 )
-from .components import NATURAL, WIDE, Card, FormGrid
+from .components import FIELD_WIDTH, NATURAL, Card, FormGrid
 from .style import set_style_property
 
 # A note under a checkbox starts where the checkbox text starts.
@@ -35,11 +35,11 @@ _CHECK_TEXT_INDENT = 23
 
 
 def _note(text: str, role: str = "hint", indent: int = 0) -> QLabel:
-    """A wrapped line under a field, as wide as the WIDE controls."""
+    """A wrapped line under a field, as wide as a typical WIDE control."""
     label = QLabel(text)
     label.setWordWrap(True)
     label.setContentsMargins(indent, 0, 0, 0)
-    label.setFixedWidth(WIDE[1] + indent)
+    label.setFixedWidth(FIELD_WIDTH + indent)
     set_style_property(label, "role", role)
     _reserve_lines(label)
     return label

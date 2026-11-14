@@ -80,7 +80,7 @@ from .browser_state import (
 from .browser_tree import BrowserTreeModel
 from .player.sequence_player import SequencePlayer
 from .segmented_control import SegmentedControl
-from .style import STATUS_DIM, set_style_property
+from .style import set_style_property
 
 
 def _letterbox_thumb(pm: QPixmap, background: QColor) -> QPixmap:
@@ -364,7 +364,7 @@ class _MediaBrowserDialog(QDialog):
         """Status line + Open / Cancel."""
         bottom_row = QHBoxLayout()
         self._status = _ElidingLabel()
-        self._status.setStyleSheet(STATUS_DIM)
+        set_style_property(self._status, "role", "status")
         bottom_row.addWidget(self._status, 1)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Open | QDialogButtonBox.StandardButton.Cancel

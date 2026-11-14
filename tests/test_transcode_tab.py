@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 
 import src.rc_resources  # noqa: F401 — register :/style.qss
 from src.core.ocio_utils import color_space_families, resolve_ocio_for_cli
+from src.gui.components import WIDE_MIN, Card
 from src.gui.transcode_tab import LOCATION_CUSTOM, TranscodeTab
 from src.gui.window import TRANSCODE_TAB_INDEX, MainWindow
 from src.services.app_settings import make_ini_settings, set_app_settings
@@ -65,7 +66,10 @@ def test_defaults_are_prores_hq_passthrough(tab: TranscodeTab, qapp: QApplicatio
     assert tab.dst_btn.isVisible() and tab.watermark_cb.isVisible()
     # ProRes is intra-frame: no CRF / bitrate / preset controls.
     assert not tab.rate_combo.isVisible() and tab._intra_note.isVisible()
-    assert not tab.width_spin.isVisible() and tab._size_label.isHidden()
+    # The size row is always shown (hiding it would re-layout the card), but off
+    # until Custom is chosen.
+    assert tab.width_spin.isVisible() and not tab.width_spin.isEnabled()
+    assert not tab._size_label.isEnabled()
     assert not tab.output_dir.isVisible() and tab._folder_label.isHidden()
     assert not tab.fps_spin.isVisible()
 
@@ -99,7 +103,7 @@ def test_custom_size_and_fps_rows(tab: TranscodeTab, qapp) -> None:
     tab.show()
     _select(tab.resolution_combo, "custom")
     qapp.processEvents()
-    assert tab.width_spin.isVisible() and tab._size_label.isVisible()
+    assert tab.width_spin.isEnabled() and tab._size_label.isEnabled()
     _select(tab.location_combo, LOCATION_CUSTOM)
     qapp.processEvents()
     assert tab.output_dir.isVisible() and tab._folder_label.isVisible()
@@ -129,6 +133,23 @@ def test_form_controls_share_one_left_edge(tab: TranscodeTab, qapp: QApplication
         tab.watermark_cb,
     ]
     assert len({w.mapTo(tab, w.rect().topLeft()).x() for w in fields}) == 1
+
+
+def test_output_fields_expand_and_strength_stays_in_the_card(
+    tab: TranscodeTab, qapp: QApplication
+) -> None:
+    tab.resize(880, 700)
+    tab.show()
+    qapp.processEvents()
+    assert tab.codec_combo.width() >= WIDE_MIN
+    assert tab.fps_combo.width() >= WIDE_MIN
+    assert tab.codec_combo.width() > tab.container_combo.width()
+    card = tab.watermark_strength.parentWidget()
+    while card is not None and not isinstance(card, Card):
+        card = card.parentWidget()
+    assert card is not None
+    right = tab.watermark_strength.mapTo(card, tab.watermark_strength.rect().topRight()).x()
+    assert right <= card.width() - 8
 
 
 def test_tab_order_follows_reading_order(tab: TranscodeTab, qapp: QApplication) -> None:
@@ -338,3 +359,11 @@ def test_name_and_folder_offer_path_variables(tab: TranscodeTab) -> None:
     for edit in (tab.name_edit, tab.output_dir):
         names = {n for _g, toks in edit.token_groups() for n, _d, _t in toks}
         assert {"reel", "name", "srcresolution", "codec"} <= names
+
+
+def test_container_is_disabled_when_the_codec_has_only_one(tab: TranscodeTab) -> None:
+    for i in range(tab.codec_combo.count()):
+        tab.codec_combo.setCurrentIndex(i)
+        several = tab.container_combo.count() > 1
+        assert tab.container_combo.isEnabled() == several, tab.codec_key()
+        assert tab._container_label.isEnabled() == several

@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 
+from ..sdk_support import OptionalSdkError
 from .constants import (
     CLIP_META_KEYS,
     DECODE_FULL_PREMIUM,
@@ -18,7 +19,7 @@ from .constants import (
 from .native import clip_info_struct_type, get_lib, last_error, unavailable_reason
 
 
-class R3DUnavailableError(RuntimeError):
+class R3DUnavailableError(OptionalSdkError):
     """Raised when R3D support is requested but the bridge/SDK is missing."""
 
 

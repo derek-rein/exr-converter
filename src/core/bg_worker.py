@@ -19,6 +19,7 @@ import logging
 import queue
 import threading
 from collections.abc import Callable
+from enum import Enum
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,14 @@ def wait_for_command(cmd_q: Any, timeout: float | None) -> tuple:
                 return ("stop",)
 
 
+class _Exit(Enum):
+    """How the worker's loop ended, or that it has not."""
+
+    RUNNING = "running"  # no exit asked for or reported yet
+    STOP_REQUESTED = "stop_requested"  # stop() was called
+    CLEAN = "clean"  # the loop reported "stopped" itself
+
+
 class BackgroundWorker:
     """Owns one command loop (process preferred) and relays its events.
 
@@ -64,8 +73,7 @@ class BackgroundWorker:
     ) -> None:
         self._deliver = deliver
         self._done = threading.Event()
-        self._stop_requested = False
-        self._clean_exit = False
+        self._exit = _Exit.RUNNING
         self._proc: Any = None
         self._thread: threading.Thread | None = None
         if use_process:
@@ -116,7 +124,7 @@ class BackgroundWorker:
     def crashed(self) -> bool:
         """True when the loop died without being asked to stop (e.g. the child
         process could not import its module). Callers can fall back to a thread."""
-        return self._done.is_set() and not self._stop_requested and not self._clean_exit
+        return self._done.is_set() and self._exit is _Exit.RUNNING
 
     def _relay_loop(self) -> None:
         while not self._done.is_set():
@@ -129,7 +137,7 @@ class BackgroundWorker:
             except (EOFError, OSError, ValueError):
                 break
             if not event or event[0] == "stopped":
-                self._clean_exit = True
+                self._exit = _Exit.CLEAN
                 break
             if self._done.is_set():
                 break
@@ -141,7 +149,8 @@ class BackgroundWorker:
 
     def stop(self, timeout: float = 2.0) -> bool:
         """Ask the loop to stop and wait up to *timeout*. True when it exited."""
-        self._stop_requested = True
+        if self._exit is _Exit.RUNNING:
+            self._exit = _Exit.STOP_REQUESTED
         try:
             self._cmd_q.put(("stop",))
         except (OSError, ValueError):

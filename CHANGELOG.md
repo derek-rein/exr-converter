@@ -15,9 +15,12 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Added
 
+- Light and dark themes. **Preferences → Interface → Theme** is System (the default; follows the operating system and changes with it while the app runs), Light, or Dark. System uses dark when the platform does not report a setting. Switching applies at once.
+- Windows installer option **Add EXR Converter to PATH**, plus an `exr-converter` command that waits for the app and shows its output and exit code, so `exr-converter proxy -i clip.mov` works from any terminal (and from agents). Uninstalling removes the PATH entry.
+- **Help → Agent Skills** shows the `skills.md` instructions that let a coding agent (Claude Code, Codex, Cursor) drive the command line, with the command for this install filled in (the app or AppImage path, or the source checkout), and a **Copy to clipboard** button. The same file is `skills.md` in the repository.
 - The input of Video → EXR and EXR → Video is shown as a card: a drop target while empty, then a thumbnail with the clip or sequence name, resolution, frame count, frame rate, and range. It flags missing frames in a sequence. Click it to browse. The path field stays below it.
-- Motion: the tab underline slides, tab pages fade in, progress glides between values, Convert reacts to hover and press. All of it is under 300 ms. Turn it off with **Reduce motion** in Preferences, or by setting `EXR_CONVERTER_REDUCE_MOTION=1`.
-- The log is a drawer. Closed, it is one line with the latest status; click **Log** to open it. It opens by itself when a conversion fails. The height is remembered.
+- Motion: the tab underline slides, progress glides between values, Convert reacts to hover and press, and the source card fades. All of it is under 300 ms. Set `EXR_CONVERTER_REDUCE_MOTION=1` to turn it off.
+- The log shows four lines by default under a header with the latest status. Clicking **Log** collapses it to the header line, and dragging its top edge resizes it (the height is remembered). It opens by itself when a conversion fails. No animation.
 - Browse dialogs: drawn icons for places, volumes, favorites, and search in place of emoji; a compact folder tree; a table without grid lines; and Open as the accent button.
 - Video → Proxy and Transcode show a hint in the empty clip list: drop clips or folders, or use Add Clips… / Add Folder….
 - Sections are cards: a raised surface with a title and a one-line description. Labels share one column, so fields line up, and menus are sized to what they hold in place of stretching across the window. Related short fields share a row (Scale with Pixel aspect, Codec with Frame rate, Start frame with Padding).
@@ -25,6 +28,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ### Changed
 
+- Menus and fields in the forms stretch with the card again (codec, preset, EXR compression, slate fields) in place of a fixed width; only short number boxes stay narrow.
+- Form fields grow with the card. The scrollbar sits in a gutter so it no longer overlaps the last column of controls.
 - Browser Preview decodes the frame on screen at a size that covers the pane, including screen pixel density and anamorphic squeeze. R3D, N-RAW, and Blackmagic RAW use the SDK reduced-resolution decode. OpenEXR uses a mip or ripmap when the file has one, and reads RGB only. CinemaDNG uses a smaller embedded preview when one covers the pane, or a half-size debayer when the pane fits in half the frame. Video scales in the decoder. The full viewer and convert output are unchanged.
 
 - Refreshed the interface, keeping the neutral dark look. Orange now marks only the primary action, the selection, and keyboard focus. Sections are a title over a line in place of nested boxes, tabs are underlined, and dim text is lighter so small hints are easier to read.
@@ -32,10 +37,24 @@ rolling the `[Unreleased]` section into a versioned heading.
 - The progress bar appears only while a job runs. The When done options, Cancel, and Convert share one row, with Convert at the end.
 - Color space and codec pickers look like the menus they are: left-aligned text and a chevron.
 - Reset range, edit slate, codec and compression settings, and the player transport use drawn icons in place of text symbols, which showed as color emoji on some systems.
-- The log starts small and remembers the height you drag it to.
+- The log starts small (four lines) and remembers whether it is collapsed and the height you dragged it to.
 
 ### Fixed
 
+- The form pages' scroll bar is flush with the window edge, with the cards inset 12 px on both sides and the track level with the first and last card. The cards line up with the OCIO row and tabs.
+- Windows: the packaged app now prints `--help`, `--version`, and CLI progress to the terminal you ran it from. It printed nothing before.
+- About lists every library the app uses with its version: PyAV (and its FFmpeg), NumPy, fileseq, PyOpenGL, ONNX Runtime, and oxideav-prores when built in. `THIRD_PARTY_NOTICES.md` gains a PyAV / FFmpeg entry.
+- Transcode: Size (custom width and height) is always shown and only enabled for Custom, so choosing Custom no longer resizes the card and re-lays out the page. Container is disabled when the codec has only one (all ProRes profiles are `.mov`).
+- Preferences: the slate thumbnail frame is three radio buttons in a row (First, Middle, Last) in place of a menu.
+- Preferences: the OK / Cancel row sits on a full-width bar with a line above it, like the main window's.
+- Selecting a tab no longer shifts the others: every tab reserves the width of its bold label.
+- The app icon has a transparent background around the wolf head in place of the purple square.
+- A small blank window no longer flashes open before the main window appears.
+- Convert: Cancel is offered once; after it is pressed the progress line stays until the conversion reports, and Cancel can no longer be pressed again or while the finished conversion is closing. Convert stays disabled until the previous run has fully ended.
+- The first time you browse for a file, the main window no longer closes and reopens with the browser.
+- The form no longer clips its right edge in a narrow window, the scrollbar is visible again, and the log and the Convert / Cancel row each have a clear top border. The Convert / Cancel row is vertically centred with the When done options.
+- Opening an R3D or BRAW clip without that SDK no longer dumps every search path into the console. The status line says the decoder is unavailable in this build.
+- `make run` works on Windows (no Unix `env -u`) and does not compile R3D, BRAW, ARRI, CinemaDNG, or oxideav. Those native pieces are fetched or built on GitHub Actions.
 - Form fields on Preferences and Transcode keep one label column on Windows. Longer labels wrap so every card's controls stay on the same x.
 - Transcode: the naming hint no longer draws over the Pixel aspect menu.
 - Dropping a file on the window accepts every video type the app reads (for example `.mts`, `.m2ts`, `.mpg`, `.dv`), not a shorter list of eleven.

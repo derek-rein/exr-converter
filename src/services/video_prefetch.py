@@ -160,6 +160,8 @@ class VideoPrefetchService(QObject):
         self._playing = False
         self._paused = False
         self._generation = 0
+        # Set by shutdown(): the pool is gone, so nothing may be scheduled again.
+        self._closed = False
         # Latest scrub / play target — drop stale queue work when this moves.
         self._wanted: int | None = None
 
@@ -179,6 +181,7 @@ class VideoPrefetchService(QObject):
         self._delivery_ready.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
 
     def shutdown(self) -> None:
+        self._closed = True
         self._generation += 1
         self._kick_timer.stop()
         self._queue.clear()
@@ -319,11 +322,13 @@ class VideoPrefetchService(QObject):
         self._queued = want_set
 
     def _schedule_kick(self) -> None:
+        if self._closed:
+            return
         if not self._kick_timer.isActive():
             self._kick_timer.start()
 
     def _fill_slots(self) -> None:
-        if self._paused:
+        if self._closed or self._paused:
             return
         gen = self._generation
         capacity = self._cache_capacity()

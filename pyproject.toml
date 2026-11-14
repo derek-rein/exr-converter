@@ -51,6 +51,9 @@ target-version = "py313"
 line-length = 100
 exclude = ["src/rc_resources.py"]
 
+[tool.ruff.format]
+line-ending = "lf"
+
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 

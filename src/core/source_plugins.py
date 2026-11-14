@@ -213,14 +213,18 @@ def plugin_for_path(path: str | Path, *, builtin: bool = True) -> Any | None:
 
 
 def require_available(plugin: Any) -> None:
-    """Raise RuntimeError with the plugin's reason when its runtime is missing."""
+    """Raise OptionalSdkError with the plugin's reason when its runtime is missing."""
+    from .sdk_support import OptionalSdkError
+
     if not plugin.is_available():
         reason = ""
         try:
             reason = plugin.unavailable_reason()
         except Exception:
             pass
-        raise RuntimeError(reason or f"{getattr(plugin, 'name', 'plugin')} support unavailable")
+        raise OptionalSdkError(
+            reason or f"{getattr(plugin, 'name', 'plugin')} is unavailable in this build."
+        )
 
 
 def about_lines() -> list[str]:
