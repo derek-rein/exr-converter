@@ -1,4 +1,4 @@
-"""Standalone sequence playback window (post-convert Video → EXR Open result)."""
+"""Standalone sequence playback window (post-convert Video → EXR Play result)."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _GEOMETRY_KEY = "ui/sequence_player_window_geometry"
 class SequencePlayerWindow(QDialog):
     """Non-modal window hosting :class:`SequencePlayer` with the cache strip.
 
-    Used for **Open result** after Video → EXR (image sequences) and after
+    Used for **Play result** after Video → EXR (image sequences) and after
     EXR → Video when Preferences selects the **built-in** player.
     """
 

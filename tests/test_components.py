@@ -40,12 +40,13 @@ def test_card_props(app: QApplication) -> None:
     assert card.objectName() == "card"
 
 
-def test_card_without_description_hides_the_line(app: QApplication) -> None:
+def test_card_description_is_a_tooltip_not_a_line(app: QApplication) -> None:
     card = Card("Options")
     _show(card, app)
-    assert not card._description.isVisible()
+    assert card.toolTip() == ""
     card.set_description("Now it has one.")
-    assert card._description.isVisible()
+    assert card.toolTip() == "Now it has one."
+    assert card.description() == "Now it has one."
 
 
 def test_card_slots(app: QApplication) -> None:

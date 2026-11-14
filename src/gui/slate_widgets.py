@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -348,6 +349,85 @@ class _SwitchCard(Card):
 
     def setChecked(self, checked: bool) -> None:  # noqa: N802 - mirrors QGroupBox
         self._switch.setChecked(bool(checked))
+
+
+class _InvisibleWatermarkCard(_SwitchCard):
+    """Invisible (TrustMark) watermark: the EXR → Video checkbox, plus its payload and strength.
+
+    The switch is the tab's ``<mode>/invisible_watermark`` setting. Payload and
+    strength are the app-wide values from Preferences. Nothing is written until
+    :meth:`apply`, so Cancel leaves all three alone.
+    """
+
+    def __init__(self, settings, mode: str) -> None:
+        from ..core.trustmark.payload import (
+            DEFAULT_STRENGTH,
+            MAX_TEXT_CHARS,
+            STRENGTH_MAX,
+            STRENGTH_MIN,
+        )
+        from ..services.app_settings import Keys
+        from .preferences import (
+            INVISIBLE_WM_TEMPLATE_RE,
+            STRENGTH_DECIMALS,
+            STRENGTH_STEP,
+            invisible_wm_strength,
+            invisible_wm_template,
+        )
+
+        self._settings = settings
+        self._mode = mode
+        self._keys = Keys
+        self._decimals = STRENGTH_DECIMALS
+        super().__init__(
+            "Invisible watermark",
+            "Hidden payload in every frame (Adobe TrustMark).",
+            checked=bool(settings.value(f"{mode}/invisible_watermark", False, type=bool)),
+            status_tip="Embed an invisible TrustMark watermark in every frame",
+        )
+        form = _editor_form(self.content)
+
+        self.payload_edit = QLineEdit(invisible_wm_template(settings))
+        self.payload_edit.setMaxLength(MAX_TEXT_CHARS)
+        self.payload_edit.setValidator(
+            QRegularExpressionValidator(QRegularExpression(INVISIBLE_WM_TEMPLATE_RE), self)
+        )
+        self.payload_edit.setPlaceholderText(f"Up to {MAX_TEXT_CHARS} ASCII characters")
+        self.payload_edit.setToolTip(
+            "Tokens: {user} {host} {date} {time} {src}. Filled in when the render starts."
+        )
+        self.payload_edit.setStatusTip(
+            "Payload to embed. Tokens: {user} {host} {date} {time} {src}"
+        )
+
+        self.strength_spin = QDoubleSpinBox()
+        self.strength_spin.setRange(STRENGTH_MIN, STRENGTH_MAX)
+        self.strength_spin.setSingleStep(STRENGTH_STEP)
+        self.strength_spin.setDecimals(STRENGTH_DECIMALS)
+        self.strength_spin.setValue(invisible_wm_strength(settings))
+        self.strength_spin.setToolTip(
+            f"TrustMark strength, {STRENGTH_MIN:.2f} to {STRENGTH_MAX:.2f}. "
+            f"{DEFAULT_STRENGTH:.2f} is the normal strength."
+        )
+        self.strength_spin.setStatusTip(
+            "TrustMark strength. Higher is more robust and more visible"
+        )
+
+        form.add_row("Payload", self.payload_edit, width=FILL)
+        form.add_row("Strength", self.strength_spin, width=NARROW)
+
+    def apply(self) -> None:
+        """Write the switch, payload and strength to the settings."""
+        from .preferences import clean_invisible_wm_template
+
+        self._settings.setValue(f"{self._mode}/invisible_watermark", self.isChecked())
+        self._settings.setValue(
+            self._keys.INVISIBLE_WM_TEMPLATE, clean_invisible_wm_template(self.payload_edit.text())
+        )
+        self._settings.setValue(
+            self._keys.INVISIBLE_WM_STRENGTH,
+            round(float(self.strength_spin.value()), self._decimals),
+        )
 
 
 # The editor's columns flank the viewer and stay narrow, so its forms use a
@@ -1065,6 +1145,7 @@ class SlateDialog(QDialog):
         self._player = SequencePlayer(
             settings=self._model.settings,
             show_cache_ui=True,
+            embed_cache_ui=False,
         )
         self._overlay_hooks = _SlateOverlayHooks(self)
         self._player.set_overlay_hooks(self._overlay_hooks)
@@ -1110,6 +1191,11 @@ class SlateDialog(QDialog):
         overlay_layout.setSpacing(10)
         for group in self._form.overlay_groups():
             overlay_layout.addWidget(group)
+        # The hidden mark is an EXR → Video option, so only that mode offers it.
+        self._invisible_wm: _InvisibleWatermarkCard | None = None
+        if mode == "exr2video":
+            self._invisible_wm = _InvisibleWatermarkCard(self._model.settings, mode)
+            overlay_layout.addWidget(self._invisible_wm)
         overlay_layout.addStretch()
 
         overlay_scroll = QScrollArea()
@@ -1130,12 +1216,16 @@ class SlateDialog(QDialog):
 
         layout.addWidget(splitter, 1)
 
-        # --- Bottom: status text left, buttons right ---
+        # --- Bottom: cache + status text left, buttons right, a line above ---
         bottom = QWidget()
-        bottom.setObjectName("slateBottomBar")
+        bottom.setObjectName("dialogFooter")
+        bottom.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         bar = QHBoxLayout(bottom)
-        bar.setContentsMargins(12, 8, 4, 8)
-        bar.setSpacing(8)
+        bar.setContentsMargins(12, 10, 4, 10)
+        bar.setSpacing(12)
+        cache_widget = self._player.cache_widget()
+        if cache_widget is not None:
+            bar.addWidget(cache_widget, 0, Qt.AlignmentFlag.AlignVCenter)
         # Fields carry status tips (not tooltips); event() routes them here.
         self._status_bar = StatusLine()
         set_style_property(self._status_bar, "role", "hint")
@@ -1146,6 +1236,10 @@ class SlateDialog(QDialog):
         set_style_property(buttons.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        # Cancel, then the primary action at the right edge, as in the other dialogs.
+        buttons.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        for button in buttons.buttons():
+            button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         bar.addWidget(buttons)
         bar.addWidget(SizeGrip(bottom), 0, Qt.AlignmentFlag.AlignBottom)
         layout.addWidget(bottom)
@@ -1253,6 +1347,11 @@ class SlateDialog(QDialog):
         """Cancel / Esc: edits were written through as typed, so put them back."""
         self._model.restore_document(self._opening_document)
         super().reject()
+
+    def accept(self) -> None:
+        if self._invisible_wm is not None:
+            self._invisible_wm.apply()
+        super().accept()
 
     def done(self, result: int) -> None:
         self._player.shutdown()

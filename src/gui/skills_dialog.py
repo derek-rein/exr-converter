@@ -36,13 +36,15 @@ class SkillsDialog(QDialog):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        card = Card(
-            "Agent Skills",
-            "Give this to a coding agent (Claude Code, Codex, Cursor) so it can run the "
-            "command line. Save it as SKILL.md in a skills folder, or paste it into the chat.",
-        )
-        card._description.setWordWrap(True)
+        card = Card("Agent Skills")
         layout.addWidget(card, 1)
+        intro = QLabel(
+            "Give this to a coding agent (Claude Code, Codex, Cursor) so it can run the "
+            "command line. Save it as SKILL.md in a skills folder, or paste it into the chat."
+        )
+        intro.setWordWrap(True)
+        set_style_property(intro, "role", "hint")
+        card.body.addWidget(intro)
 
         where = QLabel(f"Detected install: {install.location}")
         where.setObjectName("skillsInstall")

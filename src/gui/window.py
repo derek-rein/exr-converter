@@ -361,7 +361,7 @@ class MainWindow(QMainWindow):
         self._ocio_cfg = None
         # Where a single-file convert is in its life; see ConvertSession.
         self._convert = ConvertSession()
-        # Standalone sequence player from post-convert Open result (Video → EXR).
+        # Standalone sequence player from post-convert Play result (Video → EXR).
         self._result_player_win: QDialog | None = None
 
         self._build_menu_bar()
@@ -469,11 +469,11 @@ class MainWindow(QMainWindow):
             lambda v: self._settings.setValue("ui/copy_path_after", v)
         )
         after_row.addWidget(self._copy_path_cb)
-        self._open_after_cb = QCheckBox("Open result")
+        self._open_after_cb = QCheckBox("Play result")
         self._open_after_cb.setToolTip(
-            "EXR → Video: open the finished file with the preferred player "
+            "EXR → Video: play the finished file with the preferred player "
             "(File → Preferences; default is the built-in player).\n"
-            "Video → EXR: open the sequence in the built-in player window "
+            "Video → EXR: play the sequence in the built-in player window "
             "(with playback cache)."
         )
         self._open_after_cb.setChecked(self._settings.value("ui/open_after", False, type=bool))

@@ -41,6 +41,12 @@ from .components import FILL, NARROW, WIDE, Card, FormGrid, inline_label, sized
 from .empty_hint import EmptyHint
 from .preferences import STRENGTH_DECIMALS, STRENGTH_STEP
 
+# The clip list in Source clips, on Video → Proxy and Transcode: one size, so the
+# two tabs' Source clips sections are the same height. Capped so the tab fits the
+# default window without scrolling.
+CLIP_LIST_MIN_HEIGHT = 96
+CLIP_LIST_MAX_HEIGHT = 122
+
 
 def row_line(form: FormGrid, label: QLabel) -> QBoxLayout:
     """The control line of the FormGrid row that *label* heads."""
@@ -79,9 +85,23 @@ class OutputLocation:
         self.browse_btn.clicked.connect(self._pick_folder)
 
     def add_to(self, form: FormGrid) -> None:
-        """Add the Location row, then the Folder row (path and Browse…)."""
-        form.add_row("Location", self.combo, width=WIDE)
-        self.folder_label = form.add_row("Folder", self.output_dir, self.browse_btn, width=FILL)
+        """Add one Location row: the combo, then Folder, path and Browse… for a custom folder.
+
+        One row, not two: choosing Custom folder fills in the same line, so the
+        rest of the form does not move.
+        """
+        self.folder_label = inline_label("Folder", self.output_dir)
+        label = form.add_row(
+            "Location",
+            self.combo,
+            self.folder_label,
+            self.output_dir,
+            self.browse_btn,
+            width=WIDE,
+        )
+        line = row_line(form, label)
+        line.setStretchFactor(self.combo, 1)
+        line.setStretchFactor(self.output_dir, 2)
 
     def location(self) -> str:
         return str(self.combo.currentData() or LOCATION_BESIDE)

@@ -78,35 +78,22 @@ QLabel#dimLabel {
     font-size: 11px;
 }
 
-/* ---- Cards ----
-   A card is a section you can see: one step lighter than the window, a
-   hairline edge, a generous radius. Card (components/card.py) is the
-   component; QGroupBox gets the same look so dialogs that still use it match. */
-QFrame#card {
-    background-color: @BG_CARD;
-    border: 1px solid @BORDER;
-    border-radius: 10px;
-}
-QLabel[role="card-title"] {
-    font-size: 13px;
-    font-weight: 600;
-    color: @SEL_FG;
-}
+/* ---- Sections ----
+   A section is a thin outline with its title on the top edge, no fill.
+   Card (components/card.py) is a QGroupBox, so it and plain group boxes
+   share this look. */
 QGroupBox {
-    background-color: @BG_CARD;
     border: 1px solid @BORDER;
-    border-radius: 10px;
-    margin-top: 0;
-    padding: 38px 12px 12px 12px;
-    font-weight: 600;
+    border-radius: 4px;
+    margin-top: 6px;
+    padding: 12px 8px 8px 8px;
+    font-weight: bold;
 }
 QGroupBox::title {
-    subcontrol-origin: padding;
-    subcontrol-position: top left;
-    left: 16px;
-    top: 13px;
-    padding: 0;
-    color: @SEL_FG;
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    color: @FG;
 }
 QGroupBox::indicator {
     width: 14px;
@@ -120,25 +107,16 @@ QGroupBox::indicator:checked {
     border-color: @ACCENT_DARK;
     image: url(:/check.png);
 }
-/* A group inside a group is a sub-heading, not a second card. */
-QGroupBox QGroupBox {
-    background-color: transparent;
-    border: none;
-    border-top: 1px solid @BORDER;
-    border-radius: 0;
-    padding: 30px 0 4px 0;
-}
-QGroupBox QGroupBox::title {
-    left: 0;
-    top: 9px;
-    color: @FG_DIM;
-    font-size: 11px;
-}
+/* The OCIO config row is a header for every tab, not a section: no outline. */
 QGroupBox#ocioPanel {
     background-color: transparent;
     border: none;
     margin-top: 0;
     padding: 0;
+}
+/* Fields and hints inside a section are regular weight. */
+QGroupBox QLabel, QGroupBox QCheckBox, QGroupBox QRadioButton {
+    font-weight: normal;
 }
 
 /* ---- Inputs ---- */

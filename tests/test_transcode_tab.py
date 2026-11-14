@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
+from dataclasses import replace
 
 import pytest
 from PySide6.QtGui import QAction
@@ -12,7 +13,9 @@ from PySide6.QtWidgets import QApplication
 
 import src.rc_resources  # noqa: F401 — register :/style.qss
 from src.core.ocio_utils import color_space_families, resolve_ocio_for_cli
+from src.core.transcode import RES_CUSTOM, TranscodeSettings
 from src.gui.components import WIDE_MIN, Card
+from src.gui.style import load_stylesheet
 from src.gui.transcode_tab import LOCATION_CUSTOM, TranscodeTab
 from src.gui.window import TRANSCODE_TAB_INDEX, MainWindow
 from src.services.app_settings import make_ini_settings, set_app_settings
@@ -65,11 +68,9 @@ def test_defaults_are_prores_hq_passthrough(tab: TranscodeTab, qapp: QApplicatio
     # Output space and watermark sit in a plain group, not a collapsible.
     assert tab.dst_btn.isVisible() and tab.watermark_cb.isVisible()
     # ProRes is intra-frame: no CRF / bitrate / preset controls.
-    assert not tab.rate_combo.isVisible() and tab._intra_note.isVisible()
-    # The size row is always shown (hiding it would re-layout the card), but off
-    # until Custom is chosen.
-    assert tab.width_spin.isVisible() and not tab.width_spin.isEnabled()
-    assert not tab._size_label.isEnabled()
+    assert not tab._quality_btn.isVisible()
+    # The size row appears only for a Custom resolution.
+    assert not tab.width_spin.isVisible() and not tab._size_label.isVisible()
     assert not tab.output_dir.isVisible() and tab._folder_label.isHidden()
     assert not tab.fps_spin.isVisible()
 
@@ -82,14 +83,12 @@ def test_codec_drives_container_quality_and_audio(tab: TranscodeTab, qapp) -> No
         "mp4",
         "mov",
     ]
-    assert tab.rate_combo.isVisible() and tab.crf_spin.isVisible()
-    assert not tab.bitrate_spin.isVisible()
+    assert tab._quality_btn.isVisible()
     audio = [tab.audio_combo.itemData(i) for i in range(tab.audio_combo.count())]
     assert "pcm" not in audio
-    _select(tab.rate_combo, "bitrate")
+    tab.set_quality(replace(tab.quality(), rate_control="bitrate"))
     qapp.processEvents()
     _load_ocio(tab)
-    assert tab.bitrate_spin.isVisible() and not tab.crf_spin.isVisible()
     s = tab.current_settings()
     assert (s.codec_key, s.container, s.rate_control) == ("h264", "mp4", "bitrate")
 
@@ -124,13 +123,10 @@ def test_form_controls_share_one_left_edge(tab: TranscodeTab, qapp: QApplication
         tab.codec_combo,
         tab.resolution_combo,
         tab.fps_combo,
-        tab.rate_combo,
         tab.audio_combo,
         tab.location_combo,
         tab.name_edit,
-        tab.overwrite_combo,
         tab.dst_btn,
-        tab.watermark_cb,
     ]
     assert len({w.mapTo(tab, w.rect().topLeft()).x() for w in fields}) == 1
 
@@ -138,17 +134,19 @@ def test_form_controls_share_one_left_edge(tab: TranscodeTab, qapp: QApplication
 def test_output_fields_expand_and_strength_stays_in_the_card(
     tab: TranscodeTab, qapp: QApplication
 ) -> None:
+    # The section's inset comes from the stylesheet.
+    tab.setStyleSheet(load_stylesheet())
     tab.resize(880, 700)
     tab.show()
     qapp.processEvents()
     assert tab.codec_combo.width() >= WIDE_MIN
     assert tab.fps_combo.width() >= WIDE_MIN
     assert tab.codec_combo.width() > tab.container_combo.width()
-    card = tab.watermark_strength.parentWidget()
+    card = tab.watermark_cb.parentWidget()
     while card is not None and not isinstance(card, Card):
         card = card.parentWidget()
     assert card is not None
-    right = tab.watermark_strength.mapTo(card, tab.watermark_strength.rect().topRight()).x()
+    right = tab.watermark_cb.mapTo(card, tab.watermark_cb.rect().topRight()).x()
     assert right <= card.width() - 8
 
 
@@ -166,9 +164,6 @@ def test_tab_order_follows_reading_order(tab: TranscodeTab, qapp: QApplication) 
         tab.width_spin,
         tab.height_spin,
         tab.fps_combo,
-        tab.rate_combo,
-        tab.crf_spin,
-        tab.preset_combo,
         tab.audio_combo,
         tab.location_combo,
         tab.output_dir,
@@ -176,8 +171,6 @@ def test_tab_order_follows_reading_order(tab: TranscodeTab, qapp: QApplication) 
         tab.overwrite_combo,
         tab.dst_btn,
         tab.watermark_cb,
-        tab.watermark_payload,
-        tab.watermark_strength,
     ]
     chain: list = []
     w = tab.clip_tree
@@ -367,3 +360,125 @@ def test_container_is_disabled_when_the_codec_has_only_one(tab: TranscodeTab) ->
         several = tab.container_combo.count() > 1
         assert tab.container_combo.isEnabled() == several, tab.codec_key()
         assert tab._container_label.isEnabled() == several
+
+
+def test_size_row_shows_only_for_custom_resolution(tab: TranscodeTab, qapp: QApplication) -> None:
+    tab.show()
+    qapp.processEvents()
+    assert not tab.width_spin.isVisible() and not tab.height_spin.isVisible()
+    _select(tab.resolution_combo, RES_CUSTOM)
+    qapp.processEvents()
+    assert tab.width_spin.isVisible() and tab.height_spin.isVisible()
+    assert tab._size_label.isVisible()
+    _select(tab.resolution_combo, "original")
+    qapp.processEvents()
+    assert not tab.width_spin.isVisible()
+
+
+def test_invisible_wm_uses_preferences_payload_per_clip(tab: TranscodeTab) -> None:
+    from dataclasses import replace
+
+    from src.services.app_settings import Keys
+
+    tab._settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, "{src}")
+    tab._settings.setValue(Keys.INVISIBLE_WM_STRENGTH, 0.5)
+    base = replace(
+        TranscodeSettings(codec_key="prores_422", container="mov", color_src="a", color_dst="a")
+    )
+    tab.input_space = lambda _s: "ACEScg"  # type: ignore[method-assign]
+    assert tab.settings_for("/x/shotA.mov", base).watermark_text == ""
+    tab.watermark_cb.setChecked(True)
+    marked = tab.settings_for("/x/shotA.mov", base)
+    assert marked.watermark_text == "shotA"
+    assert marked.watermark_strength == 0.5
+
+
+def test_invisible_wm_src_token_keeps_the_whole_clip_name(tab: TranscodeTab) -> None:
+    from src.services.app_settings import Keys
+
+    tab._settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, "{src}")
+    base = TranscodeSettings(codec_key="prores_422", container="mov", color_src="a", color_dst="a")
+    tab.input_space = lambda _s: "ACEScg"  # type: ignore[method-assign]
+    tab.watermark_cb.setChecked(True)
+    # Digits at the end of a clip name are part of the name, not a frame number.
+    assert tab.settings_for("/x/shot_010.mov", base).watermark_text == "shot_010"
+
+
+def test_old_per_tab_watermark_payload_moves_to_preferences(qapp, settings) -> None:
+    from src.services.app_settings import Keys
+
+    settings.setValue("transcode/watermark_text", "JOB42")
+    settings.setValue("transcode/watermark_strength", 0.8)
+    t = TranscodeTab(settings)
+    try:
+        assert str(settings.value(Keys.INVISIBLE_WM_TEMPLATE)) == "JOB42"
+        assert float(settings.value(Keys.INVISIBLE_WM_STRENGTH)) == 0.8
+        assert not settings.contains("transcode/watermark_text")
+    finally:
+        t.shutdown()
+        t.deleteLater()
+
+
+def test_old_watermark_payload_never_overwrites_preferences(qapp, settings) -> None:
+    from src.services.app_settings import Keys
+
+    settings.setValue(Keys.INVISIBLE_WM_TEMPLATE, "mine")
+    settings.setValue("transcode/watermark_text", "JOB42")
+    t = TranscodeTab(settings)
+    try:
+        assert str(settings.value(Keys.INVISIBLE_WM_TEMPLATE)) == "mine"
+    finally:
+        t.shutdown()
+        t.deleteLater()
+
+
+def test_quality_is_a_plain_value_that_saves_and_clamps(qapp, settings) -> None:
+    from src.gui.transcode_tab import QualitySettings
+
+    tab = TranscodeTab(settings)
+    try:
+        _select(tab.codec_combo, "h264")
+        tab.set_quality(QualitySettings("bitrate", 99, 25.0, "slow"))
+        q = tab.quality()
+        assert (q.rate_control, q.bitrate_mbps, q.preset) == ("bitrate", 25.0, "slow")
+        assert q.crf == 51  # H.264 tops out at 51
+        assert settings.value("transcode/preset") == "slow"
+    finally:
+        tab.shutdown()
+        tab.deleteLater()
+
+
+def test_each_codec_keeps_its_own_crf(qapp, settings) -> None:
+    from src.gui.transcode_tab import QualitySettings
+
+    tab = TranscodeTab(settings)
+    try:
+        _select(tab.codec_combo, "h264")
+        tab.set_quality(replace(tab.quality(), crf=22))
+        _select(tab.codec_combo, "av1")
+        assert tab.quality().crf == 28  # AV1's default, not H.264's 22
+        _select(tab.codec_combo, "h264")
+        assert tab.quality().crf == 22
+        assert isinstance(tab.quality(), QualitySettings)
+    finally:
+        tab.shutdown()
+        tab.deleteLater()
+
+
+def test_quality_dialog_returns_a_new_value_and_cancel_changes_nothing(qapp, settings) -> None:
+    from src.gui.transcode_tab import QualitySettings, _QualityDialog
+
+    tab = TranscodeTab(settings)
+    try:
+        _select(tab.codec_combo, "h264")
+        before = tab.quality()
+        dlg = _QualityDialog("h264", "H.264", before, tab)
+        dlg.rate.setCurrentIndex(dlg.rate.findData("bitrate"))
+        dlg.bitrate.setValue(40.0)
+        out = dlg.quality()
+        assert out == QualitySettings("bitrate", before.crf, 40.0, before.preset)
+        assert tab.quality() == before  # the dialog never touches the tab
+        assert dlg.crf.maximum() == 51
+    finally:
+        tab.shutdown()
+        tab.deleteLater()

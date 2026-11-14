@@ -83,6 +83,7 @@ Right-click the **Input** or **Output** path field for:
 | Action | Behavior |
 |--------|----------|
 | **Cut / Copy / Paste / Select All** | Standard line-edit edit commands (same as ⌘/Ctrl+X/C/V/A) |
+| **Clear input** | Input field only (also on the source card's right-click menu): forgets the clip or sequence and its frame range |
 | **Copy File Path** | Full text from the field |
 | **Copy Folder Path** | Containing directory (or the path itself when it is a folder / sequence pattern) |
 | **Open in Finder** / **Show in Explorer** / **Open Containing Folder** | Open that folder via the system file manager (`QDesktopServices`) |
@@ -452,9 +453,11 @@ an invisible [Adobe TrustMark](https://github.com/adobe/trustmark) mark
 reviewer ID. The picture looks the same to the eye. This is a separate
 feature from the visible text watermark on **EXR → Video**.
 
-**EXR → Video.** Tick **Invisible WM** next to Slate / Burn-in / Watermark.
-The payload and strength come from **File → Preferences… → Invisible
-watermark**, not from the tab. The payload there defaults to `exrcnvrt`.
+**EXR → Video.** Tick **Invisible WM** next to Slate / Burn-in / Watermark,
+or use the **Invisible watermark** card in the right column of the slate editor
+(**Edit…**). The card sets the same switch, payload and strength as
+**File → Preferences… → Invisible watermark**, and OK saves them (Cancel
+discards). The payload defaults to `exrcnvrt`.
 The field accepts only printable ASCII, up to 8 characters, and can use
 these tokens:
 
@@ -555,13 +558,13 @@ are not supported.
 | | Container | codec default | ProRes: `.mov`. DNxHR: `.mov` or `.mxf`. H.264 / HEVC: `.mp4` or `.mov`. AV1: `.mp4` or `.mkv`. Each codec remembers its last container. |
 | | Resolution | **Keep source size** | 75%, 50%, 25%, Fit 2160p / 1080p / 720p (never upscale), or **Custom size** (shows Width × Height; set one side to 0 to keep the aspect ratio). Sizes round to even numbers. |
 | | Frame rate | **Keep source** | **Conform to** a common rate or a custom one. Conform plays the same frames at the new rate (none are added or dropped), so the clip gets shorter or longer, and the audio is dropped. |
-| | Quality | CRF 18 (H.264), 20 (HEVC), 28 (AV1), preset `medium` | Long-GOP codecs only: **Constant quality (CRF)** or **Target bitrate** (Mb/s), plus the x264 / x265 speed preset (mapped to SVT-AV1 presets for AV1). ProRes and DNxHR show a note instead: their quality is set by the profile. |
+| | Quality (gear beside Codec) | CRF 18 (H.264), 20 (HEVC), 28 (AV1), preset `medium` | Long-GOP codecs only: the gear opens **Constant quality (CRF)** or **Target bitrate** (Mb/s), plus the x264 / x265 speed preset (mapped to SVT-AV1 presets for AV1). ProRes and DNxHR have no gear: their quality is set by the profile. |
 | | Audio | **Copy source audio** | Copy keeps the first audio track as is when the container can hold it, and otherwise encodes AAC (`.mp4` / `.mkv`) or 24-bit PCM (`.mov` / `.mxf`). Also **AAC**, **PCM 24-bit**, or **No audio**. The list follows the container: `.mp4` has no PCM and `.mxf` has no AAC. |
 | | If file exists | **Skip** | **Overwrite**, or **Add a number** (`_1`, `_2`, …). An output can never replace its own source. |
-| | Location | **Next to each clip** | **Custom folder** reveals a folder field for all outputs. The folder can use [naming variables](#naming-variables), for example `/Volumes/Dailies/<date>/<reel>`. |
+| | Location | **Next to each clip** | **Custom folder** adds a folder field and Browse… on the same row, for all outputs. The folder can use [naming variables](#naming-variables), for example `/Volumes/Dailies/<date>/<reel>`. |
 | | Name | `<name>_<codec>` | File name without the extension. Use `/` to make sub-folders. Right-click to insert a [naming variable](#naming-variables). Characters that are not allowed in file names become `_`. |
-| **Color and watermark** | Output space | `Output - Rec.709` | One output space or display for every clip, from the OCIO config at the top of the window. A display uses that display's default view, as on EXR → Video. |
-| | Invisible watermark | off | Payload and strength, the same [invisible watermark](#invisible-watermark) as Video → Proxy, added after the color step on the picture the codec encodes. |
+| | Output space | `Output - Rec.709` | One output space or display for every clip, from the OCIO config at the top of the window. A display uses that display's default view, as on EXR → Video. |
+| | **Invisible WM** (checkbox beside Output space) | off | The [invisible watermark](#invisible-watermark), added after the color step on the picture the codec encodes. Payload and strength come from **Preferences → Invisible watermark**, and `{src}` is each clip's name. |
 
 ### Naming variables
 
@@ -625,19 +628,19 @@ hidden on the **Video → Proxy** and **Transcode** tabs, which run batches:
 | Toggle | Default | Action |
 |--------|---------|--------|
 | **Copy path** | on | Copy the output path to the clipboard |
-| **Open result** | off | **EXR → Video:** open the finished file with the preferred video player (Preferences; default **built-in**). **Video → EXR:** open the sequence in the built-in player window (GPU OCIO when available, with the playback cache strip). |
+| **Play result** | off | **EXR → Video:** play the finished file with the preferred video player (Preferences; default **built-in**). **Video → EXR:** play the sequence in the built-in player window (GPU OCIO when available, with the playback cache strip). |
 | **Show in folder** | off | Reveal the file or sequence folder in the OS file manager |
 
 ### Preferences (`File → Preferences…`)
 
 | Setting | Purpose |
 |---------|---------|
-| **Video player** | **Built-in player** (default), **System default**, or a **custom** app/CLI path (IINA, VLC, mpv, …). Used by **Open result** after EXR → Video. Built-in uses the same `SequencePlayer` as sequence Preview (GPU OCIO + cache strip). |
+| **Video player** | **Built-in player** (default), **System default**, or a **custom** app/CLI path (IINA, VLC, mpv, …). Used by **Play result** after EXR → Video. Built-in uses the same `SequencePlayer` as sequence Preview (GPU OCIO + cache strip). |
 | **Slate thumbnail frame** | First / middle / last frame of the EXR sequence for the slate still |
 | **Hardware acceleration → H.264 / HEVC encoding** | **Hardware when available** (default) encodes 8- and 10-bit H.264 / HEVC (and 10-bit AV1 on Transcode) on the GPU on EXR → Video, Video → Proxy, and Transcode, and encodes again in software if the GPU encoder fails. Encoders tried, in order: Apple VideoToolbox (macOS; no AV1), NVIDIA NVENC, Intel Quick Sync, AMD AMF, then Windows Media Foundation (Windows, the OS-provided encoder; hardware only). The log names the encoder used. **Software only** always uses libx264 / libx265 / SVT-AV1. HEVC 12-bit, ProRes, DNxHR, CineForm, and FFV1 are always software. Same as `--encoder` on the CLI |
 | **Hardware acceleration → Decoding** | **Hardware when available** (default) decodes 8- and 10-bit 4:2:0 H.264, HEVC, AV1, and VP9 files on the GPU on Video → EXR, Transcode, Video → Proxy, and the player. Devices tried, in order: NVIDIA NVDEC, Direct3D 11, DXVA2 (Windows), VAAPI, Intel Quick Sync (Linux), Apple VideoToolbox (macOS). The app decodes one frame with a device first, and decodes in software if it fails. Pixels match software decode exactly. 4:2:2, 4:4:4, 12-bit, ProRes, DNxHR, and everything else always decode in software. GPU decode helps most on high-bitrate camera files. On a many-core CPU with light, low-bitrate files, **Software only** can be a little faster. Same as `--decoder` on the CLI |
 | **Playback cache budget** | % of system RAM for decoded frames (slate, browser Preview, post-convert built-in player) |
-| **Invisible watermark** | Payload template (default `{user}`) and strength for **Invisible WM** on EXR → Video. See [Invisible watermark](#invisible-watermark). |
+| **Invisible watermark** | Payload template (default `exrcnvrt`) and strength for **Invisible WM** on EXR → Video and Transcode. See [Invisible watermark](#invisible-watermark). |
 | **Interface** | **Theme** is System, Light, or Dark. Applies as soon as you press OK. |
 
 Settings org/app: `QSettings("VFXTools", "EXRConverter")`.
@@ -672,7 +675,7 @@ Opened from **EXR → Video** when editing slate / burn-in / watermark.
   **Fill from slate** (burn-in bulk fill). Free-text / spinner edits still
   persist live without stacking one undo step per keystroke. Convert paths
   and OCIO are outside the undo stack.
-- **Video monitoring view:** for video Preview and Video→EXR **Open result**,
+- **Video monitoring view:** for video Preview and Video→EXR **Play result**,
   the player asks the OCIO config for a view via viewing rules / video encodings
   (``getDefaultView(display, videoColorSpace)``) when available. For example, ACES
   configs often resolve that to a colorimetric video view. If the config has no

@@ -89,7 +89,7 @@ def test_codec_dialog_is_one_card_with_a_form(settings: QSettings, key: str) -> 
     dlg = _shown(VideoCodecSettingsDialog(key, settings))
     try:
         assert len(dlg.findChildren(Card)) == 1
-        assert not dlg.findChildren(QGroupBox)
+        assert not [g for g in dlg.findChildren(QGroupBox) if not isinstance(g, Card)]
         labels = _form_labels(dlg)
         assert "Encode format" in labels
         if key == "cineform":
@@ -167,7 +167,7 @@ def test_preferences_cards_and_rows(settings: QSettings) -> None:
 
     dlg = _shown(PreferencesDialog(settings))
     try:
-        assert not dlg.findChildren(QGroupBox)
+        assert not [g for g in dlg.findChildren(QGroupBox) if not isinstance(g, Card)]
         cards = dlg.findChildren(Card)
         assert [c.title() for c in cards] == PREFS_CARDS
         # Descriptions are one short plain line.
@@ -270,7 +270,7 @@ def test_quicklook_dialog_is_two_cards(settings: QSettings) -> None:
 
     dlg = _shown(QuickLookDialog(settings))
     try:
-        assert not dlg.findChildren(QGroupBox)
+        assert not [g for g in dlg.findChildren(QGroupBox) if not isinstance(g, Card)]
         cards = dlg.findChildren(Card)
         assert [c.title() for c in cards] == ["Quick Look", "Formats"]
         for card in cards:
