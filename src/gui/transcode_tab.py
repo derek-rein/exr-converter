@@ -15,11 +15,15 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QLabel,
     QSizePolicy,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -61,17 +65,20 @@ from ..core.transcode import (
 )
 from ..services.proxy_queue import TranscodeJob, TranscodeQueue
 from .batch_common import (
+    CLIP_LIST_MAX_HEIGHT,
+    CLIP_LIST_MIN_HEIGHT,
     BatchTab,
     OutputLocation,
     SourceClipsPanel,
-    WatermarkControls,
 )
 from .batch_rules import LOCATION_BESIDE, LOCATION_CUSTOM  # noqa: F401 (re-exported)
 from .color_widgets import ColorSpaceButton, lock_form_row_height
-from .components import FILL, NARROW, WIDE, Card, FormGrid, inline_label, sized
+from .components import FILL, NARROW, WIDE, Card, DialogFooter, FormGrid, inline_label, sized
 from .convert_tab import _ConvertFormBody, _form_scroll_area
+from .filename_filter import BAD_PATH_CHARS, BAD_PATTERN_CHARS, install_filename_filter
+from .icons import set_button_icon
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
-from .preferences import encoder_mode
+from .preferences import encoder_mode, resolve_invisible_watermark, sequence_display_name
 from .style import set_style_property
 from .token_line_edit import TokenLineEdit
 from .transcode_clips import ClipColorTree
@@ -118,24 +125,19 @@ class TranscodeTab(BatchTab):
         # -- Source clips --
         self.clip_tree = ClipColorTree()
         self.clip_tree.setObjectName("transcodeClipList")
-        self.clip_tree.setMinimumHeight(120)
-        self.clip_tree.setMaximumHeight(240)
+        self.clip_tree.setMinimumHeight(CLIP_LIST_MIN_HEIGHT)
+        self.clip_tree.setMaximumHeight(CLIP_LIST_MAX_HEIGHT)
         self.clip_tree.setToolTip(
             "Clips to transcode when you press Convert. Drop videos or folders here too.\n"
-            "Each clip shows its progress, then ✓ when done or ✗ on error (hover for details)."
+            "Each clip shows its progress, then ✓ when done or ✗ on error (hover for details).\n"
+            "Click an input color space to change it. A folder's space applies to every clip "
+            "inside; expand the folder to set clips one by one."
         )
-        self._clips_hint = QLabel(
-            "Click an input color space to change it. A folder's space applies to every "
-            "clip inside; expand the folder to set clips one by one."
-        )
-        self._clips_hint.setWordWrap(True)
-        set_style_property(self._clips_hint, "role", "hint")
         in_group = self._sources = SourceClipsPanel(
             self.clip_tree,
             settings,
             _K,
             recursive_tip="Add Folder… also adds clips in nested folders.",
-            hint=self._clips_hint,
         )
         self._add_files_btn = in_group.add_files_btn
         self._add_folder_btn = in_group.add_folder_btn
@@ -159,9 +161,20 @@ class TranscodeTab(BatchTab):
         self.container_combo = QComboBox()
         self.container_combo.setToolTip("File type. The choices follow the codec.")
         self._container_label = inline_label("Container", self.container_combo)
+        # Rate control (CRF / bitrate, preset) lives behind a gear, as on EXR → Video.
+        # The gear shows only for codecs that have those settings.
+        self._quality_btn = QToolButton()
+        set_button_icon(self._quality_btn, "settings")
+        set_style_property(self._quality_btn, "variant", "ghost")
+        self._quality_btn.setAccessibleName("Quality settings")
+        self._quality_btn.setAutoRaise(True)
+        self._quality_btn.setFixedWidth(28)
+        self._quality_btn.setToolTip("Quality settings…")
+        self._quality_btn.clicked.connect(self._open_quality_dialog)
         form.add_row(
             "Codec",
             self.codec_combo,
+            self._quality_btn,
             self._container_label,
             sized(self.container_combo, NARROW),
             width=WIDE,
@@ -200,8 +213,7 @@ class TranscodeTab(BatchTab):
             spin.setToolTip(tip)
             spin.setValue(int(settings.value(f"{_K}/{key}", 0, type=int)))
         self._times_label = QLabel("×")
-        # Always there, enabled only for Custom size: showing and hiding the row
-        # would resize the card and re-layout the whole page.
+        # Shown only while Resolution is Custom (see _sync_all).
         self._size_label = form.add_row(
             "Size",
             self.width_spin,
@@ -228,6 +240,13 @@ class TranscodeTab(BatchTab):
         # The custom rate box shows only for "Conform to custom…".
         form.add_row("Frame rate", self.fps_combo, sized(self.fps_spin, NARROW), width=WIDE)
 
+        self.audio_combo = QComboBox()
+        self.audio_combo.setToolTip(
+            "First audio track. Copy keeps the source audio as is when the\n"
+            "container can hold it, and encodes it otherwise."
+        )
+        form.add_row("Audio", self.audio_combo, width=WIDE)
+
         self.rate_combo = QComboBox()
         self.rate_combo.addItem("Constant quality (CRF)", RATE_CRF)
         self.rate_combo.addItem("Target bitrate", RATE_BITRATE)
@@ -247,25 +266,10 @@ class TranscodeTab(BatchTab):
             self.preset_combo.addItem(p, p)
         self.preset_combo.setToolTip("Encoder speed. Slower is smaller at the same quality.")
         self._select(self.preset_combo, settings.value(f"{_K}/preset", DEFAULT_PRESET))
-        # Intra-frame codecs show the note in place of the rate controls.
-        self._intra_note = QLabel("Intra-frame codec: quality is set by the profile.")
-        set_style_property(self._intra_note, "role", "hint")
-        self._quality_label = form.add_row(
-            "Quality",
-            self.rate_combo,
-            sized(self.crf_spin, NARROW),
-            sized(self.bitrate_spin, NARROW),
-            sized(self.preset_combo, NARROW),
-            self._intra_note,
-            width=WIDE,
-        )
-
-        self.audio_combo = QComboBox()
-        self.audio_combo.setToolTip(
-            "First audio track. Copy keeps the source audio as is when the\n"
-            "container can hold it, and encodes it otherwise."
-        )
-        form.add_row("Audio", self.audio_combo, width=WIDE)
+        # The editors for these four are in the Quality dialog. These stay as the
+        # tab's state (saved, read by current_settings) and are never shown.
+        for hidden in (self.rate_combo, self.crf_spin, self.bitrate_spin, self.preset_combo):
+            hidden.hide()
 
         output_dir = TokenLineEdit(
             groups=PATH_TOKEN_GROUPS,
@@ -295,6 +299,7 @@ class TranscodeTab(BatchTab):
             tooltip=(
                 "File name without the extension. Use / to make sub-folders, e.g.\n"
                 "<reel>/<name>/<srcresolution>/<name>_<codec>\n"
+                "$VAR / ${VAR} read environment variables.\n"
                 "Right-click to insert a variable:\n\n" + tokens_tooltip()
             ),
         )
@@ -302,17 +307,9 @@ class TranscodeTab(BatchTab):
             str(settings.value(f"{_K}/pattern", DEFAULT_NAME_PATTERN) or DEFAULT_NAME_PATTERN)
         )
         self.name_edit.setPlaceholderText(DEFAULT_NAME_PATTERN)
-        form.add_row("Name", self.name_edit, width=FILL)
-        self._naming_hint = QLabel(
-            "Right-click Name or Folder to insert variables such as <reel>, <name> "
-            "or <srcresolution>. Use / in Name for sub-folders, and $VAR or ${VAR} "
-            "for environment variables."
-        )
-        set_style_property(self._naming_hint, "role", "hint")
-        self._naming_hint.setWordWrap(True)
-        # The hint explains Name / Folder, so it sits right under them.
-        form.add_row("", self._naming_hint, width=FILL)
-
+        # "/" makes sub-folders and <tokens> use < >, so only the never-valid ones go.
+        install_filename_filter(self.name_edit, BAD_PATTERN_CHARS)
+        install_filename_filter(output_dir, BAD_PATH_CHARS)
         self.overwrite_combo = QComboBox()
         for key, label in OVERWRITE_MODES:
             self.overwrite_combo.addItem(label, key)
@@ -321,38 +318,38 @@ class TranscodeTab(BatchTab):
             "or add _1, _2, … to the new file name."
         )
         self._select(self.overwrite_combo, settings.value(f"{_K}/overwrite", DEFAULT_OVERWRITE))
-        form.add_row("If file exists", self.overwrite_combo, width=WIDE)
-        layout.addWidget(out_group)
+        form.add_row(
+            "Name",
+            self.name_edit,
+            inline_label("If file exists", self.overwrite_combo),
+            sized(self.overwrite_combo, NARROW),
+            width=FILL,
+        )
 
         # -- Color and watermark --
-        color_group = Card("Color and watermark")
-        color_form = FormGrid()
-        color_group.body.addLayout(color_form)
+        # Color and the watermark are part of the Output section: one card fewer
+        # saves a header and its padding.
+        color_form = form
         self.dst_btn = ColorSpaceButton()
         self.dst_btn.setToolTip(
             "Output color space or display for every clip, from the OCIO config\n"
             "chosen at the top of the window. Each clip converts from its input\n"
             "space in the list above."
         )
-        color_form.add_row("Output space", self.dst_btn, width=WIDE)
-
-        self._watermark = WatermarkControls(
-            settings,
-            _K,
-            check_text="Invisible watermark",
-            check_tip=(
-                "Embed an invisible TrustMark watermark in every frame (same as Video → Proxy).\n"
-                "Off by default. The encoder model downloads once into your cache."
-            ),
+        # The invisible watermark is a checkbox on the Output space row. Its payload
+        # and strength are the app-wide values in Preferences.
+        self.watermark_cb = QCheckBox("Invisible WM")
+        self.watermark_cb.setToolTip(
+            "Embed an invisible TrustMark watermark in every frame.\n"
+            "Set the payload and strength in Preferences → Invisible watermark.\n"
+            "The encoder model downloads once into your cache."
         )
-        self.watermark_cb = self._watermark.check
-        self.watermark_payload = self._watermark.payload
-        self.watermark_strength = self._watermark.strength
-        self._strength_label = self._watermark.strength_label
-        self._watermark.add_to(color_form)
-        layout.addWidget(color_group)
+        self.watermark_cb.setChecked(settings.value(f"{_K}/watermark", False, type=bool))
+        self.watermark_cb.toggled.connect(lambda v: self._settings.setValue(f"{_K}/watermark", v))
+        color_form.add_row("Output space", self.dst_btn, self.watermark_cb, width=WIDE, spacing=14)
+        layout.addWidget(out_group)
 
-        for g in (in_group, out_group, color_group):
+        for g in (in_group, out_group):
             g.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addStretch()
 
@@ -370,8 +367,6 @@ class TranscodeTab(BatchTab):
             self.crf_spin,
             self.bitrate_spin,
             self.preset_combo,
-            # Same row height whether the rate controls or the note show.
-            self._intra_note,
             self.audio_combo,
             self.overwrite_combo,
             self.location_combo,
@@ -379,13 +374,14 @@ class TranscodeTab(BatchTab):
             self.output_dir,
             self._browse_out,
             self.watermark_cb,
-            self.watermark_payload,
-            self._strength_label,
-            self.watermark_strength,
         ):
             lock_form_row_height(w)
 
         outer.addWidget(_form_scroll_area(body))
+
+        # "If file exists" shares the Name row; tab through it in reading order.
+        QWidget.setTabOrder(self.name_edit, self.overwrite_combo)
+        QWidget.setTabOrder(self.overwrite_combo, self.dst_btn)
 
         self._location.restore(settings, _K)
         self._on_codec_changed(save=False)
@@ -425,9 +421,6 @@ class TranscodeTab(BatchTab):
         self.name_edit.textChanged.connect(lambda t: self._changed("pattern", t))
         self.output_dir.textChanged.connect(lambda _: self._sync_all())
         self.dst_btn.space_changed.connect(lambda n: self._changed("color_dst", n))
-        self._watermark.save_to(settings, _K)
-        self.watermark_cb.toggled.connect(lambda _: self._sync_all())
-        self.watermark_payload.textChanged.connect(lambda _: self._sync_all())
         self.clip_tree.spaces_changed.connect(self._emit_readiness)
 
         self._queue.log_message.connect(self.log_message)
@@ -506,6 +499,11 @@ class TranscodeTab(BatchTab):
             return False
         return self.clip_tree.all_valid()
 
+    def _open_quality_dialog(self) -> None:
+        dlg = _QualityDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            dlg.apply()
+
     def _restore_fps(self, saved: float) -> None:
         for i in range(self.fps_combo.count()):
             data = float(self.fps_combo.itemData(i))
@@ -564,21 +562,15 @@ class TranscodeTab(BatchTab):
     def _sync_all(self) -> None:
         custom_size = self.resolution_key() == RES_CUSTOM
         for w in (self._size_label, self.width_spin, self._times_label, self.height_spin):
-            w.setEnabled(custom_size)
+            w.setVisible(custom_size)
 
         self.fps_spin.setVisible(float(self.fps_combo.currentData() or 0.0) == _FPS_CUSTOM)
 
         long_gop = is_long_gop(self.codec_key())
-        bitrate = self.rate_control() == RATE_BITRATE
-        self.rate_combo.setVisible(long_gop)
-        self.crf_spin.setVisible(long_gop and not bitrate)
-        self.bitrate_spin.setVisible(long_gop and bitrate)
-        self.preset_combo.setVisible(long_gop)
-        self._intra_note.setVisible(not long_gop)
+        self._quality_btn.setVisible(long_gop)
 
         self._location.sync_visible()
 
-        self._watermark.sync_enabled()
         self._emit_readiness()
 
     # -- OCIO --
@@ -655,7 +647,6 @@ class TranscodeTab(BatchTab):
         The input space is per clip (see :meth:`settings_for`); here it is the
         output space, a placeholder that passes validation.
         """
-        watermark_text = self._watermark.payload_text()
         dst = self.dst_btn.current_space()
         if not dst:
             raise ValueError("Pick an output color space.")
@@ -675,8 +666,6 @@ class TranscodeTab(BatchTab):
             color_dst=dst,
             config_source=self._config_source,
             config_path=self._config_path,
-            watermark_text=watermark_text,
-            watermark_strength=float(self.watermark_strength.value()),
             pixel_aspect=combo_override(self.pixel_aspect_combo),
             encoder=encoder_mode(self._settings),
         )
@@ -687,7 +676,14 @@ class TranscodeTab(BatchTab):
         src_space = self.input_space(source)
         if not src_space:
             raise ValueError("No valid input color space. Pick one in the clip list.")
-        return replace(base, color_src=src_space)
+        settings = replace(base, color_src=src_space)
+        if self.watermark_cb.isChecked():
+            # The payload may use {src}, so it is filled in per clip.
+            text, strength = resolve_invisible_watermark(
+                self._settings, source_name=sequence_display_name(source)
+            )
+            settings = replace(settings, watermark_text=text, watermark_strength=strength)
+        return settings
 
     def _job_for(
         self, source: str, settings: TranscodeSettings, taken: set[str]
@@ -719,8 +715,9 @@ class TranscodeTab(BatchTab):
         except ValueError as e:
             self.log_message.emit(f"ERROR: {e}")
             return 0
-        if self.watermark_cb.isChecked() and not settings.watermark_text:
-            self.log_message.emit("Invisible watermark skipped: payload is empty.")
+        if self.watermark_cb.isChecked():
+            # Once for the batch: says when the Preferences payload is empty.
+            resolve_invisible_watermark(self._settings, log=self.log_message.emit)
         taken = {str(Path(p)) for p in self._queue.queued_outputs()}
         queued = 0
         for src in sources:
@@ -766,3 +763,75 @@ class TranscodeTab(BatchTab):
         """Stop any running job (window close)."""
         self._queue.shutdown()
         self.clip_tree.shutdown()
+
+
+class _QualityDialog(QDialog):
+    """Rate control, quality value and preset for the long-GOP codecs.
+
+    Edits copies of the tab's hidden controls; :meth:`apply` writes them back
+    (which saves them), so Cancel changes nothing.
+    """
+
+    def __init__(self, tab: TranscodeTab) -> None:
+        super().__init__(tab)
+        self._tab = tab
+        self.setWindowTitle(f"Quality Settings — {tab.codec_combo.currentText()}")
+        self.setMinimumWidth(440)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 12, 0, 0)
+        root.setSpacing(12)
+        card = Card("Quality")
+        card.setContentsMargins(12, 0, 12, 0)
+        form = FormGrid()
+        card.body.addLayout(form)
+
+        self.rate = QComboBox()
+        for i in range(tab.rate_combo.count()):
+            self.rate.addItem(tab.rate_combo.itemText(i), tab.rate_combo.itemData(i))
+        self.rate.setCurrentIndex(tab.rate_combo.currentIndex())
+        self.crf = QSpinBox()
+        self.crf.setPrefix("CRF ")
+        self.crf.setRange(tab.crf_spin.minimum(), tab.crf_spin.maximum())
+        self.crf.setValue(tab.crf_spin.value())
+        self.crf.setToolTip(tab.crf_spin.toolTip())
+        self.bitrate = QDoubleSpinBox()
+        self.bitrate.setRange(tab.bitrate_spin.minimum(), tab.bitrate_spin.maximum())
+        self.bitrate.setDecimals(tab.bitrate_spin.decimals())
+        self.bitrate.setSuffix(tab.bitrate_spin.suffix())
+        self.bitrate.setValue(tab.bitrate_spin.value())
+        self.preset = QComboBox()
+        for i in range(tab.preset_combo.count()):
+            self.preset.addItem(tab.preset_combo.itemText(i), tab.preset_combo.itemData(i))
+        self.preset.setCurrentIndex(tab.preset_combo.currentIndex())
+        self.preset.setToolTip(tab.preset_combo.toolTip())
+
+        form.add_row("Rate control", self.rate, width=WIDE)
+        # CRF and bitrate share one row; only the one that applies shows.
+        self._value_label = form.add_row(
+            "Value", self.crf, sized(self.bitrate, NARROW), width=NARROW
+        )
+        form.add_row("Preset", self.preset, width=WIDE)
+        self.rate.currentIndexChanged.connect(lambda _: self._sync())
+        self._sync()
+        root.addWidget(card)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        set_style_property(buttons.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(DialogFooter(buttons))
+
+    def _sync(self) -> None:
+        by_bitrate = self.rate.currentData() == RATE_BITRATE
+        self.crf.setVisible(not by_bitrate)
+        self.bitrate.setVisible(by_bitrate)
+
+    def apply(self) -> None:
+        tab = self._tab
+        tab.rate_combo.setCurrentIndex(self.rate.currentIndex())
+        tab.crf_spin.setValue(self.crf.value())
+        tab.bitrate_spin.setValue(self.bitrate.value())
+        tab.preset_combo.setCurrentIndex(self.preset.currentIndex())

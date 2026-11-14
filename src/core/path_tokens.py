@@ -102,6 +102,18 @@ OUTPUT_GEOMETRY_TOKENS: frozenset[str] = frozenset({"resolution", "width", "heig
 BAD_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 _SEPARATORS = re.compile(r"[\\/]+")
 
+
+def clean_filename_part(text: str) -> str:
+    """*text* made safe to append to a file name (a suffix, a tag).
+
+    Characters no file name can hold (including ``/`` and ``\\``, so it can
+    never start a sub-folder or climb with ``..``) are dropped, and trailing
+    spaces and dots are trimmed (Windows silently strips them, which would
+    change the name on disk).
+    """
+    return BAD_NAME_CHARS.sub("", text or "").rstrip(" .")
+
+
 # Metadata keys (after ``_norm_key``) that hold a reel name, best first.
 _REEL_KEYS: tuple[str, ...] = ("reelname", "reel", "reelid", "tapename", "tape", "reelno")
 _TIMECODE_KEYS: tuple[str, ...] = ("timecode", "starttimecode", "tcstart")

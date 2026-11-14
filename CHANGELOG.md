@@ -13,6 +13,27 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Added
+
+- Right-click the input on Video → EXR and EXR → Video (the source card or the path field) and choose **Clear input** to empty it.
+- The slate editor has an **Invisible watermark** card (EXR → Video): the on/off switch, payload and strength, shared with the tab's checkbox and Preferences. OK saves them, Cancel leaves them alone.
+
+### Changed
+
+- Transcode: the invisible watermark is an **Invisible WM** checkbox beside Output space. Its payload and strength come from Preferences, like EXR → Video. Your saved on/off choice carries over.
+- File-name fields (the Video → Proxy suffix, Transcode name pattern, output folders and paths) drop characters a file name can't hold as you type or paste. The proxy suffix is also cleaned on the command line.
+- Transcode: rate control, CRF / bitrate and preset are in a gear dialog beside Codec (as on EXR → Video), shown only for codecs that have them. Custom folder fills in on the Location row instead of adding a row, here and on Video → Proxy, so the form no longer shifts.
+- Transcode: the Size row shows only when Resolution is Custom. The explanatory paragraphs under Source clips and under Name moved into tooltips.
+- The **Open result** checkbox is now **Play result**. Your saved choice carries over.
+- Sections are back to the compact outlined boxes with the title on the top edge, in place of the rounded filled cards. The one-line descriptions under section titles are now tooltips.
+- In the slate editor the cache meter, pause and clear buttons sit at the left of the bottom bar, and that bar now has a line above it like the other dialogs.
+
+### Fixed
+
+- Quick Look on a DWAA / DWAB compressed EXR now says that macOS can't read that compression and what to do, in place of "ImageIO could not decode".
+- Pixel aspect and Frame rate line up in the Options card of EXR → Video. The "Clip: …" pixel-aspect note moved into the Pixel aspect tooltip.
+- The convert tabs never show a horizontal scroll bar. The Transcode tab's Quality row was wide enough to force one at the minimum window width; its note now wraps.
+
 ## [0.14.2] - 2026-11-14
 
 ### Added

@@ -162,13 +162,19 @@ enum PreviewRenderer {
             kCGImageSourceShouldAllowFloat: true,
             kCGImageSourceShouldCache: false,
         ]
+        let header = format.key == "exr" ? EXRHeader.read(url: url) : nil
         guard
             let image = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbOptions as CFDictionary)
                 ?? CGImageSourceCreateImageAtIndex(source, 0, thumbOptions as CFDictionary)
         else {
+            if header?.isDWA == true {
+                throw PreviewError.unreadable(
+                    "macOS can't read DWAA / DWAB compressed EXRs, so \(url.lastPathComponent) "
+                        + "has no preview here. Open it in EXR Converter, or write ZIP, PIZ or "
+                        + "B44 EXRs for Quick Look.")
+            }
             throw PreviewError.unreadable("ImageIO could not decode \(url.lastPathComponent).")
         }
-        let header = format.key == "exr" ? EXRHeader.read(url: url) : nil
         let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         var sourceSize = CGSize(
             width: (props?[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? image.width,

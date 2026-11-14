@@ -35,6 +35,8 @@ from ..core.proxy import (
 from ..core.watch_folder import DEFAULT_SETTLE_SECONDS, WatchFolder
 from ..services.proxy_queue import ProxyJob, ProxyQueue, WatchPoller
 from .batch_common import (
+    CLIP_LIST_MAX_HEIGHT,
+    CLIP_LIST_MIN_HEIGHT,
     BatchTab,
     OutputLocation,
     SourceClipsPanel,
@@ -45,6 +47,7 @@ from .batch_rules import LOCATION_BESIDE, LOCATION_CUSTOM  # noqa: F401 (re-expo
 from .color_widgets import lock_form_row_height
 from .components import FILL, NARROW, WIDE, Card, FormGrid, inline_label, sized
 from .convert_tab import _ConvertFormBody, _form_scroll_area
+from .filename_filter import BAD_PATH_CHARS, install_filename_filter
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import encoder_mode
 
@@ -75,9 +78,8 @@ class ProxyTab(BatchTab):
         self.clip_list = QListWidget()
         self.clip_list.setObjectName("proxyClipList")
         self.clip_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.clip_list.setMinimumHeight(96)
-        # Capped so the whole tab fits the default window without scrolling.
-        self.clip_list.setMaximumHeight(122)
+        self.clip_list.setMinimumHeight(CLIP_LIST_MIN_HEIGHT)
+        self.clip_list.setMaximumHeight(CLIP_LIST_MAX_HEIGHT)
         self.clip_list.setToolTip("Clips to proxy when you press Convert. Drop videos here too.")
         in_group = self._sources = SourceClipsPanel(
             self.clip_list,
@@ -105,6 +107,7 @@ class ProxyTab(BatchTab):
         out_group.body.addLayout(form)
 
         output_dir = QLineEdit()
+        install_filename_filter(output_dir, BAD_PATH_CHARS)
         output_dir.setPlaceholderText("Folder for all proxies")
         output_dir.setText(str(settings.value(f"{_K}/output_dir", "") or ""))
         self._location = OutputLocation(
@@ -157,6 +160,8 @@ class ProxyTab(BatchTab):
         self.suffix_edit.setToolTip(
             "Added before the extension. Leave empty to keep the source name, which relinks best."
         )
+        # The suffix is part of the file name: no separators or other illegal characters.
+        install_filename_filter(self.suffix_edit)
         self.skip_existing_cb = QCheckBox("Skip clips that already have a proxy")
         self.skip_existing_cb.setChecked(settings.value(f"{_K}/skip_existing", True, type=bool))
         form.add_row("Suffix", self.suffix_edit, self.skip_existing_cb, width=WIDE, spacing=14)

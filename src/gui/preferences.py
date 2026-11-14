@@ -70,7 +70,7 @@ PLAYER_MODE_KEY = Keys.PLAYER_MODE
 PLAYER_PATH_KEY = Keys.PLAYER_PATH
 THUMBNAIL_FRAME_KEY = Keys.SLATE_THUMBNAIL_FRAME
 
-# Built-in SequencePlayer is the default for Open result (EXR → Video).
+# Built-in SequencePlayer is the default for Play result (EXR → Video).
 PLAYER_MODE_BUILTIN = "builtin"
 PLAYER_MODE_SYSTEM = "system"
 PLAYER_MODE_CUSTOM = "custom"
@@ -455,7 +455,7 @@ class _PreferencesBody(QWidget):
 
 
 class PreferencesDialog(QDialog):
-    """App preferences — currently the video player used by “Open result”."""
+    """App preferences — currently the video player used by “Play result”."""
 
     def __init__(self, settings: QSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -475,7 +475,7 @@ class PreferencesDialog(QDialog):
 
         # --- Video player ---
         player_box = Card(
-            "Video player", "Used when Open result is checked after an EXR → video conversion."
+            "Video player", "Used when Play result is checked after an EXR → video conversion."
         )
         player_form = FormGrid()
         player_box.body.addLayout(player_form)

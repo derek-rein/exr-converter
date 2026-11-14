@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .constants import ENCODER_AUTO, video_codec_by_key
+from .path_tokens import clean_filename_part
 
 ProgressCallback = Callable[[int, int], None]
 LogCallback = Callable[[str], None]
@@ -130,6 +131,7 @@ def default_proxy_output(
     src = Path(source)
     folder = Path(output_dir) if output_dir else src.parent / PROXY_SUBFOLDER
     ext = proxy_extension(codec_key)
+    suffix = clean_filename_part(suffix)
     out = folder / f"{src.stem}{suffix}{ext}"
     taken_norm = {_norm(p) for p in (taken or ())}
     n = 1

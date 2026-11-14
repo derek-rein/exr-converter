@@ -25,12 +25,15 @@ final class PlaybackTests: XCTestCase {
             appendLE32(&window, UInt32(bitPattern: v))
         }
         attr("dataWindow", "box2i", window)
+        attr("compression", "compression", Data([8]))
         data.append(0)
 
         let header = try XCTUnwrap(EXRHeader.parse(data))
         XCTAssertEqual(header.strings["exrconverter:dstColorSpace"], "ACES - ACES2065-1")
         XCTAssertEqual(header.dataSize?.width, 1920)
         XCTAssertEqual(header.dataSize?.height, 1080)
+        XCTAssertEqual(header.compression, 8)
+        XCTAssertTrue(header.isDWA)
         let xy = try XCTUnwrap(header.chromaticities)
         XCTAssertEqual(InputDetector.name(forChromaticities: xy), "Linear Rec.709 (sRGB)")
         XCTAssertNil(EXRHeader.parse(Data("nope".utf8)))

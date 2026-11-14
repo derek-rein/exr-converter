@@ -22,7 +22,7 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPen,
 )
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QMenu, QSizePolicy, QWidget
 
 from . import motion
 from .browser_chrome import _ThumbJob, _ThumbSignals
@@ -41,6 +41,7 @@ class SourceCard(QWidget):
     """Shows the current source, or invites one."""
 
     clicked = Signal()
+    clear_requested = Signal()
 
     def __init__(
         self,
@@ -72,6 +73,13 @@ class SourceCard(QWidget):
         self._drop = motion.Animator(self, repaint, duration_ms=motion.FAST)
         self._thumb_fade = motion.Animator(self, repaint, duration_ms=motion.BASE)
         self._content_fade = motion.Animator(self, repaint, value=1.0, duration_ms=motion.BASE)
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        menu = QMenu(self)
+        clear = menu.addAction("Clear input")
+        clear.setEnabled(not self.is_empty())
+        clear.triggered.connect(self.clear_requested.emit)
+        menu.exec(event.globalPos())
 
     # -- State ---------------------------------------------------------------
 

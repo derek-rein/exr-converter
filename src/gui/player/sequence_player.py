@@ -90,6 +90,7 @@ class SequencePlayer(QWidget):
         *,
         settings: QSettings | None = None,
         show_cache_ui: bool = True,
+        embed_cache_ui: bool = True,
         prefer_gpu: bool = True,
         show_in_out: bool = False,
         proxy_preview: bool = False,
@@ -97,6 +98,7 @@ class SequencePlayer(QWidget):
         super().__init__(parent)
         self._settings = settings if settings is not None else QSettings(APP_ORG, APP_NAME)
         self._show_cache_ui = show_cache_ui
+        self._embed_cache_ui = embed_cache_ui
         self._prefer_gpu = prefer_gpu
         # Browser Preview only. The full viewer leaves this false and keeps
         # full-frame prefetch.
@@ -945,13 +947,15 @@ class SequencePlayer(QWidget):
         parent_layout.addWidget(host)
 
         if self._show_cache_ui:
-            cache_row = QWidget()
-            cache_lay = QHBoxLayout(cache_row)
-            cache_lay.setContentsMargins(8, 0, 8, 4)
-            cache_lay.setSpacing(0)
-            self._build_cache_ui(cache_lay)
-            cache_lay.addStretch(1)
-            parent_layout.addWidget(cache_row)
+            self._build_cache_ui()
+            if self._embed_cache_ui:
+                cache_row = QWidget()
+                cache_lay = QHBoxLayout(cache_row)
+                cache_lay.setContentsMargins(8, 0, 8, 4)
+                cache_lay.setSpacing(0)
+                cache_lay.addWidget(self._cache_host)
+                cache_lay.addStretch(1)
+                parent_layout.addWidget(cache_row)
 
         self.frame_changed.connect(lambda _f: self._update_frame_readout())
         self._update_frame_readout()
@@ -1268,7 +1272,15 @@ class SequencePlayer(QWidget):
     # Cache UI
     # ------------------------------------------------------------------
 
-    def _build_cache_ui(self, parent_layout: QHBoxLayout) -> None:
+    def cache_widget(self) -> QWidget | None:
+        """The cache strip (usage bar, pause, clear) when the host places it itself.
+
+        ``None`` unless the player was built with ``embed_cache_ui=False``. The
+        caller adds the widget to its own layout.
+        """
+        return None if self._embed_cache_ui else self._cache_host
+
+    def _build_cache_ui(self) -> None:
         """Compact pause/clear + usage only. Budget % lives in Preferences."""
         self._cache_host = QWidget()
         row = QHBoxLayout(self._cache_host)
@@ -1307,7 +1319,6 @@ class SequencePlayer(QWidget):
         self._cache_clear_btn.setFixedSize(24, 22)
         self._cache_clear_btn.setToolTip("Clear playback cache")
         row.addWidget(self._cache_clear_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-        parent_layout.addWidget(self._cache_host)
 
         self._cache_pause_btn.toggled.connect(self._on_cache_pause_toggled)
         self._cache_clear_btn.clicked.connect(self._on_cache_clear)

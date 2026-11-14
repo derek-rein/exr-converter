@@ -101,6 +101,7 @@ from .components import (
     inline_label,
     sized,
 )
+from .filename_filter import BAD_PATH_CHARS, install_filename_filter
 from .icons import set_button_icon, set_button_icon_keep_text
 from .picker_button import PickerButton
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
@@ -613,12 +614,14 @@ class _ConvertFormBody(QWidget):
     """Convert form contents.
 
     ``QScrollArea.setWidgetResizable(True)`` will shrink the inner widget to
-    the viewport when it can. Returning ``sizeHint`` as the minimum stops
-    that, so a short pane scrolls instead of crushing the rows.
+    the viewport when it can. Returning the ``sizeHint`` height as the minimum
+    stops that, so a short pane scrolls vertically instead of crushing the
+    rows. The width stays the layout's own minimum: the pane never scrolls
+    sideways, so rows must fit (wrap or shrink) in the narrowest window.
     """
 
     def minimumSizeHint(self) -> QSize:
-        return self.sizeHint()
+        return QSize(super().minimumSizeHint().width(), self.sizeHint().height())
 
 
 def _show_if_parented(widget: QWidget, shown: bool) -> None:
@@ -648,7 +651,8 @@ def _form_scroll_area(body: QWidget) -> QScrollArea:
     scroll.setObjectName("convertTabScroll")
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    # Never a horizontal bar: the form fills the width and its rows shrink to fit.
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     scroll.setWidget(body)
     return scroll
@@ -709,6 +713,7 @@ class ConvertTab(QWidget):
                 "Drop a frame or a folder of frames here", empty_icon="folder-open"
             )
         self.source_card.clicked.connect(lambda: self._on_browse_clicked(is_input=True))
+        self.source_card.clear_requested.connect(self.clear_input)
         in_main.addWidget(self.source_card)
         in_main.addLayout(in_form)
 
@@ -761,6 +766,7 @@ class ConvertTab(QWidget):
         out_group.body.addLayout(out_form)
 
         self.output_path = QLineEdit()
+        install_filename_filter(self.output_path, BAD_PATH_CHARS)
         self.output_path.setPlaceholderText(
             f"Output directory for EXR sequence (name.{'#' * DEFAULT_FRAME_PADDING}.exr)"
             if mode == "video2exr"
@@ -848,22 +854,13 @@ class ConvertTab(QWidget):
             self._invisible_wm_check = None
 
         self._pixel_aspect_combo = make_pixel_aspect_combo(settings, f"{mode}/pixel_aspect", self)
-        self._pixel_aspect_note = QLabel("Clip: square pixels")
-        self._pixel_aspect_note.setToolTip(
-            "What Auto will tag. A fixed pixel aspect above replaces it."
-        )
-        set_style_property(self._pixel_aspect_note, "role", "muted")
-        # The note may be cut short; it must never set the form's minimum width.
-        self._pixel_aspect_note.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
-        )
+        pixel_aspect_label = inline_label("Pixel aspect", self._pixel_aspect_combo)
         # Two short choices share a row; each keeps its own label.
         opts_layout.add_row(
             "Scale",
             self.scale_combo,
-            inline_label("Pixel aspect", self._pixel_aspect_combo),
+            pixel_aspect_label,
             sized(self._pixel_aspect_combo, NARROW),
-            self._pixel_aspect_note,
             width=WIDE,
         )
         self._pixel_aspect_combo.currentIndexChanged.connect(
@@ -954,14 +951,20 @@ class ConvertTab(QWidget):
             self.codec_combo.key_changed.connect(lambda _: self._update_codec_btn_state())
             self.codec_combo.key_changed.connect(lambda _: self._update_output_ext())
             self.codec_combo.key_changed.connect(lambda _: self._update_dst_for_codec())
+            fps_label = inline_label("Frame rate", self.fps_widget)
             opts_layout.add_row(
                 "Codec",
                 self.codec_combo,
                 self._codec_settings_btn,
-                inline_label("Frame rate", self.fps_widget),
+                fps_label,
                 sized(self.fps_widget, NARROW),
                 width=WIDE,
             )
+            # Same width, so the second control of both rows starts at one x.
+            same = max(pixel_aspect_label.sizeHint().width(), fps_label.sizeHint().width())
+            for lbl in (pixel_aspect_label, fps_label):
+                lbl.setFixedWidth(same)
+                lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         else:
             self.compression_combo = None
             self.padding_spin = None
@@ -1180,6 +1183,13 @@ class ConvertTab(QWidget):
         self._reset_range_btn.setEnabled(False)
         self._emit_readiness()
 
+    def clear_input(self) -> None:
+        """Forget the current input (source, field, frame range) and stop any probe."""
+        self._probe_gen += 1  # a probe still running must not bring the input back
+        self.input_path.clear()
+        # textChanged does not fire when the field was already empty.
+        self._on_input_text_changed("")
+
     def _emit_readiness(self) -> None:
         self._refresh_source_card()
         self.readiness_changed.emit(self.is_ready())
@@ -1322,27 +1332,33 @@ class ConvertTab(QWidget):
         return combo_override(combo)
 
     def _refresh_pixel_aspect_note(self) -> None:
-        note = getattr(self, "_pixel_aspect_note", None)
-        if note is None:
+        """Say what Auto will tag in the combo's tooltip.
+
+        Not a label on the row: a trailing note pushed the combo off the
+        trailing edge the other rows end on.
+        """
+        combo = getattr(self, "_pixel_aspect_combo", None)
+        if combo is None:
             return
         override = self.pixel_aspect_override()
         if override is not None:
             label = PixelAspect(override, "override").label() or "square pixels"
-            note.setText(f"Output: {label}")
-            return
-        path = ""
-        try:
-            path = self.get_input_path()
-        except Exception:
+            note = f"Output: {label}"
+        else:
             path = ""
-        if not path:
-            note.setText("Clip: square pixels")
-            return
-        try:
-            label = probe_media_aspect(path).label() or "square pixels"
-        except Exception:
-            label = "not read"
-        note.setText(f"Clip: {label}")
+            try:
+                path = self.get_input_path()
+            except Exception:
+                path = ""
+            if not path:
+                note = "Clip: square pixels"
+            else:
+                try:
+                    label = probe_media_aspect(path).label() or "square pixels"
+                except Exception:
+                    label = "not read"
+                note = f"Clip: {label}"
+        combo.setToolTip(f"{note}\nAuto tags what the clip says. A fixed value replaces it.")
 
     def get_padding(self) -> int:
         if self.padding_spin:
@@ -1519,6 +1535,10 @@ class ConvertTab(QWidget):
             pixel_aspect_override=self.pixel_aspect_override(),
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            if self._invisible_wm_check is not None:
+                self._invisible_wm_check.setChecked(
+                    self._settings.value(f"{self._mode}/invisible_watermark", False, type=bool)
+                )
             self.log_message.emit("Slate & overlay data updated")
 
     def _infer_fps_from_input(self) -> float:
@@ -1651,6 +1671,12 @@ class ConvertTab(QWidget):
         select_all.setEnabled(bool(edit.text()))
         select_all.triggered.connect(edit.selectAll)
         menu.addAction(select_all)
+
+        if edit is self.input_path:
+            clear = QAction("Clear input", menu)
+            clear.setEnabled(bool(text) or self._source is not None)
+            clear.triggered.connect(self.clear_input)
+            menu.addAction(clear)
 
         menu.addSeparator()
 

@@ -10,6 +10,12 @@ struct EXRHeader {
     var chromaticities: [Float]?
     /// Pixel size from ``dataWindow``.
     var dataSize: (width: Int, height: Int)?
+    /// The ``compression`` attribute (0 none, 1 RLE, 2 ZIPS, 3 ZIP, 4 PIZ, 5 PXR24,
+    /// 6 B44, 7 B44A, 8 DWAA, 9 DWAB).
+    var compression: UInt8?
+
+    /// DWAA and DWAB, which ImageIO cannot decode (every other EXR compression it can).
+    var isDWA: Bool { compression == 8 || compression == 9 }
 
     static func read(url: URL, limit: Int = 1 << 18) -> EXRHeader? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
@@ -45,6 +51,8 @@ struct EXRHeader {
             switch type {
             case "string":
                 header.strings[name] = String(decoding: value, as: UTF8.self)
+            case "compression" where size == 1:
+                header.compression = value[0]
             case "chromaticities" where size == 32:
                 header.chromaticities = (0..<8).map { Float(bitPattern: le32(value, $0 * 4)) }
             case "box2i" where name == "dataWindow" && size == 16:

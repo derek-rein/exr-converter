@@ -54,6 +54,11 @@ label on numbered frames.
 
 **Not previewed**
 
+- **DWAA / DWAB compressed EXRs.** macOS's ImageIO cannot decode them (it reads
+  every other EXR compression), so Quick Look shows a message naming the
+  compression, and Finder keeps the generic icon. **DWAA is the app's default EXR
+  compression**: for sequences you want to flip through in Quick Look, choose
+  ZIP, PIZ or B44 under **EXR compression**.
 - Movies the system already handles: ProRes, H.264, HEVC, and containers such
   as `.mov`, `.mp4`, `.mkv`, `.mxf`. Claiming them would fight QuickTime.
 - **BRAW and RED R3D / N-RAW.** Those need the proprietary SDKs, which
