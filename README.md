@@ -61,6 +61,16 @@
       Ships <strong>ACES Studio Config v4</strong> plus extra camera logs (see <a href="#cameras-and-formats">Cameras and formats</a>). Also <code>$OCIO</code>, custom <code>.ocio</code> files, other built-ins, and <strong>local Nuke install configs</strong> (path reference only) from the GUI picker.
     </td>
   </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Light or dark</strong><br>
+      <strong>Theme</strong> in Preferences is System (the default, follows your OS), Light, or Dark. The image viewer surround stays black either way.
+    </td>
+    <td width="50%" valign="top">
+      <strong>Agent-friendly CLI</strong><br>
+      <strong>Help → Agent Skills</strong> shows a ready-to-paste guide to the command line with this install's path filled in. The same text is <a href="skills.md"><code>skills.md</code></a> in the repo.
+    </td>
+  </tr>
 </table>
 
 ### At a glance
