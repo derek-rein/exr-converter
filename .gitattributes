@@ -1,3 +1,28 @@
-# Batch files need CRLF line endings.
+# Line endings: LF in the repository and in every checkout, so Windows and macOS
+# agree and diffs stay clean. Only the files that need CRLF say so.
+* text=auto eol=lf
+
+# Windows-only scripts and installers need CRLF.
 *.cmd text eol=crlf
 *.bat text eol=crlf
+*.iss text eol=crlf
+
+# Never rewritten.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.icns binary
+*.exr binary
+*.dpx binary
+*.mov binary
+*.mp4 binary
+*.mxf binary
+*.dng binary
+*.onnx binary
+*.dylib binary
+*.so binary
+*.dll binary
+*.exe binary
+*.whl binary
+*.zip binary
