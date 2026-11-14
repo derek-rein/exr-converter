@@ -238,6 +238,20 @@ def test_probe_video_rejects_appledouble() -> None:
         probe_video("/tmp/._clip.R3D")
 
 
+def test_probe_video_r3d_missing_sdk_is_typed(tmp_path: Path) -> None:
+    from src.core.r3d import R3DUnavailableError
+    from src.core.video import probe_video
+
+    prev = _force_r3d_unavailable()
+    try:
+        fake = tmp_path / "clip.R3D"
+        fake.write_bytes(b"not a real r3d")
+        with pytest.raises(R3DUnavailableError, match="test: bridge missing"):
+            probe_video(str(fake))
+    finally:
+        _restore_r3d_state(prev)
+
+
 def test_run_video_to_exr_r3d_missing_sdk(tmp_path: Path) -> None:
     from src.core.convert import run_video_to_exr
     from src.core.r3d import R3DUnavailableError

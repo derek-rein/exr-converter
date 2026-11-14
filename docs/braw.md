@@ -233,7 +233,7 @@ set or after `make braw-sdk-fetch`.
 
 | Symptom | Fix |
 |---------|-----|
-| `BRAW bridge library not found` | `make braw-bridge` / set `EXR_CONVERTER_BRAW_BRIDGE` |
+| `Blackmagic RAW is unavailable in this build` | Expected from source. Use a Release binary, or `make braw-bridge` / set `EXR_CONVERTER_BRAW_BRIDGE` |
 | `Blackmagic RAW runtime libraries not found` | Set `EXR_CONVERTER_BRAW_LIBS` to the SDK `Libraries` folder |
 | CI skips BRAW | Secret `BRAW_SDK_READ_TOKEN` not set or cannot read private release |
 | BRAW factory / runtime load failed | Wrong folder (must contain `libBlackmagicRawAPI.so` / `.dylib` / `.dll`) |

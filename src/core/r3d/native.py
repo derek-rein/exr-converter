@@ -5,7 +5,6 @@ from __future__ import annotations
 import atexit
 import ctypes
 import logging
-import sys
 
 from ..app_paths import is_frozen_app
 from .paths import bridge_candidates, find_redistributable_dir
@@ -166,17 +165,14 @@ def ensure_initialized() -> bool:
 
     lib = _load_library()
     if lib is None:
-        tried = ", ".join(str(p) for p in bridge_candidates()[:12])
-        _init_error = (
-            "R3D bridge library not found. Build with "
-            "`python3 scripts/build_r3d_bridge.py` after installing the RED R3D SDK "
-            f"(see docs/r3d.md). Tried: {tried}"
-        )
-        log.warning(
-            "%s (frozen=%s exe=%s)",
-            _init_error,
-            is_frozen_app(),
-            sys.executable,
+        from ..sdk_support import log_missing_bridge
+
+        _init_error = log_missing_bridge(
+            log,
+            kind="R3D",
+            docs="docs/r3d.md",
+            candidates=bridge_candidates(),
+            frozen=is_frozen_app(),
         )
         return False
 
