@@ -107,6 +107,13 @@ QGroupBox::indicator:checked {
     border-color: @ACCENT_DARK;
     image: url(:/check.png);
 }
+/* The OCIO config row is a header for every tab, not a section: no outline. */
+QGroupBox#ocioPanel {
+    background-color: transparent;
+    border: none;
+    margin-top: 0;
+    padding: 0;
+}
 /* Fields and hints inside a section are regular weight. */
 QGroupBox QLabel, QGroupBox QCheckBox, QGroupBox QRadioButton {
     font-weight: normal;
