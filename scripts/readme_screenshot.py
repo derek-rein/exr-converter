@@ -52,6 +52,13 @@ def render_window(width: int, height: int, tab: int, out: Path) -> None:
         QTimer.singleShot(ms, loop.quit)
         loop.exec()
 
+    # The app reads its own settings store (on macOS a plist in the user's
+    # library), not the default QSettings format above. Point it at an empty ini
+    # file so the shot never shows the machine's last-used paths or clips.
+    from src.services.app_settings import make_ini_settings, set_app_settings
+
+    set_app_settings(make_ini_settings(str(Path(tempfile.mkdtemp()) / "settings.ini")))
+
     win = MainWindow()
     win.resize(width, height)
     win.show()
