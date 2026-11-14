@@ -52,7 +52,7 @@ help:
 	@echo "  make braw-sdk-fetch                    # download private BRAW SDK (CI feed / gh auth)"
 	@echo "  make braw-bridge                       # build optional Blackmagic RAW bridge (needs SDK)"
 	@echo "  make oxideav-prores                    # build PyO3 oxideav 12-bit ProRes extension"
-	@echo "  make cinemadng                        # build the CinemaDNG frame reader"
+	@echo "  make cinemadng                         # build the CinemaDNG frame reader"
 	@echo ""
 	@echo "  make bump PART=patch|minor|major       # bump version (no git)"
 	@echo "  make release PART=… PUSH=0             # preferred: bump+commit+tag on release/* branch"
