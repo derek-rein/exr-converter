@@ -13,6 +13,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-11-14
+
 ### Added
 
 - Light and dark themes. **Preferences → Interface → Theme** is System (the default; follows the operating system and changes with it while the app runs), Light, or Dark. System uses dark when the platform does not report a setting. Switching applies at once.
@@ -1250,7 +1252,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.14.2...HEAD
+[0.14.2]: https://github.com/derek-rein/exr-converter/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/derek-rein/exr-converter/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/derek-rein/exr-converter/compare/v0.13.3...v0.14.0
 [0.13.3]: https://github.com/derek-rein/exr-converter/compare/v0.13.2...v0.13.3
