@@ -18,9 +18,9 @@ command for this machine.
 <!-- install:end -->
 
 Run `uv run python main.py <subcommand> --help` for every flag. With no
-subcommand the same program opens the GUI, so always give a subcommand.
+subcommand the same program opens the GUI, so always give one.
 
-## Pick the subcommand
+## Choose a subcommand
 
 | Goal | Subcommand | Output |
 |------|------------|--------|
