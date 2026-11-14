@@ -1,4 +1,4 @@
-"""EXR <-> video converter — entry point."""
+"""EXR Converter: entry point for the GUI and the command line."""
 
 from __future__ import annotations
 
