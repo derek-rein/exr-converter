@@ -436,7 +436,7 @@ Nuitka will auto-download `ccache` on first run. See the `Makefile` for the full
 
 | Target | Purpose |
 | --- | --- |
-| `make run` | Start the GUI |
+| `make run` | Start the GUI (Python + OCIO; R3D / BRAW / ARRI / camera RAW are GitHub Release only) |
 | `make lint` / `make fmt` | Ruff check / format |
 | `make test` | Run the pytest suite (unit + integration) |
 | `make test-unit` | Unit tests only (skip integration) |
@@ -489,7 +489,7 @@ User-facing history is in **[CHANGELOG.md](CHANGELOG.md)** (Keep a Changelog, se
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE). Copyright Derek Rein.
+MIT. See [`LICENSE`](LICENSE). Copyright Medeu Global LLC.
 
 Adobe TrustMark and ONNX Runtime, both MIT, are credited in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 

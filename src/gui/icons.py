@@ -48,6 +48,26 @@ def icon(name: str, token: str = "FG") -> QIcon:
     return result
 
 
+def _remember(button: QAbstractButton, name: str, token: str) -> None:
+    """Record what the button shows, so a theme change can re-tint it."""
+    button.setProperty("iconName", name)
+    button.setProperty("iconToken", token)
+
+
+def refresh_icons() -> None:
+    """Drop the tinted icons and re-tint every button that shows one (theme change)."""
+    from PySide6.QtWidgets import QApplication
+
+    _cache.clear()
+    for widget in QApplication.allWidgets():
+        if not isinstance(widget, QAbstractButton):
+            continue
+        name = widget.property("iconName")
+        token = widget.property("iconToken")
+        if name and token:
+            widget.setIcon(icon(str(name), str(token)))
+
+
 def set_button_icon(
     button: QAbstractButton, name: str, token: str = "FG", size: int = ICON_SIZE
 ) -> None:
@@ -55,6 +75,7 @@ def set_button_icon(
     button.setText("")
     button.setIcon(icon(name, token))
     button.setIconSize(QSize(size, size))
+    _remember(button, name, token)
 
 
 def set_button_icon_keep_text(
@@ -63,3 +84,4 @@ def set_button_icon_keep_text(
     """Put icon *name* beside the button's label (disclosure chevrons)."""
     button.setIcon(icon(name, token))
     button.setIconSize(QSize(size, size))
+    _remember(button, name, token)

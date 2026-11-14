@@ -12,8 +12,8 @@ from pathlib import Path
 from PySide6.QtCore import QRegularExpression, QSettings, QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QRegularExpressionValidator
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -50,14 +50,16 @@ from ..services.cache_prefs import (
     save_cache_budget_pct,
     total_ram_bytes,
 )
-from . import motion
+from . import style
 from .components import (
+    FIELD_WIDTH,
     FILL,
     LABEL_WIDTH,
     NARROW,
     NATURAL,
     WIDE,
     Card,
+    DialogFooter,
     FormGrid,
     inline_label,
 )
@@ -79,9 +81,9 @@ THUMBNAIL_FRAME_FIRST = 0
 THUMBNAIL_FRAME_MID = 1
 THUMBNAIL_FRAME_LAST = 2
 THUMBNAIL_FRAME_CHOICES: tuple[tuple[int, str], ...] = (
-    (THUMBNAIL_FRAME_FIRST, "First frame"),
-    (THUMBNAIL_FRAME_MID, "Middle frame"),
-    (THUMBNAIL_FRAME_LAST, "Last frame"),
+    (THUMBNAIL_FRAME_FIRST, "First"),
+    (THUMBNAIL_FRAME_MID, "Middle"),
+    (THUMBNAIL_FRAME_LAST, "Last"),
 )
 
 
@@ -433,7 +435,7 @@ _RADIO_TEXT_INDENT = 23
 PREFERENCES_MAX_HEIGHT = 720
 
 
-def _hint(text: str, width: int = WIDE[1]) -> QLabel:
+def _hint(text: str, width: int = FIELD_WIDTH) -> QLabel:
     """A wrapped hint under a field, as wide as the WIDE controls."""
     label = QLabel(text)
     label.setWordWrap(True)
@@ -462,12 +464,13 @@ class PreferencesDialog(QDialog):
         self._settings = settings
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(12)
+        # No margins: the footer bar spans the dialog. The cards carry their own.
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
         body = _PreferencesBody()
         cards = QVBoxLayout(body)
-        cards.setContentsMargins(0, 0, 6, 0)  # clear of the scroll bar
+        cards.setContentsMargins(12, 12, 6, 12)  # right: clear of the scroll bar
         cards.setSpacing(8)
 
         # --- Video player ---
@@ -541,7 +544,10 @@ class PreferencesDialog(QDialog):
             quick.addStretch()
             custom_col.addLayout(quick)
         custom_col.addWidget(
-            _hint("Any app or command: IINA, VLC, mpv, ffplay, …", WIDE[1] - _RADIO_TEXT_INDENT)
+            _hint(
+                "Any app or command: IINA, VLC, mpv, ffplay, …",
+                FIELD_WIDTH - _RADIO_TEXT_INDENT,
+            )
         )
         choice_list.addWidget(custom)
 
@@ -554,16 +560,26 @@ class PreferencesDialog(QDialog):
         slate_box = Card("Slate")
         slate_form = FormGrid()
         slate_box.body.addLayout(slate_form)
-        self._thumb_combo = QComboBox()
+        # One radio per choice, side by side: three short options need no menu.
+        self._thumb_row = QWidget()
+        thumb_layout = QHBoxLayout(self._thumb_row)
+        thumb_layout.setContentsMargins(0, 0, 0, 0)
+        thumb_layout.setSpacing(18)
+        self._thumb_group = QButtonGroup(self)
+        self._thumb_radios: dict[int, QRadioButton] = {}
         for value, label in THUMBNAIL_FRAME_CHOICES:
-            self._thumb_combo.addItem(label, int(value))
-        self._thumb_combo.setToolTip(
+            radio = QRadioButton(label)
+            self._thumb_group.addButton(radio, int(value))
+            self._thumb_radios[int(value)] = radio
+            thumb_layout.addWidget(radio)
+        thumb_layout.addStretch(1)
+        self._thumb_row.setToolTip(
             "Which frame of the EXR sequence is used for the slate thumbnail "
             "(EXR → video only). Picked by index from the known frame list — "
             "first, middle, or last. Converted to the slate authoring space "
             "(sRGB-like) so colour management matches the rest of the slate."
         )
-        slate_form.add_row("Thumbnail frame", self._thumb_combo, width=WIDE)
+        slate_form.add_row("Thumbnail frame", self._thumb_row, width=NATURAL)
         cards.addWidget(slate_box)
 
         # --- GPU encode / decode ---
@@ -618,10 +634,7 @@ class PreferencesDialog(QDialog):
         self._custom_radio.toggled.connect(self._sync_custom_enabled)
 
         which = thumbnail_frame_choice(settings)
-        for i in range(self._thumb_combo.count()):
-            if int(self._thumb_combo.itemData(i)) == which:
-                self._thumb_combo.setCurrentIndex(i)
-                break
+        self._thumb_radios.get(which, self._thumb_radios[THUMBNAIL_FRAME_MID]).setChecked(True)
 
         # --- Playback RAM cache budget ---
         cache_box = Card(
@@ -660,13 +673,25 @@ class PreferencesDialog(QDialog):
         interface_box = Card("Interface")
         interface_form = FormGrid()
         interface_box.body.addLayout(interface_form)
-        self._reduce_motion_cb = QCheckBox("Reduce motion")
-        self._reduce_motion_cb.setToolTip(
-            "Turn off interface animation: the sliding tab underline, fades, "
-            "and the gliding progress line. Changes apply at once."
+        # Theme: System follows the OS (dark when it cannot tell), or force one.
+        self._theme_row = QWidget()
+        theme_layout = QHBoxLayout(self._theme_row)
+        theme_layout.setContentsMargins(0, 0, 0, 0)
+        theme_layout.setSpacing(18)
+        self._theme_group = QButtonGroup(self)
+        self._theme_radios: dict[str, QRadioButton] = {}
+        for mode, label in (("system", "System"), ("light", "Light"), ("dark", "Dark")):
+            radio = QRadioButton(label)
+            self._theme_group.addButton(radio)
+            self._theme_radios[mode] = radio
+            theme_layout.addWidget(radio)
+        theme_layout.addStretch(1)
+        self._theme_row.setToolTip(
+            "System follows the operating system's light or dark setting, and uses "
+            "dark when it does not say."
         )
-        self._reduce_motion_cb.setChecked(settings.value(motion.SETTINGS_KEY, False, type=bool))
-        interface_form.add_row("", self._reduce_motion_cb, width=NATURAL)
+        self._theme_radios[style.current_mode()].setChecked(True)
+        interface_form.add_row("Theme", self._theme_row, width=NATURAL)
         cards.addWidget(interface_box)
 
         # Cards keep their natural height; spare space goes below them, not inside.
@@ -691,19 +716,13 @@ class PreferencesDialog(QDialog):
         set_style_property(buttons.button(QDialogButtonBox.StandardButton.Ok), "variant", "primary")
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
+        footer = DialogFooter(buttons)
+        root.addWidget(footer)
 
         # Open at the cards' natural size, up to what a small laptop screen holds.
-        margins = root.contentsMargins()
         bar = self.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
-        width = body.sizeHint().width() + bar + margins.left() + margins.right()
-        height = (
-            body.sizeHint().height()
-            + root.spacing()
-            + buttons.sizeHint().height()
-            + margins.top()
-            + margins.bottom()
-        )
+        width = body.sizeHint().width() + bar
+        height = body.sizeHint().height() + footer.sizeHint().height()
         self.resize(max(width, self.minimumWidth()), min(height, PREFERENCES_MAX_HEIGHT))
 
     def _update_cache_label(self, pct: int) -> None:
@@ -782,14 +801,13 @@ class PreferencesDialog(QDialog):
                     )
                     return
         set_player_prefs(self._settings, mode, path)
-        thumb_data = self._thumb_combo.currentData()
-        set_thumbnail_frame_choice(
-            self._settings,
-            int(thumb_data) if thumb_data is not None else THUMBNAIL_FRAME_MID,
-        )
+        thumb = self._thumb_group.checkedId()
+        set_thumbnail_frame_choice(self._settings, thumb if thumb >= 0 else THUMBNAIL_FRAME_MID)
         save_cache_budget_pct(self._settings, int(self._cache_slider.value()))
-        self._settings.setValue(motion.SETTINGS_KEY, self._reduce_motion_cb.isChecked())
-        motion.apply_saved_preference(self._settings)
+        theme_mode = next(m for m, r in self._theme_radios.items() if r.isChecked())
+        self._settings.setValue("ui/theme", theme_mode)
+        if theme_mode != style.current_mode():
+            style.apply_theme(QApplication.instance(), theme_mode)
         self._settings.setValue(Keys.ENCODER_MODE, self._encoder_combo.currentData())
         self._settings.setValue(Keys.DECODER_MODE, self._decoder_combo.currentData())
         set_decode_mode(decoder_mode(self._settings))

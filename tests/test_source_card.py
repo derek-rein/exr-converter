@@ -57,12 +57,12 @@ def test_convert_tab_card_follows_the_probed_video(app: QApplication, tmp_path: 
     tab = ConvertTab("video2exr", settings)
     assert tab.source_card.is_empty()
 
-    tab._video_info = VideoInput("/media/A001_C003.mov", 4096, 2160, 23.976, 480)
+    tab._source = VideoInput("/media/A001_C003.mov", 4096, 2160, 23.976, 480)
     tab._emit_readiness()
     assert tab.source_card.title() == "A001_C003.mov"
     assert tab.source_card.details() == ["4096 × 2160", "480 frames", "23.976 fps", "0:20"]
 
-    tab._video_info = None
+    tab._source = None
     tab._emit_readiness()
     assert tab.source_card.is_empty()
     tab.deleteLater()

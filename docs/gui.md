@@ -31,11 +31,20 @@ from a Read. See [nuke.md](./nuke.md).
 
 Dragging the **Log** splitter up does not squash Input / Output / Options
 fields. Those controls keep a fixed readable height, and the convert form
-scrolls if the pane is short. **Convert** and **Cancel** share that height.
+scrolls if the pane is short. Fields grow with the card; a gutter keeps the
+scrollbar off the controls. **Convert** and **Cancel** share that height.
 
-The **Log** is a drawer at the bottom of the window. Closed, it is one line
-showing the latest status. Click **Log** to open it; drag its top edge to
-resize, and the height is remembered.
+**Help → Agent Skills** opens the instructions a coding agent needs to use the
+[command line](./cli.md): what each subcommand does and its main flags. The
+text has this install's command filled in (the packaged app or AppImage path, or
+the source checkout), and **Copy to clipboard** copies it. Save it as `SKILL.md`
+in an agent's skills folder or paste it into a chat. The same file is
+[`skills.md`](https://github.com/derek-rein/exr-converter/blob/main/skills.md) in the repository.
+
+The **Log** sits at the bottom of the window with the latest status on its
+header line. It shows four lines by default. Clicking **Log** collapses it to
+the header line, and dragging its top edge makes it taller (it opens by itself
+when a conversion fails). Collapsed or open, and the height, are remembered.
 
 On Video → EXR and EXR → Video the input is a **source card**. Drop a file or
 folder on it, or click it to browse. Once a source loads it shows a thumbnail,
@@ -43,9 +52,15 @@ the name, and what was probed: resolution, frame count, frame rate, duration,
 or for a sequence the file type, frame count, range, and how many frames are
 missing. The path field under it still accepts typed or pasted paths.
 
-Interface motion (sliding tab underline, fades, progress) is short and can be
-turned off with **Reduce motion** in Preferences, or by setting the environment
-variable `EXR_CONVERTER_REDUCE_MOTION=1`.
+**Theme** (Preferences → Interface) is System, Light, or Dark. System is the
+default: it follows the operating system's light or dark setting, switches
+while the app runs when the system does, and uses dark when the platform does
+not report one. Light and Dark override the system. The image viewer surround
+stays black in both.
+
+Interface motion (sliding tab underline, gliding progress, button and source card
+fades) is short. Set the environment variable `EXR_CONVERTER_REDUCE_MOTION=1` to
+turn it off.
 
 The **OCIO config** menu is one row above the tabs and applies to all of
 them. The status beside it shows how many color spaces loaded; hover it for
@@ -623,7 +638,7 @@ hidden on the **Video → Proxy** and **Transcode** tabs, which run batches:
 | **Hardware acceleration → Decoding** | **Hardware when available** (default) decodes 8- and 10-bit 4:2:0 H.264, HEVC, AV1, and VP9 files on the GPU on Video → EXR, Transcode, Video → Proxy, and the player. Devices tried, in order: NVIDIA NVDEC, Direct3D 11, DXVA2 (Windows), VAAPI, Intel Quick Sync (Linux), Apple VideoToolbox (macOS). The app decodes one frame with a device first, and decodes in software if it fails. Pixels match software decode exactly. 4:2:2, 4:4:4, 12-bit, ProRes, DNxHR, and everything else always decode in software. GPU decode helps most on high-bitrate camera files. On a many-core CPU with light, low-bitrate files, **Software only** can be a little faster. Same as `--decoder` on the CLI |
 | **Playback cache budget** | % of system RAM for decoded frames (slate, browser Preview, post-convert built-in player) |
 | **Invisible watermark** | Payload template (default `{user}`) and strength for **Invisible WM** on EXR → Video. See [Invisible watermark](#invisible-watermark). |
-| **Interface** | **Reduce motion** turns off interface animation (sliding tab underline, fades, gliding progress). It applies as soon as you press OK. |
+| **Interface** | **Theme** is System, Light, or Dark. Applies as soon as you press OK. |
 
 Settings org/app: `QSettings("VFXTools", "EXRConverter")`.
 

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPaintEvent, QResizeEvent
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPaintEvent, QResizeEvent
 from PySide6.QtWidgets import QTabBar, QWidget
 
 from . import motion
@@ -34,6 +34,25 @@ class SlidingTabBar(QTabBar):
         self._instant = False
         self._last_instant = False
         self.currentChanged.connect(self._on_current_changed)
+
+    def tabSizeHint(self, index: int) -> QSize:  # noqa: N802
+        """Every tab is as wide as it is when selected (bold), so selecting never shifts.
+
+        The stylesheet makes the selected label bold, which is wider. Qt sizes
+        each tab for its own state, so an unselected tab would grow by the
+        difference the moment it is picked, and push its neighbours along.
+        """
+        hint = super().tabSizeHint(index)
+        text = self.tabText(index)
+        bold = QFont(self.font())
+        bold.setWeight(QFont.Weight.DemiBold)
+        current = bold if index == self.currentIndex() else self.font()
+        extra = QFontMetrics(bold).horizontalAdvance(text) - QFontMetrics(
+            current
+        ).horizontalAdvance(text)
+        if extra > 0:
+            hint.setWidth(hint.width() + extra)
+        return hint
 
     def set_current_instant(self, index: int) -> None:
         """Change tab with no slide: for keyboard shortcuts.

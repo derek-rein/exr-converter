@@ -144,8 +144,8 @@ def test_short_window_scrolls_and_fields_still_type(main_window: MainWindow) -> 
     splitter = win.findChild(QSplitter, "logSplitter")
     assert splitter is not None
     before_top = splitter.sizes()[0]
-    # The log drawer is one fixed line while closed; open it to drag.
-    win._set_log_open(True, animate=False)
+    # Expand the log, then drag the splitter.
+    win._set_log_shown(True)
     QTest.qWait(20)
     total = sum(splitter.sizes()) or splitter.height()
     splitter.setSizes([CONVERT_TABS_MIN_HEIGHT, max(total - CONVERT_TABS_MIN_HEIGHT, 80)])

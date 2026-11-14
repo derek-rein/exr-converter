@@ -32,7 +32,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
-from .style import color
+from .drag_mode import Drag
+from .style import color, on_theme_changed
 
 
 # -- Palette ---------------------------------------------------------------
@@ -42,18 +43,30 @@ def _alpha(token: str, alpha: int) -> QColor:
     return c
 
 
-_BG = QColor(color("BG_INPUT"))
-_GROOVE = QColor(color("BG_ALT"))
-_TICK_MAJOR = QColor(color("FG_DISABLED"))
-_TICK_MINOR = QColor(color("BORDER"))
-_LABEL_COLOR = QColor(color("FG_DIM"))
-_CACHED = _alpha("SUCCESS", 180)
-_MARKER = _alpha("ACCENT", 110)
-_MARKER_LABEL = QColor(color("ACCENT_HOVER"))
-_PLAYHEAD = QColor(color("ACCENT"))
-_PLAYHEAD_LINE = QColor(color("ACCENT_HOVER"))
 _OUTSIDE_RANGE = QColor(0, 0, 0, 120)
-_IN_OUT_MARK = QColor(color("WARNING"))
+_BG = _GROOVE = _TICK_MAJOR = _TICK_MINOR = _LABEL_COLOR = QColor()
+_CACHED = _MARKER = _MARKER_LABEL = _PLAYHEAD = _PLAYHEAD_LINE = _IN_OUT_MARK = QColor()
+
+
+def _load_colors() -> None:
+    """Read the palette; runs at import and after a theme switch."""
+    global _BG, _GROOVE, _TICK_MAJOR, _TICK_MINOR, _LABEL_COLOR  # noqa: PLW0603
+    global _CACHED, _MARKER, _MARKER_LABEL, _PLAYHEAD, _PLAYHEAD_LINE, _IN_OUT_MARK  # noqa: PLW0603
+    _BG = QColor(color("BG_INPUT"))
+    _GROOVE = QColor(color("BG_ALT"))
+    _TICK_MAJOR = QColor(color("FG_DISABLED"))
+    _TICK_MINOR = QColor(color("BORDER"))
+    _LABEL_COLOR = QColor(color("FG_DIM"))
+    _CACHED = _alpha("SUCCESS", 180)
+    _MARKER = _alpha("ACCENT", 110)
+    _MARKER_LABEL = QColor(color("ACCENT_HOVER"))
+    _PLAYHEAD = QColor(color("ACCENT"))
+    _PLAYHEAD_LINE = QColor(color("ACCENT_HOVER"))
+    _IN_OUT_MARK = QColor(color("WARNING"))
+
+
+_load_colors()
+on_theme_changed(_load_colors)
 
 # -- Layout (absolute pixels from bottom) ----------------------------------
 _MARGIN_LEFT = 6
@@ -118,9 +131,7 @@ class TimelineSlider(QWidget):
         self._in_point: int | None = None
         self._out_point: int | None = None
 
-        self._dragging_playhead: bool = False
-        self._panning: bool = False
-        self._zooming: bool = False
+        self._drag = Drag.NONE
         self._last_mouse_x: float = 0.0
         self._zoom_anchor_x: float = 0.0
 
@@ -188,7 +199,7 @@ class TimelineSlider(QWidget):
     @property
     def is_dragging_playhead(self) -> bool:
         """True while the user is dragging the playhead (not programmatic set)."""
-        return self._dragging_playhead
+        return self._drag is Drag.PLAYHEAD
 
     def set_cached_frames(self, frames: set[int]) -> None:
         self._cached_frames = set(frames)
@@ -449,24 +460,27 @@ class TimelineSlider(QWidget):
     # ---- Mouse / key interaction ----
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self._drag is not Drag.NONE:
+            event.accept()  # one drag at a time: ignore a second button
+            return
         btn = event.button()
         mods = event.modifiers()
         if btn == Qt.MouseButton.MiddleButton or (
             btn == Qt.MouseButton.LeftButton and mods & Qt.KeyboardModifier.AltModifier
         ):
-            self._panning = True
+            self._drag = Drag.PAN
             self._last_mouse_x = event.position().x()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         if btn == Qt.MouseButton.RightButton:
-            self._zooming = True
+            self._drag = Drag.ZOOM
             self._last_mouse_x = event.position().x()
             self._zoom_anchor_x = event.position().x()
             event.accept()
             return
         if btn == Qt.MouseButton.LeftButton:
-            self._dragging_playhead = True
+            self._drag = Drag.PLAYHEAD
             self._set_from_mouse(event.position().x())
             event.accept()
             return
@@ -474,20 +488,20 @@ class TimelineSlider(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         x = event.position().x()
-        if self._panning:
+        if self._drag is Drag.PAN:
             dx = x - self._last_mouse_x
             self._last_mouse_x = x
             self._pan_by_pixels(dx)
             event.accept()
             return
-        if self._zooming:
+        if self._drag is Drag.ZOOM:
             dx = x - self._last_mouse_x
             self._last_mouse_x = x
             factor = max(0.5, min(2.0, 1.0 - dx * _RMB_ZOOM_SPEED))
             self._zoom_at(factor, self._zoom_anchor_x)
             event.accept()
             return
-        if self._dragging_playhead:
+        if self._drag is Drag.PLAYHEAD:
             self._set_from_mouse(x)
             event.accept()
             return
@@ -495,17 +509,20 @@ class TimelineSlider(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         btn = event.button()
-        if btn in (Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton) and self._panning:
-            self._panning = False
+        if (
+            btn in (Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton)
+            and self._drag is Drag.PAN
+        ):
+            self._drag = Drag.NONE
             self.setCursor(Qt.CursorShape.ArrowCursor)
             event.accept()
             return
-        if btn == Qt.MouseButton.RightButton and self._zooming:
-            self._zooming = False
+        if btn == Qt.MouseButton.RightButton and self._drag is Drag.ZOOM:
+            self._drag = Drag.NONE
             event.accept()
             return
-        if btn == Qt.MouseButton.LeftButton and self._dragging_playhead:
-            self._dragging_playhead = False
+        if btn == Qt.MouseButton.LeftButton and self._drag is Drag.PLAYHEAD:
+            self._drag = Drag.NONE
             event.accept()
             return
         super().mouseReleaseEvent(event)

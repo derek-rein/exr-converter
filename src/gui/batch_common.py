@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QWidget,
 )
 
@@ -138,6 +139,8 @@ class WatermarkControls:
         self.payload = QLineEdit(str(settings.value(f"{prefix}/watermark_text", "") or ""))
         self.payload.setMaxLength(MAX_TEXT_CHARS)
         self.payload.setPlaceholderText(f"Payload, up to {MAX_TEXT_CHARS} ASCII characters")
+        self.payload.setMinimumWidth(72)
+        self.payload.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         if payload_tip:
             self.payload.setToolTip(payload_tip)
         self.strength = QDoubleSpinBox()

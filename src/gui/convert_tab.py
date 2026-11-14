@@ -101,7 +101,7 @@ from .components import (
     inline_label,
     sized,
 )
-from .icons import icon, set_button_icon
+from .icons import set_button_icon, set_button_icon_keep_text
 from .picker_button import PickerButton
 from .pixel_aspect_ui import combo_override, make_pixel_aspect_combo
 from .preferences import file_manager_label, path_is_revealable
@@ -401,7 +401,7 @@ class VideoCodecSettingsDialog(QDialog):
             idx = X26X_PRESETS.index(saved_preset) if saved_preset in X26X_PRESETS else 5
             self._preset.setCurrentIndex(idx)
             self._preset.setToolTip("Slower = better compression at same quality")
-            form.add_row("Preset", self._preset, width=NARROW)
+            form.add_row("Preset", self._preset, width=WIDE)
 
         elif codec_key in ("cineform", "cineform_rgb"):
             self._cineform_quality = QComboBox()
@@ -415,7 +415,7 @@ class VideoCodecSettingsDialog(QDialog):
             self._cineform_quality.setToolTip(
                 "FFmpeg cfhd quality: film3+/film3 ≈ least compression; low ≈ smallest"
             )
-            form.add_row("Quality", self._cineform_quality, width=NARROW)
+            form.add_row("Quality", self._cineform_quality, width=WIDE)
 
         layout.addWidget(card)
         layout.addStretch(1)
@@ -621,15 +621,34 @@ class _ConvertFormBody(QWidget):
         return self.sizeHint()
 
 
+def _show_if_parented(widget: QWidget, shown: bool) -> None:
+    """Show or hide *widget*, never showing a parentless one as its own window.
+
+    Before a layout adopts a widget, ``setVisible(True)`` opens it as a top-level
+    window for a moment. Once parented it is visible with its parent anyway.
+    """
+    if not shown:
+        widget.hide()
+    elif widget.parentWidget() is not None:
+        widget.show()
+
+
 def _form_scroll_area(body: QWidget) -> QScrollArea:
     """Host a convert form so a short pane scrolls instead of squashing fields."""
     body.setObjectName("convertTabBody")
     body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+    # The window already insets this pane 12 px on the left (the OCIO row and the
+    # tabs start there), so the cards line up with them. On the right the cards keep
+    # 12 px before the scroll bar, which is flush with the window edge.
+    layout = body.layout()
+    if layout is not None:
+        m = layout.contentsMargins()
+        layout.setContentsMargins(0, m.top(), m.right(), m.bottom())
     scroll = QScrollArea()
     scroll.setObjectName("convertTabScroll")
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     scroll.setWidget(body)
     return scroll
@@ -653,8 +672,17 @@ class ConvertTab(QWidget):
 
         # Input model objects — the source of truth for what is loaded.
         # The QLineEdit is a *view* on these; is_ready() gates on them.
-        self._input_seq: fileseq.FileSequence | None = None
-        self._video_info: VideoInput | None = None
+        # What is loaded: one video clip, one image sequence, or nothing. A single
+        # field, so the two kinds can never both be set; _video_info and _input_seq
+        # below read it.
+        self._source: VideoInput | fileseq.FileSequence | None = None
+        # The async probe that is filling _source. Declared here, not discovered with
+        # getattr: a result is applied only while its generation is the newest.
+        self._probe_gen = 0
+        self._probe_thread: QThread | None = None
+        self._probe_worker: _InputProbeWorker | None = None
+        self._probe_request: tuple[int, str, str] | None = None
+        self._skip_saved_input_restore = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -804,7 +832,7 @@ class ConvertTab(QWidget):
             # A labelled button: "what does the pencil do" should not need a hover.
             self._edit_slate_btn = QToolButton()
             self._edit_slate_btn.setText("Edit\u2026")
-            self._edit_slate_btn.setIcon(icon("pencil", "FG_DIM"))
+            set_button_icon_keep_text(self._edit_slate_btn, "pencil", "FG_DIM", size=16)
             self._edit_slate_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             set_style_property(self._edit_slate_btn, "variant", "ghost")
             self._edit_slate_btn.setToolTip("Edit Slate & Overlay\u2026")
@@ -825,6 +853,10 @@ class ConvertTab(QWidget):
             "What Auto will tag. A fixed pixel aspect above replaces it."
         )
         set_style_property(self._pixel_aspect_note, "role", "muted")
+        # The note may be cut short; it must never set the form's minimum width.
+        self._pixel_aspect_note.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
         # Two short choices share a row; each keeps its own label.
         opts_layout.add_row(
             "Scale",
@@ -832,7 +864,7 @@ class ConvertTab(QWidget):
             inline_label("Pixel aspect", self._pixel_aspect_combo),
             sized(self._pixel_aspect_combo, NARROW),
             self._pixel_aspect_note,
-            width=NARROW,
+            width=WIDE,
         )
         self._pixel_aspect_combo.currentIndexChanged.connect(
             lambda _i: self._refresh_pixel_aspect_note()
@@ -864,7 +896,7 @@ class ConvertTab(QWidget):
                 lambda _: self._update_comp_btn_state()
             )
             opts_layout.add_row(
-                "EXR compression", self.compression_combo, self._comp_settings_btn, width=NARROW
+                "EXR compression", self.compression_combo, self._comp_settings_btn, width=WIDE
             )
 
             self.padding_spin = QSpinBox()
@@ -1046,7 +1078,7 @@ class ConvertTab(QWidget):
             QTimer.singleShot(0, self, self._restore_saved_input_if_needed)
 
     def _restore_saved_input_if_needed(self) -> None:
-        if getattr(self, "_skip_saved_input_restore", False):
+        if self._skip_saved_input_restore:
             return
         saved = str(self.input_path.text() or "").strip()
         if not saved:
@@ -1060,6 +1092,14 @@ class ConvertTab(QWidget):
     def suppress_saved_input_restore(self) -> None:
         """Cancel deferred QSettings input restore (used by ``--open`` / Nuke)."""
         self._skip_saved_input_restore = True
+
+    @property
+    def _video_info(self) -> VideoInput | None:
+        return self._source if isinstance(self._source, VideoInput) else None
+
+    @property
+    def _input_seq(self) -> fileseq.FileSequence | None:
+        return None if isinstance(self._source, VideoInput) else self._source
 
     def _path_matches_current_input(self, text: str) -> bool:
         """True if *text* is the same source as the validated model (path or #### view)."""
@@ -1096,8 +1136,7 @@ class ConvertTab(QWidget):
         """
         text = clean_path_string(text)
         if not text:
-            self._video_info = None
-            self._input_seq = None
+            self._source = None
             self._full_input_range = ""
             self._frame_range_edit.clear()
             self._reset_range_btn.setEnabled(False)
@@ -1110,8 +1149,7 @@ class ConvertTab(QWidget):
             return
 
         # Text no longer matches the model — drop model until re-validated.
-        self._video_info = None
-        self._input_seq = None
+        self._source = None
 
         p = Path(text).expanduser()
         if self._mode == "video2exr":
@@ -1519,11 +1557,11 @@ class ConvertTab(QWidget):
 
     def _update_comp_btn_state(self) -> None:
         comp = self.get_compression()
-        self._comp_settings_btn.setVisible(comp in _EXR_HAS_SETTINGS)
+        _show_if_parented(self._comp_settings_btn, comp in _EXR_HAS_SETTINGS)
 
     def _update_codec_btn_state(self) -> None:
         key = self.get_video_codec_info()[0]
-        self._codec_settings_btn.setVisible(key in _CODEC_HAS_SETTINGS)
+        _show_if_parented(self._codec_settings_btn, key in _CODEC_HAS_SETTINGS)
 
     def _open_compression_settings(self) -> None:
         comp = self.get_compression()
@@ -1922,12 +1960,12 @@ class ConvertTab(QWidget):
             return
 
         # Bump generation so late results from a cancelled probe are ignored.
-        self._probe_gen = getattr(self, "_probe_gen", 0) + 1
+        self._probe_gen = self._probe_gen + 1
         gen = self._probe_gen
 
         # Replace any in-flight probe so a newer path wins.
-        old_thr = getattr(self, "_probe_thread", None)
-        old_worker = getattr(self, "_probe_worker", None)
+        old_thr = self._probe_thread
+        old_worker = self._probe_worker
         if old_worker is not None:
             try:
                 old_worker.finished.disconnect()
@@ -1946,7 +1984,7 @@ class ConvertTab(QWidget):
         self._probe_request = (gen, path, frame_range)
 
         def _cleanup() -> None:
-            if getattr(self, "_probe_thread", None) is thr:
+            if self._probe_thread is thr:
                 self._probe_thread = None
                 self._probe_worker = None
 
@@ -1968,15 +2006,15 @@ class ConvertTab(QWidget):
 
     def _on_probe_succeeded(self, gen: int, result: object) -> None:
         """GUI thread: adopt the probe result unless a newer probe replaced it."""
-        request = getattr(self, "_probe_request", None)
-        if request is None or gen != request[0] or gen != getattr(self, "_probe_gen", 0):
+        request = self._probe_request
+        if request is None or gen != request[0] or gen != self._probe_gen:
             return
         self._apply_probe_result(result)
         self._apply_requested_range(request[2])
 
     def _on_probe_failed(self, gen: int, err: str) -> None:
-        request = getattr(self, "_probe_request", None)
-        if request is None or gen != request[0] or gen != getattr(self, "_probe_gen", 0):
+        request = self._probe_request
+        if request is None or gen != request[0] or gen != self._probe_gen:
             return
         _gen, path, frame_range = request
         self.log_message.emit(f"Could not open input: {err}")
@@ -2004,14 +2042,13 @@ class ConvertTab(QWidget):
             return
 
         if kind == "video":
-            self._video_info = VideoInput(
+            self._source = VideoInput(
                 path,
                 int(result["w"]),
                 int(result["h"]),
                 float(result["fps"]),
                 int(result["total"]),
             )
-            self._input_seq = None
             frames = list(range(1, int(result["total"]) + 1))
             display = path
             actual = path
@@ -2020,8 +2057,7 @@ class ConvertTab(QWidget):
             if seq is None:
                 self.log_message.emit(f"Could not resolve image sequence: {path}")
                 return
-            self._input_seq = seq
-            self._video_info = None
+            self._source = seq
             frames = list(result.get("frame_nums") or [])
             pad = "#" * seq.zfill()
             display = f"{seq.dirname()}{seq.basename()}{pad}{seq.extension()}"
@@ -2074,8 +2110,7 @@ class ConvertTab(QWidget):
         """
         path = path.strip()
         if not path:
-            self._video_info = None
-            self._input_seq = None
+            self._source = None
             self._full_input_range = ""
             self._frame_range_edit.clear()
             self._reset_range_btn.setEnabled(False)
@@ -2086,20 +2121,17 @@ class ConvertTab(QWidget):
         try:
             if self._mode == "video2exr":
                 w, h, fps, total = probe_video(path)
-                self._video_info = VideoInput(path, w, h, fps, total)
-                self._input_seq = None
+                self._source = VideoInput(path, w, h, fps, total)
                 frames = list(range(1, total + 1))
                 display = path
             else:
                 _paths, _name, frame_nums, _pad, seq = find_exr_sequence_info(path)
-                self._input_seq = seq
-                self._video_info = None
+                self._source = seq
                 frames = frame_nums
                 pad = "#" * seq.zfill()
                 display = f"{seq.dirname()}{seq.basename()}{pad}{seq.extension()}"
         except Exception:
-            self._video_info = None
-            self._input_seq = None
+            self._source = None
             self._full_input_range = ""
             self._frame_range_edit.clear()
             self._reset_range_btn.setEnabled(False)

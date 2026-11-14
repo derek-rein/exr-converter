@@ -149,7 +149,7 @@ class ProxyTab(BatchTab):
             self.resolution_combo,
             inline_label("Pixel aspect", self.pixel_aspect_combo),
             sized(self.pixel_aspect_combo, NARROW),
-            width=NARROW,
+            width=WIDE,
         )
 
         self.suffix_edit = QLineEdit(str(settings.value(f"{_K}/suffix", "") or ""))

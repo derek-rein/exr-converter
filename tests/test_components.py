@@ -11,6 +11,7 @@ from src.gui.components import (
     NARROW,
     NATURAL,
     WIDE,
+    WIDE_MIN,
     Card,
     FormGrid,
     inline_label,
@@ -95,7 +96,7 @@ def test_separate_forms_share_the_same_control_column(app: QApplication) -> None
     )
 
 
-def test_capped_controls_share_one_right_edge_and_do_not_stretch(app: QApplication) -> None:
+def test_wide_controls_expand_and_share_one_right_edge(app: QApplication) -> None:
     host = QWidget()
     form = FormGrid(host)
     space, codec, scale = QComboBox(), QComboBox(), QComboBox()
@@ -103,9 +104,13 @@ def test_capped_controls_share_one_right_edge_and_do_not_stretch(app: QApplicati
     form.add_row("Codec", codec, width=WIDE)
     form.add_row("Scale", scale, width=NARROW)
     _show(host, app, width=1400)
-    assert space.width() == codec.width() == WIDE[1]
+    assert space.width() == codec.width()
+    assert space.width() >= WIDE_MIN
     assert scale.width() == NARROW[1]
-    assert space.width() < host.width() / 2
+    assert (
+        space.mapTo(host, space.rect().topRight()).x()
+        > scale.mapTo(host, scale.rect().topRight()).x()
+    )
 
 
 def test_fill_row_stretches_to_the_edge(app: QApplication) -> None:

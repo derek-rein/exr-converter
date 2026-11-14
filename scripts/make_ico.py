@@ -20,7 +20,8 @@ from PIL import Image, ImageFilter
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ICONS = REPO_ROOT / "resources" / "icons"
-SOURCE_JPG = ICONS / "icon_source.jpg"
+SOURCE_MASTER = ICONS / "icon_source.png"  # 960 px, transparent background
+SOURCE_JPG = ICONS / "icon_source.jpg"  # the original artwork, on its purple square
 SOURCE_PNG = ICONS / "icon.png"
 OUTPUT = ICONS / "icon.ico"
 
@@ -49,6 +50,9 @@ def load_source() -> Image.Image:
     higher resolution and is the better source for every Windows size. If the
     two ever diverge, ``icon.png`` is the current icon and we scale from it.
     """
+    if SOURCE_MASTER.is_file():
+        # The wolf on a transparent background: the master for every size.
+        return Image.open(SOURCE_MASTER).convert("RGBA")
     png = Image.open(SOURCE_PNG).convert("RGBA")
     if not SOURCE_JPG.is_file():
         return png

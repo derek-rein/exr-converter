@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import PyOpenColorIO as OCIO_mod
-from PySide6.QtCore import Qt, QThread, QUrl
+from PySide6.QtCore import Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -48,14 +48,13 @@ from ..core.ocio_utils import color_space_families, config_source_info
 from ..core.pixel_aspect import SQUARE, apply_override, probe_media_aspect
 from ..core.quicklook_prefs import schedule_quicklook_view_lut
 from ..core.video import is_ignored_media_filename
+from ..services.convert_session import ConvertSession
 from ..services.presets import delete_preset, list_presets, load_preset, save_preset
 from ..services.worker import ConvertWorker
-from . import motion
 from .action_bar import PROGRESS_LINE_HEIGHT, PrimaryButton, ProgressLine, StatusLine
 from .animated_tabs import SlidingTabBar
 from .color_widgets import lock_form_row_height
 from .icons import set_button_icon_keep_text
-from .motion import SLOW, Animator, crossfade_from
 from .preferences import (
     PLAYER_MODE_BUILTIN,
     PreferencesDialog,
@@ -79,8 +78,42 @@ CONVERT_TABS_MIN_HEIGHT = 200
 PROXY_TAB_INDEX = 2
 TRANSCODE_TAB_INDEX = 3
 LOG_PANE_MIN_HEIGHT = 72
-# First-open height of the log drawer (the user's drag is remembered).
-LOG_OPEN_HEIGHT = 190
+# The log shows this many lines until the user drags it taller.
+LOG_LINES = 4
+
+
+def _library_version(module: str, dist: str | None = None) -> str | None:
+    """Version of an installed library, or None when it is not there.
+
+    Tries the module's ``__version__`` first, then the package metadata (some,
+    like fileseq, have no attribute). A library present without a readable
+    version gives an empty string, so it is still listed.
+    """
+    import importlib
+    import importlib.metadata as metadata
+
+    try:
+        mod = importlib.import_module(module)
+    except Exception:
+        return None
+    for attr in ("__version__", "VERSION", "version"):
+        value = getattr(mod, attr, None)
+        if isinstance(value, str) and value:
+            return value
+    try:
+        return metadata.version(dist or module)
+    except Exception:
+        return ""
+
+
+def _library_line(*entries: tuple[str, str, str | None]) -> str:
+    """``Name 1.2 · Name 3.4`` for (label, module, dist) entries that are installed."""
+    parts = []
+    for label, module, dist in entries:
+        version = _library_version(module, dist)
+        if version is not None:
+            parts.append(f"{label} {version}".strip())
+    return " · ".join(parts)
 
 
 class AboutDialog(QDialog):
@@ -163,11 +196,37 @@ class AboutDialog(QDialog):
         except Exception:
             plugin_lines = ""
 
+        ffmpeg = ""
+        try:
+            import av
+
+            major, minor, micro = av.library_versions["libavcodec"]
+            ffmpeg = f" (FFmpeg libavcodec {major}.{minor}.{micro})"
+        except Exception:
+            pass
+        more = [
+            _library_line(("NumPy", "numpy", None), ("fileseq", "fileseq", None)),
+            _library_line(
+                ("PyOpenGL", "OpenGL", "PyOpenGL"),
+                ("ONNX Runtime", "onnxruntime", None),
+            ),
+        ]
+        extra = "".join(f"<br>{line}" for line in more if line)
+        pyav = _library_version("av", "av")
+        try:
+            from ..core.oxideav_prores import is_available as oxideav_available
+
+            oxideav = "<br>oxideav-prores (12-bit ProRes)" if oxideav_available() else ""
+        except Exception:
+            oxideav = ""
         deps = (
             f"Python {sys.version.split()[0]} · "
             f"PySide6 {__import__('PySide6').__version__}<br>"
             f"OpenColorIO {OCIO_mod.GetVersion()} · "
-            f"OpenImageIO {oiio_ver}"
+            f"OpenImageIO {oiio_ver}<br>"
+            f"PyAV {pyav}{ffmpeg}"
+            f"{extra}"
+            f"{oxideav}"
             f"{r3d_line}"
             f"{braw_line}"
             f"{plugin_lines}"
@@ -199,7 +258,7 @@ class AboutDialog(QDialog):
             "GoPro Protune / GP-Log / GP-Log2, Blackmagic Film Gen 4, "
             "OPPO O-Log, and Apple Log 2.</p>"
             f"<p style='font-size:10px;'>"
-            f"MIT License &copy; {datetime.now().year} Derek Rein<br><br>"
+            f"MIT License &copy; {datetime.now().year} Medeu Global LLC<br><br>"
             "Permission is hereby granted, free of charge, to any person obtaining "
             "a copy of this software and associated documentation files, to deal in "
             "the Software without restriction, including without limitation the "
@@ -300,12 +359,11 @@ class MainWindow(QMainWindow):
         self._thread: QThread | None = None
         self._worker: ConvertWorker | None = None
         self._ocio_cfg = None
-        # "convert" | None — keeps progress UI from fighting itself.
-        self._busy: str | None = None
+        # Where a single-file convert is in its life; see ConvertSession.
+        self._convert = ConvertSession()
         # Standalone sequence player from post-convert Open result (Video → EXR).
         self._result_player_win: QDialog | None = None
 
-        motion.apply_saved_preference(self._settings)
         self._build_menu_bar()
 
         central = QWidget()
@@ -321,11 +379,25 @@ class MainWindow(QMainWindow):
 
         top = QWidget()
         top_layout = QVBoxLayout(top)
-        top_layout.setContentsMargins(12, 10, 12, 8)
-        top_layout.setSpacing(8)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(0)
+
+        # The form area has side margins; the action bar below spans the window.
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        # No right margin: the tab pane runs to the window edge, so its scroll bar
+        # sits flush there. The OCIO row and the cards carry their own 12 px.
+        content_layout.setContentsMargins(12, 10, 0, 8)
+        content_layout.setSpacing(8)
+        top_layout.addWidget(content, 1)
 
         self._ocio_panel = OcioConfigPanel(self._settings)
-        top_layout.addWidget(self._ocio_panel)
+        # Its own row, so the 12 px right inset is the row's and not the panel's.
+        ocio_row = QWidget()
+        ocio_row_layout = QHBoxLayout(ocio_row)
+        ocio_row_layout.setContentsMargins(0, 0, 12, 0)
+        ocio_row_layout.addWidget(self._ocio_panel)
+        content_layout.addWidget(ocio_row)
 
         self._tabs = QTabWidget()
         self._tabs.setTabBar(SlidingTabBar())
@@ -341,7 +413,7 @@ class MainWindow(QMainWindow):
         saved_tab = int(self._settings.value("ui/tab", 0))
         if 0 <= saved_tab < self._tabs.count():
             self._tabs.setCurrentIndex(saved_tab)
-        top_layout.addWidget(self._tabs, 1)
+        content_layout.addWidget(self._tabs, 1)
 
         # Action bar. A thin progress line runs along its top edge while a job
         # is active; under it sit the When done options, Cancel, and Convert.
@@ -351,13 +423,20 @@ class MainWindow(QMainWindow):
         self._progress.setObjectName("convertProgress")
         self._progress.setAccessibleName("Conversion progress")
         self._progress.setVisible(False)
+        action_bar = QWidget()
+        action_bar.setObjectName("actionBar")
+        action_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        bar_layout = QVBoxLayout(action_bar)
+        bar_layout.setContentsMargins(12, 0, 12, 8)
+        bar_layout.setSpacing(6)
+        top_layout.addWidget(action_bar)
         # The slot keeps its 3 px whether or not the line shows: no layout shift.
         progress_slot = QWidget()
         progress_slot.setFixedHeight(PROGRESS_LINE_HEIGHT)
         slot_layout = QHBoxLayout(progress_slot)
         slot_layout.setContentsMargins(0, 0, 0, 0)
         slot_layout.addWidget(self._progress)
-        top_layout.addWidget(progress_slot)
+        bar_layout.addWidget(progress_slot)
 
         prog_row = QHBoxLayout()
         prog_row.setContentsMargins(0, 0, 0, 0)
@@ -411,20 +490,23 @@ class MainWindow(QMainWindow):
             lambda v: self._settings.setValue("ui/show_folder_after", v)
         )
         after_row.addWidget(self._show_folder_cb)
-        prog_row.addWidget(self._after_row_widget)
+        centre = Qt.AlignmentFlag.AlignVCenter
+        prog_row.addWidget(self._after_row_widget, 0, centre)
         prog_row.addStretch(1)
-        prog_row.addWidget(self._cancel_btn)
-        prog_row.addWidget(self._go)
-        top_layout.addLayout(prog_row)
+        prog_row.addWidget(self._cancel_btn, 0, centre)
+        prog_row.addWidget(self._go, 0, centre)
+        bar_layout.addLayout(prog_row)
 
         splitter.addWidget(top)
 
-        # Log drawer. Closed, it is one line: a toggle and the latest status.
-        # Open, the full log shows under it and the splitter sets its height.
+        # Log: a header (toggle, latest status, Clear) over the log pane. The
+        # pane shows LOG_LINES lines by default and the Log button collapses it. The
+        # splitter handle resizes it, and the height is remembered.
         log_container = QWidget()
         log_container.setObjectName("logDrawer")
+        log_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         log_layout = QVBoxLayout(log_container)
-        log_layout.setContentsMargins(12, 4, 12, 6)
+        log_layout.setContentsMargins(12, 7, 12, 6)  # the 1 px border overlaps the top margin
         log_layout.setSpacing(4)
         log_header = QHBoxLayout()
         log_header.setSpacing(8)
@@ -432,7 +514,8 @@ class MainWindow(QMainWindow):
         self._log_toggle.setCheckable(True)
         self._log_toggle.setObjectName("logToggle")
         self._log_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._log_toggle.setToolTip("Show or hide the log")
+        self._log_toggle.setToolTip("Show or hide the log (drag its top edge to resize)")
+        self._log_toggle.setChecked(True)
         set_style_property(self._log_toggle, "variant", "ghost")
         log_header.addWidget(self._log_toggle)
         # Stands in for the old status bar: same showMessage() calls.
@@ -457,8 +540,7 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
         self._log_splitter = splitter
-        self._log_height = Animator(self, self._apply_log_height, duration_ms=SLOW)
-        self._log_toggle.toggled.connect(self._set_log_open)
+        self._log_toggle.toggled.connect(self._set_log_shown)
 
         self._ocio_panel.config_changed.connect(self._reload_ocio)
         self._go.clicked.connect(self._start)
@@ -467,8 +549,6 @@ class MainWindow(QMainWindow):
         self._tabs.currentChanged.connect(lambda i: self._settings.setValue("ui/tab", i))
         self._tabs.currentChanged.connect(lambda _: self._update_go_state())
         self._tabs.currentChanged.connect(lambda _: self._sync_proxy_tab_chrome())
-        self._shown_tab = self._tabs.currentIndex()
-        self._tabs.currentChanged.connect(self._crossfade_tab)
         self._v2e_tab.log_message.connect(self._append_log)
         self._e2v_tab.log_message.connect(self._append_log)
         self._v2e_tab.readiness_changed.connect(lambda _: self._update_go_state())
@@ -505,8 +585,8 @@ class MainWindow(QMainWindow):
         else:
             # First launch: tall enough that the EXR and video tabs do not scroll.
             self.resize(880, 880)
-        self._log_open_height = int(self._settings.value("ui/log_height", LOG_OPEN_HEIGHT))
-        self._set_log_open(self._settings.value("ui/log_open", False, type=bool), animate=False)
+        self._log_open_height = int(self._settings.value("ui/log_height", 0) or 0)
+        self._set_log_shown(not self._settings.value("ui/log_collapsed", False, type=bool))
 
     def apply_startup(
         self,
@@ -598,6 +678,11 @@ class MainWindow(QMainWindow):
         docs_action.setToolTip(DOCS_URL)
         docs_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(DOCS_URL)))
         help_menu.addAction(docs_action)
+
+        skills_action = QAction("Agent &Skills…", self)
+        skills_action.setToolTip("Instructions that let a coding agent use the command line")
+        skills_action.triggered.connect(self._show_skills)
+        help_menu.addAction(skills_action)
         help_menu.addSeparator()
 
         update_action = QAction("Check for &Updates\u2026", self)
@@ -614,6 +699,11 @@ class MainWindow(QMainWindow):
         version_action.setEnabled(False)
         help_menu.addAction(version_action)
 
+    def _show_skills(self) -> None:
+        from .skills_dialog import SkillsDialog
+
+        SkillsDialog(self).exec()
+
     def _show_about(self) -> None:
         dlg = AboutDialog(self)
         dlg.exec()
@@ -628,9 +718,6 @@ class MainWindow(QMainWindow):
         QuickLookDialog(self._settings, self).exec()
 
     # -- Updates --
-
-    def _is_convert_running(self) -> bool:
-        return self._thread is not None and self._thread.isRunning()
 
     def _check_for_updates(self) -> None:
         """Open the latest GitHub release page in the system browser."""
@@ -729,7 +816,7 @@ class MainWindow(QMainWindow):
     # -- OCIO --
 
     def _reload_ocio(self) -> None:
-        if self._is_convert_running():
+        if not self._convert.is_idle:
             self._append_log("OCIO reload deferred — conversion in progress")
             self._statusbar.showMessage("Cannot reload OCIO during conversion", 4000)
             return
@@ -793,52 +880,55 @@ class MainWindow(QMainWindow):
             return self._transcode_tab
         return None
 
-    def _crossfade_tab(self, index: int) -> None:
-        """Fade a picture of the page being left out over the page being shown."""
-        previous = self._tabs.widget(self._shown_tab)
-        self._shown_tab = index
-        current = self._tabs.widget(index)
-        if previous is None or current is None or previous is current or not self.isVisible():
-            return
-        if self._tabs.tabBar().last_change_was_instant():
-            return
-        crossfade_from(previous.grab(), current)
-
     # -- Log drawer --
 
-    def _log_header_height(self) -> int:
-        margins = self._log_container.layout().contentsMargins()
-        return self._log_toggle.sizeHint().height() + margins.top() + margins.bottom()
+    def _log_height_for(self, lines: int, *, with_pane: bool = True) -> int:
+        """Container height that shows *lines* lines of the log pane."""
+        layout = self._log_container.layout()
+        margins = layout.contentsMargins()
+        fm = self._log.fontMetrics()
+        pane = lines * fm.lineSpacing() + 2 * (self._log.frameWidth() + 4)
+        pane = max(pane, LOG_PANE_MIN_HEIGHT)
+        header = self._log_toggle.sizeHint().height()
+        if not with_pane:
+            return margins.top() + header + margins.bottom()
+        return margins.top() + header + layout.spacing() + pane + margins.bottom()
 
-    def _apply_log_height(self, height: float) -> None:
-        total = sum(self._log_splitter.sizes()) or self._log_splitter.height()
-        h = int(round(height))
-        self._log_splitter.setSizes([max(0, total - h), h])
-
-    def _set_log_open(self, is_open: bool, *, animate: bool = True) -> None:
-        """Open or close the log drawer; the open height is remembered."""
-        if self._log_toggle.isChecked() != is_open:
+    def _set_log_shown(self, shown: bool) -> None:
+        """Show the log at its remembered height, or collapse it to the header line."""
+        if self._log_toggle.isChecked() != shown:
             self._log_toggle.blockSignals(True)
-            self._log_toggle.setChecked(is_open)
+            self._log_toggle.setChecked(shown)
             self._log_toggle.blockSignals(False)
-        closed = self._log_header_height()
         container = self._log_container
-        if is_open:
-            self._log.setVisible(True)
-            self._clear_log.setVisible(True)
-            container.setMinimumHeight(0)
+        splitter = self._log_splitter
+        if not shown and self._log.isVisible():
+            self._remember_log_height()
+        self._log.setVisible(shown)
+        self._clear_log.setVisible(shown)
+        set_button_icon_keep_text(self._log_toggle, "chevron-down" if shown else "chevron-right")
+        total = sum(splitter.sizes()) or splitter.height() or self.height()
+        if shown:
             container.setMaximumHeight(16_777_215)
-            target = max(self._log_open_height, closed + LOG_PANE_MIN_HEIGHT + 4)
-            self._log_height.set(float(container.height() or closed))
-            self._log_height.to(float(target), None if animate else 0)
+            height = self._log_open_height or self._log_height_for(LOG_LINES)
         else:
-            if container.height() > closed + LOG_PANE_MIN_HEIGHT:
-                self._log_open_height = container.height()
-            self._log.setVisible(False)
-            self._clear_log.setVisible(False)
-            # Fixed at one line: nothing to drag while the pane is hidden.
-            container.setFixedHeight(closed)
-        set_button_icon_keep_text(self._log_toggle, "chevron-down" if is_open else "chevron-right")
+            height = self._log_height_for(0, with_pane=False)
+            container.setMaximumHeight(height)
+        height = min(height, max(0, total - CONVERT_TABS_MIN_HEIGHT))
+        splitter.setSizes([total - height, height])
+
+    def _remember_log_height(self) -> None:
+        """Keep the height the user dragged the log to, for the next time it opens."""
+        height = self._log_container.height()
+        if height >= self._log_height_for(0, with_pane=False) + LOG_PANE_MIN_HEIGHT:
+            self._log_open_height = height
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        if not getattr(self, "_log_sized", False):
+            self._log_sized = True
+            # The splitter has its real height only once the window is shown.
+            QTimer.singleShot(0, lambda: self._set_log_shown(self._log_toggle.isChecked()))
 
     def _start_from_shortcut(self) -> None:
         """Ctrl+Return: same as clicking Convert, and only when it is enabled."""
@@ -854,8 +944,7 @@ class MainWindow(QMainWindow):
         if batch is not None:
             self._go.setEnabled(batch.is_ready())
         else:
-            busy = self._is_convert_running() or self._busy is not None
-            self._go.setEnabled(not busy and self._active_tab().is_ready())
+            self._go.setEnabled(self._convert.can_start and self._active_tab().is_ready())
         self._update_cancel_state()
 
     def _update_cancel_state(self) -> None:
@@ -863,16 +952,18 @@ class MainWindow(QMainWindow):
         if batch is not None:
             self._cancel_btn.setEnabled(batch.is_busy())
         else:
-            self._cancel_btn.setEnabled(self._is_convert_running() or self._busy == "convert")
-        # The bar shows exactly while there is something to cancel.
-        self._progress.setVisible(self._cancel_btn.isEnabled())
+            self._cancel_btn.setEnabled(self._convert.can_cancel)
+        # The bar shows while work is under way, including after Cancel is pressed
+        # and until the worker reports.
+        working = batch.is_busy() if batch is not None else self._convert.is_working
+        self._progress.setVisible(working)
 
     def _sync_proxy_tab_chrome(self) -> None:
         """Post-convert actions apply to single convert jobs, not batch tabs."""
         self._after_row_widget.setVisible(self._batch_tab() is None)
 
     def _on_batch_progress(self, tab: ProxyTab | TranscodeTab, cur: int, total: int) -> None:
-        if self._busy is not None or self._batch_tab() is not tab:
+        if self._convert.is_working or self._batch_tab() is not tab:
             return
         if total > 0:
             self._progress.setValue(int(100 * cur / total))
@@ -882,7 +973,7 @@ class MainWindow(QMainWindow):
         self._statusbar.showMessage(f"{noun} frame {cur} / {total}{more}")
 
     def _on_batch_busy_changed(self, tab: ProxyTab | TranscodeTab, busy: bool) -> None:
-        if not busy and self._busy is None:
+        if not busy and not self._convert.is_working:
             if self._batch_tab() is tab:
                 self._progress.setValue(0)
             q = tab.queue
@@ -899,7 +990,7 @@ class MainWindow(QMainWindow):
             batch.start_batch()
             self._update_go_state()
             return
-        if self._is_convert_running():
+        if not self._convert.can_start:
             self._append_log("Conversion already running — ignore start.")
             return
         if self._ocio_cfg is None:
@@ -987,7 +1078,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(self, "Slate Error", f"Failed to render slate: {e}")
                     return
 
-        self._busy = "convert"
+        self._convert.start()
         self._go.setEnabled(False)
         self._cancel_btn.setEnabled(True)
         self._progress.setVisible(True)
@@ -1109,30 +1200,30 @@ class MainWindow(QMainWindow):
         self._thread.start()
 
     def _on_progress(self, cur: int, total: int) -> None:
-        if self._busy != "convert":
+        if not self._convert.is_working:
             return
         if total > 0:
             self._progress.setValue(int(100 * cur / total))
         self._statusbar.showMessage(f"Frame {cur} / {total}")
 
     def _on_failed(self, msg: str) -> None:
-        self._busy = None
+        self._convert.finish()
         self._progress.setValue(0)
         self._statusbar.showMessage("Conversion failed.")
-        # The details are in the log: show it rather than leave the drawer shut.
-        self._set_log_open(True)
+        # The details are in the log: expand it.
+        self._set_log_shown(True)
         QMessageBox.critical(self, "Error", msg)
         self._update_go_state()
 
     def _on_cancelled(self) -> None:
         """User hit Cancel — quiet UI, no error dialog."""
-        self._busy = None
+        self._convert.finish()
         self._progress.setValue(0)
         self._statusbar.showMessage("Cancelled.", 4000)
         self._update_go_state()
 
     def _on_done(self) -> None:
-        self._busy = None
+        self._convert.finish()
         self._progress.setValue(100)
         self._update_go_state()
 
@@ -1186,8 +1277,7 @@ class MainWindow(QMainWindow):
     def _cleanup_thread(self) -> None:
         self._worker = None
         self._thread = None
-        if self._busy == "convert":
-            self._busy = None
+        self._convert.thread_closed()
         self._update_go_state()
 
     def _resolve_v2e_open_path(self, fallback: str) -> str:
@@ -1363,9 +1453,10 @@ class MainWindow(QMainWindow):
                 noun = "Proxy" if batch is self._proxy_tab else "Transcode"
                 self._append_log(f"{noun} cancellation requested\u2026")
             return
-        if self._worker:
+        if self._worker is not None and self._convert.request_cancel():
             self._worker.cancel()
             self._append_log("Cancellation requested\u2026")
+            self._update_cancel_state()
 
     # -- Burn-in / watermark overlays --
 
@@ -1697,9 +1788,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._settings.setValue("ui/geometry", self.saveGeometry())
-        self._settings.setValue("ui/log_open", self._log_toggle.isChecked())
-        if self._log_toggle.isChecked():
-            self._log_open_height = self._log_container.height()
+        if self._log.isVisible():
+            self._remember_log_height()
+        self._settings.setValue("ui/log_collapsed", not self._log_toggle.isChecked())
         self._settings.setValue("ui/log_height", self._log_open_height)
         # Flush prefs (input paths, post-convert toggles, …) before exit so a
         # subsequent launch restores a validated source without re-browsing.

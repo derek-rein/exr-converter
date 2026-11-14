@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from ..core.constants import IMAGE_SEQUENCE_EXTS, is_image_sequence_ext
 from ..core.local_fs import can_probe_media, path_is_dir, path_is_file
+from ..core.sdk_support import OptionalSdkError
 from ..core.sequence import (
     list_image_sequences,
     looks_like_sequence_pattern,
@@ -58,7 +59,7 @@ from .browser_tree import FILE_MODE_SEQUENCES, KIND_SEQUENCE, BrowserTreeModel
 from .media_browser import _letterbox_thumb, _MediaBrowserDialog
 from .player.sequence_player import SequencePlayer
 from .sequence_search import SEARCH_DEBOUNCE_MS, SequenceHit, SequenceIndex
-from .style import STATUS_DIM
+from .style import set_style_property
 
 log = logging.getLogger(__name__)
 
@@ -219,10 +220,10 @@ class SequenceBrowserDialog(_MediaBrowserDialog):
         self._search_empty = QLabel()
         self._search_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._search_empty.setWordWrap(True)
-        self._search_empty.setStyleSheet(STATUS_DIM)
+        set_style_property(self._search_empty, "role", "status")
         search_layout.addWidget(self._search_empty, 1)
         self._search_info = QLabel()
-        self._search_info.setStyleSheet(STATUS_DIM)
+        set_style_property(self._search_info, "role", "status")
         search_layout.addWidget(self._search_info)
         self._view_stack.addWidget(self._search_page)  # 3 = search results
         center_layout.addWidget(self._view_stack, 1)
@@ -889,6 +890,10 @@ class SequenceBrowserDialog(_MediaBrowserDialog):
         fps = float(ctx.fps) if ctx.fps and ctx.fps > 0 else 24.0
         self._in_out_media = ""
         if isinstance(result, BaseException):
+            if isinstance(result, OptionalSdkError):
+                log.debug("Preview skipped for %s: %s", path, result)
+                self._status.setText(str(result))
+                return
             log.warning("Preview load failed for %s: %s", path, result)
             self._status.setText(f"Preview failed: {result}")
             return

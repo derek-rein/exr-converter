@@ -158,10 +158,11 @@ class TranscodeTab(BatchTab):
         self._select(self.codec_combo, settings.value(f"{_K}/codec", DEFAULT_TRANSCODE_CODEC))
         self.container_combo = QComboBox()
         self.container_combo.setToolTip("File type. The choices follow the codec.")
+        self._container_label = inline_label("Container", self.container_combo)
         form.add_row(
             "Codec",
             self.codec_combo,
-            inline_label("Container", self.container_combo),
+            self._container_label,
             sized(self.container_combo, NARROW),
             width=WIDE,
         )
@@ -185,7 +186,7 @@ class TranscodeTab(BatchTab):
             self.resolution_combo,
             inline_label("Pixel aspect", self.pixel_aspect_combo),
             sized(self.pixel_aspect_combo, NARROW),
-            width=NARROW,
+            width=WIDE,
         )
 
         self.width_spin = QSpinBox()
@@ -199,7 +200,8 @@ class TranscodeTab(BatchTab):
             spin.setToolTip(tip)
             spin.setValue(int(settings.value(f"{_K}/{key}", 0, type=int)))
         self._times_label = QLabel("×")
-        # Shown only for Custom size.
+        # Always there, enabled only for Custom size: showing and hiding the row
+        # would resize the card and re-layout the whole page.
         self._size_label = form.add_row(
             "Size",
             self.width_spin,
@@ -319,7 +321,7 @@ class TranscodeTab(BatchTab):
             "or add _1, _2, … to the new file name."
         )
         self._select(self.overwrite_combo, settings.value(f"{_K}/overwrite", DEFAULT_OVERWRITE))
-        form.add_row("If file exists", self.overwrite_combo, width=NARROW)
+        form.add_row("If file exists", self.overwrite_combo, width=WIDE)
         layout.addWidget(out_group)
 
         # -- Color and watermark --
@@ -527,6 +529,10 @@ class TranscodeTab(BatchTab):
             self.container_combo.addItem(CONTAINER_LABELS.get(c, f".{c}"), c)
         self._select(self.container_combo, wanted)
         self.container_combo.blockSignals(False)
+        # One possible container leaves nothing to choose.
+        several = self.container_combo.count() > 1
+        self.container_combo.setEnabled(several)
+        self._container_label.setEnabled(several)
         lo, hi = CRF_RANGE.get(key, (0, 51))
         self.crf_spin.blockSignals(True)
         self.crf_spin.setRange(lo, hi)
@@ -558,7 +564,7 @@ class TranscodeTab(BatchTab):
     def _sync_all(self) -> None:
         custom_size = self.resolution_key() == RES_CUSTOM
         for w in (self._size_label, self.width_spin, self._times_label, self.height_spin):
-            w.setVisible(custom_size)
+            w.setEnabled(custom_size)
 
         self.fps_spin.setVisible(float(self.fps_combo.currentData() or 0.0) == _FPS_CUSTOM)
 

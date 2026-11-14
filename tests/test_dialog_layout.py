@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.components import NARROW, WIDE, Card, FormGrid
+from src.gui.components import NARROW, WIDE_MIN, Card, FormGrid
 
 
 @pytest.fixture
@@ -94,12 +94,12 @@ def test_codec_dialog_is_one_card_with_a_form(settings: QSettings, key: str) -> 
         assert "Encode format" in labels
         if key == "cineform":
             assert "Quality" in labels
-            assert dlg._cineform_quality.width() == NARROW[1]
+            assert dlg._cineform_quality.width() >= WIDE_MIN
         else:
             assert "CRF (quality)" in labels and "Preset" in labels
-            assert dlg._preset.width() == NARROW[1]
-            # Slider and its number box share one WIDE field.
-            assert dlg._crf_spin.parentWidget().width() == WIDE[1]
+            assert dlg._preset.width() >= WIDE_MIN
+            # Slider and its number box share one expanding WIDE field.
+            assert dlg._crf_spin.parentWidget().width() >= WIDE_MIN
         assert all(not t.endswith(":") for t in labels)
         assert _primary_ok(dlg).property("variant") == "primary"
         _assert_tab_order_follows_reading_order(dlg)
@@ -133,7 +133,7 @@ def test_compression_dialog_is_one_card_with_a_form(settings: QSettings, key: st
         labels = _form_labels(dlg)
         assert labels == (["Compression level"] if key == "dwaa" else ["Zip level"])
         spin = dlg._dwa_spin if key == "dwaa" else dlg._zip_spin
-        assert spin.parentWidget().width() == WIDE[1]
+        assert spin.parentWidget().width() >= WIDE_MIN
         assert _primary_ok(dlg).property("variant") == "primary"
         _assert_tab_order_follows_reading_order(dlg)
     finally:
@@ -177,7 +177,7 @@ def test_preferences_cards_and_rows(settings: QSettings) -> None:
         # One label column for the whole dialog, as in the convert tabs.
         lefts = {
             w.mapTo(dlg, w.rect().topLeft()).x()
-            for w in (dlg._thumb_combo, dlg._encoder_combo, dlg._cache_slider.parentWidget())
+            for w in (dlg._thumb_row, dlg._encoder_combo, dlg._cache_slider.parentWidget())
         }
         assert len(lefts) == 1
         labels = [t for t in _form_labels(dlg) if t]
@@ -192,8 +192,13 @@ def test_preferences_cards_and_rows(settings: QSettings) -> None:
         ):
             assert expected in labels
         assert all(not t.endswith(":") for t in labels)
-        for combo in (dlg._thumb_combo, dlg._encoder_combo, dlg._decoder_combo):
-            assert combo.width() == WIDE[1]
+        # Three short choices are radios in one row, in order.
+        assert [r.text() for r in dlg._thumb_radios.values()] == ["First", "Middle", "Last"]
+        assert sum(r.isChecked() for r in dlg._thumb_radios.values()) == 1
+        xs = [r.mapTo(dlg, r.rect().topLeft()) for r in dlg._thumb_radios.values()]
+        assert len({p.y() for p in xs}) == 1 and xs == sorted(xs, key=lambda p: p.x())
+        for combo in (dlg._encoder_combo, dlg._decoder_combo):
+            assert combo.width() >= WIDE_MIN
         assert dlg._wm_strength.width() == NARROW[1]
         # Budget slider and its read-out share one row.
         slider_y = dlg._cache_slider.mapTo(dlg, dlg._cache_slider.rect().center()).y()
@@ -316,5 +321,23 @@ def test_about_is_one_card_with_ghost_notice_buttons(settings: QSettings) -> Non
         assert all(b.property("variant") == "ghost" for b in notices)
         assert _primary_ok(dlg).property("variant") == "primary"
         _assert_tab_order_follows_reading_order(dlg)
+    finally:
+        dlg.close()
+
+
+def test_preferences_buttons_are_cancel_then_ok_like_the_main_window(qapp) -> None:
+    from PySide6.QtCore import QSettings
+
+    from src.gui.preferences import PreferencesDialog
+
+    dlg = _shown(PreferencesDialog(QSettings("VFXTools", "EXRConverterFooterTest")))
+    try:
+        box = dlg.findChild(QDialogButtonBox)
+        ok = box.button(QDialogButtonBox.StandardButton.Ok)
+        cancel = box.button(QDialogButtonBox.StandardButton.Cancel)
+        ok_x = ok.mapTo(dlg, ok.rect().topLeft()).x()
+        cancel_x = cancel.mapTo(dlg, cancel.rect().topLeft()).x()
+        assert cancel_x < ok_x
+        assert ok_x + ok.width() > dlg.width() - 40  # primary at the right edge
     finally:
         dlg.close()

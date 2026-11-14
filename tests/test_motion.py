@@ -52,3 +52,26 @@ def test_indeterminate_segment_stays_inside_the_track() -> None:
         assert 0.0 <= start <= end <= 1.0
     assert motion.indeterminate_segment(0.0)[1] == pytest.approx(0.0)
     assert motion.indeterminate_segment(1.0)[0] == pytest.approx(1.0)
+
+
+def test_selecting_a_tab_does_not_move_the_others() -> None:
+    """The selected label is bold; every tab reserves that width."""
+    from PySide6.QtWidgets import QApplication
+
+    from src.gui.animated_tabs import SlidingTabBar
+
+    QApplication.instance() or QApplication([])
+    import src.rc_resources  # noqa: F401
+    from src.gui.style import load_stylesheet
+
+    bar = SlidingTabBar()
+    bar.setStyleSheet(load_stylesheet())  # the stylesheet is what makes the selected tab bold
+    for name in ("Video → EXR", "EXR → Video", "Video → Proxy", "Transcode"):
+        bar.addTab(name)
+    bar.show()
+    layouts = []
+    for i in range(bar.count()):
+        bar.setCurrentIndex(i)
+        # Widths: a narrow test bar scrolls, which moves every left edge alike.
+        layouts.append([bar.tabRect(j).width() for j in range(bar.count())])
+    assert all(layout == layouts[0] for layout in layouts)

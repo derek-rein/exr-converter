@@ -24,7 +24,6 @@ FAST = 140  # hover, small fades, page cross-fade
 BASE = 200  # indicators that travel, progress catching up
 SLOW = 280  # panels and drawers that change size
 
-SETTINGS_KEY = "ui/reduce_motion"
 ENV_VAR = "EXR_CONVERTER_REDUCE_MOTION"
 
 _TRUTHY = {"1", "true", "yes", "on"}
@@ -72,18 +71,9 @@ _reduced_override: bool | None = None
 
 
 def set_reduced(value: bool | None) -> None:
-    """Preference hook: ``True`` / ``False`` to force, ``None`` to follow the environment."""
+    """Force motion off (``True``) or on (``False``); ``None`` follows the environment."""
     global _reduced_override  # noqa: PLW0603
     _reduced_override = value
-
-
-def apply_saved_preference(settings) -> None:
-    """Honour the saved Reduce motion switch (``QSettings``-like *settings*).
-
-    Checked forces motion off. Unchecked follows the environment, so the
-    variable and the no-display rule still apply.
-    """
-    set_reduced(True if settings.value(SETTINGS_KEY, False, type=bool) else None)
 
 
 def reduced() -> bool:
@@ -188,65 +178,3 @@ class Animator:
         self._length = length
         self._clock.start()
         self._timer.start()
-
-
-def crossfade_from(snapshot, onto) -> None:
-    """Fade a *snapshot* (QPixmap of what was there) out over widget *onto*.
-
-    The new content is already live underneath; only a picture of the old
-    content is animated, drawn by a plain child widget. No
-    ``QGraphicsOpacityEffect``: that effect re-renders the whole widget tree
-    through an offscreen buffer each frame and was seen to draw garbage on
-    pages holding scroll areas and item views.
-    """
-    if reduced() or snapshot is None or snapshot.isNull():
-        return
-    overlay = _SnapshotOverlay(snapshot, onto)
-    overlay.start()
-
-
-def _snapshot_overlay_class():
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QPainter
-    from PySide6.QtWidgets import QWidget
-
-    class SnapshotOverlay(QWidget):
-        def __init__(self, snapshot, parent) -> None:
-            super().__init__(parent)
-            self._snapshot = snapshot
-            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            self.setGeometry(parent.rect())
-            self._fade = Animator(self, self._on_step, value=1.0, duration_ms=FAST)
-
-        def start(self) -> None:
-            self.show()
-            self.raise_()
-            self._fade.to(0.0)
-
-        def _on_step(self, value: float) -> None:
-            if value <= 0.0:
-                self.hide()
-                self.deleteLater()
-                return
-            self.update()
-
-        def paintEvent(self, event) -> None:  # noqa: ARG002
-            painter = QPainter(self)
-            painter.setOpacity(self._fade.value)
-            painter.drawPixmap(self.rect(), self._snapshot)
-
-    return SnapshotOverlay
-
-
-class _LazyOverlay:
-    """Defers the Qt import so the pure helpers above stay importable alone."""
-
-    _cls = None
-
-    def __call__(self, snapshot, parent):
-        if _LazyOverlay._cls is None:
-            _LazyOverlay._cls = _snapshot_overlay_class()
-        return _LazyOverlay._cls(snapshot, parent)
-
-
-_SnapshotOverlay = _LazyOverlay()

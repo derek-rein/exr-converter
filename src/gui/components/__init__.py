@@ -15,6 +15,7 @@ themselves. Looks live in ``resources/style.qss`` and ``gui/style.py``.
     SegmentedControl  exclusive choice as a pill row
     SlidingTabBar   tab bar with a travelling underline
     EmptyHint       "nothing here yet" drawn over an empty item view
+    DialogFooter    the dialog button box on a full-width bar with a top border
 """
 
 from ..action_bar import PrimaryButton, ProgressLine, StatusLine
@@ -24,25 +25,30 @@ from ..picker_button import PickerButton
 from ..segmented_control import SegmentedControl
 from ..source_card import SourceCard
 from .card import Card
+from .footer import DialogFooter
 from .form import (
+    FIELD_WIDTH,
     FILL,
     LABEL_WIDTH,
     MEDIUM,
     NARROW,
     NATURAL,
     WIDE,
+    WIDE_MIN,
     FormGrid,
     inline_label,
     sized,
 )
 
 __all__ = [
+    "FIELD_WIDTH",
     "FILL",
     "LABEL_WIDTH",
     "MEDIUM",
     "NARROW",
     "NATURAL",
     "WIDE",
+    "WIDE_MIN",
     "Card",
     "EmptyHint",
     "FormGrid",
@@ -53,6 +59,7 @@ __all__ = [
     "SlidingTabBar",
     "SourceCard",
     "StatusLine",
+    "DialogFooter",
     "inline_label",
     "sized",
 ]

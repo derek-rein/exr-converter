@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.local_fs import can_probe_media, path_is_dir, path_is_file
+from ..core.sdk_support import OptionalSdkError
 from ..core.video import list_video_files, probe_video_metadata, probe_video_row
 from .browser_chrome import (
     _SEQ_THUMB_ICON,
@@ -289,6 +290,10 @@ class VideoBrowserDialog(_MediaBrowserDialog):
         self._in_out_media = ""
         label = Path(path).name
         if isinstance(result, BaseException):
+            if isinstance(result, OptionalSdkError):
+                log.debug("Preview skipped for %s: %s", path, result)
+                self._status.setText(str(result))
+                return
             log.warning("Video preview probe failed for %s: %s", path, result)
             self._status.setText(f"Could not open {label}")
             return
