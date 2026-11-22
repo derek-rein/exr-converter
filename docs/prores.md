@@ -60,12 +60,16 @@ What that means in practice:
 GUI: **EXR → Video → Codec → ProRes (VideoToolbox · macOS)**, a nested submenu,
 macOS only.
 
-CLI (packaged app or source):
+CLI:
 
 ```bash
-uv run python main.py exr2video -i ./plate -o review.mov --codec prores_vt_hq --fps 24
-uv run python main.py exr2video -i ./plate -o review.mov --codec prores_vt_4444 --fps 24
+exr_converter exr2video -i ./plate -o review.mov --codec prores_vt_hq --fps 24
+exr_converter exr2video -i ./plate -o review.mov --codec prores_vt_4444 --fps 24
 ```
+
+On Linux and on Windows with **Add EXR Converter to PATH**, the command is
+`exr-converter`. From a source checkout, see
+[Running from source](./cli.md#running-from-source).
 
 If VideoToolbox is missing on a given Mac (rare; older OS / encoder not in the
 bundled FFmpeg), convert fails with a codec error rather than silently falling

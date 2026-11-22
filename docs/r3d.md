@@ -129,9 +129,13 @@ Override discovery:
 Convert:
 
 ```bash
-uv run python main.py video2exr -i /path/clip.R3D -o /tmp/exr_out \
+exr_converter video2exr -i /path/clip.R3D -o /tmp/exr_out \
   --src "Log3G10 REDWideGamutRGB" --dst ACEScg
 ```
+
+On Linux and on Windows with **Add EXR Converter to PATH**, the command is
+`exr-converter`. From a source checkout, see
+[Running from source](./cli.md#running-from-source).
 
 ---
 

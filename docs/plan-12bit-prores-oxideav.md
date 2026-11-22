@@ -130,6 +130,10 @@ ffprobe -show_entries stream=pix_fmt,bits_per_raw_sample,codec_tag_string out.mo
 # yuv444p12le, 12, ap4h
 ```
 
+On Linux and on Windows with **Add EXR Converter to PATH**, the command is
+`exr-converter`. From a source checkout, see
+[Running from source](./cli.md#running-from-source).
+
 ---
 
 ## 6. Remaining work

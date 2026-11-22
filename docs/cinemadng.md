@@ -69,11 +69,15 @@ prefer EXR, then CinemaDNG, then DPX.
 
 ## CLI
 
+Examples use `exr_converter`. On Linux and on Windows with **Add EXR Converter
+to PATH**, the command is `exr-converter`. From a source checkout, see
+[Running from source](./cli.md#running-from-source).
+
 Proxy from a sequence (EXR → video). The `+1.4` is already in the pixels, so
 do not add it again in the grade:
 
 ```bash
-uv run python main.py exr2video -i /path/to/shot \
+exr_converter exr2video -i /path/to/shot \
   --src "Linear P3-D60" --dst "D-Log D-Gamut" \
   -o /tmp/proxy.mov --codec prores
 ```
@@ -83,14 +87,14 @@ EXR from the same sequence (`video2exr`). Pass the folder or the first frame.
 DJI, or ACES2065-1 otherwise.
 
 ```bash
-uv run python main.py video2exr -i /path/to/shot/shot.0001.dng -o /tmp/exr_out \
+exr_converter video2exr -i /path/to/shot/shot.0001.dng -o /tmp/exr_out \
   --src "Linear P3-D60" --dst ACEScg
 ```
 
 To land in D-Gamut instead:
 
 ```bash
-uv run python main.py video2exr -i /path/to/shot -o /tmp/exr_out \
+exr_converter video2exr -i /path/to/shot -o /tmp/exr_out \
   --src "Linear P3-D60" --dst "Linear D-Gamut"
 ```
 

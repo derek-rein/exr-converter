@@ -132,9 +132,13 @@ Override at runtime:
 Convert:
 
 ```bash
-uv run python main.py video2exr -i /path/clip.braw -o /tmp/exr_out \
+exr_converter video2exr -i /path/clip.braw -o /tmp/exr_out \
   --src ACES2065-1 --dst ACEScg --frame-range 1
 ```
+
+On Linux and on Windows with **Add EXR Converter to PATH**, the command is
+`exr-converter`. From a source checkout, see
+[Running from source](./cli.md#running-from-source).
 
 ---
 

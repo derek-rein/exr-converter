@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Changed
+
+- CLI examples in the docs use the installed command (`exr_converter`, or `exr-converter` on Linux and on Windows when the installer adds it to PATH). `uv run python main.py` is only in the Running from source note.
+
 ## [0.14.3] - 2026-11-14
 
 ### Added

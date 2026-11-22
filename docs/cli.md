@@ -16,23 +16,38 @@ Slate, burn-in, the visible text watermark, and post-convert toggles are
 from the CLI as `proxy --watermark`, `transcode --watermark`, and
 `exr2video --watermark`.
 
-```bash
-# From a source checkout
-uv run python main.py --help
-uv run python main.py video2exr --help
-uv run python main.py exr2video --help
-uv run python main.py proxy --help
-uv run python main.py transcode --help
+The packaged program is named `exr_converter`. Examples on this page use that
+name. Subcommands are `video2exr`, `exr2video`, `proxy`, and `transcode`.
+With no subcommand, the GUI opens.
 
-# Packaged binary (examples)
+| Install | Command |
+|---------|---------|
+| macOS | `"/Applications/EXR Converter.app/Contents/MacOS/exr_converter"`. `open -a "EXR Converter"` opens the GUI. |
+| Windows | `exr-converter`, after ticking **Add EXR Converter to PATH**. That is `exr-converter.cmd` in the install folder. It waits for `exr_converter.exe` and shows its output and exit code. The `.exe` has no console window. Without the PATH option, run `exr-converter.cmd` from the install folder. |
+| Linux tarball and RPM | `exr-converter`. The RPM links `/usr/bin/exr-converter`. The launcher runs the `exr_converter` binary next to it. See [Linux](./linux.md). |
+| Linux AppImage | `./exr_converter-linux-x86_64.AppImage` |
+
+On Linux, and on Windows with that PATH option, use `exr-converter` wherever
+an example says `exr_converter`. On macOS, use the app path in the table.
+The arguments are the same.
+
+```bash
 exr_converter --help
-exr-converter --help
-"/Applications/EXR Converter.app/Contents/MacOS/exr_converter" --help
+exr_converter video2exr --help
+exr_converter exr2video --help
+exr_converter proxy --help
+exr_converter transcode --help
 ```
 
-On Windows, tick **Add EXR Converter to PATH** in the installer to run `exr-converter` from any terminal. It is a small launcher that waits for the app and shows its output and exit code (the app itself has no console window). Without it, call `exr-converter.cmd` in the install folder.
+## Running from source
 
-On Linux, `exr-converter` is the launcher in the tarball and the RPM. Install options are in [Linux](./linux.md).
+From a source checkout, put `uv run python main.py` in front of the same
+subcommands. That needs Python 3.13 and [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv run python main.py --help
+uv run python main.py video2exr --help
+```
 
 For coding agents: **Help → Agent Skills** in the app (or
 [`skills.md`](https://github.com/derek-rein/exr-converter/blob/main/skills.md) in the repository)
@@ -46,11 +61,11 @@ Related: [Linux](./linux.md) · [GUI](./gui.md) · [ProRes and VideoToolbox](./p
 
 | Invocation | What it does |
 |------------|----------------|
-| `main.py` *(no subcommand)* | Open the GUI |
-| `main.py video2exr …` | CLI: video → OCIO → EXR sequence |
-| `main.py exr2video …` | CLI: image sequence (EXR / PNG / JPG / …) → OCIO → video |
-| `main.py proxy …` | CLI: video → editing proxies, as a batch or a `--watch` folder daemon |
-| `main.py transcode …` | CLI: video → video (ProRes, DNxHR, H.264, HEVC, AV1), with an optional OCIO transform |
+| `exr_converter` *(no subcommand)* | Open the GUI |
+| `exr_converter video2exr …` | CLI: video → OCIO → EXR sequence |
+| `exr_converter exr2video …` | CLI: image sequence (EXR / PNG / JPG / …) → OCIO → video |
+| `exr_converter proxy …` | CLI: video → editing proxies, as a batch or a `--watch` folder daemon |
+| `exr_converter transcode …` | CLI: video → video (ProRes, DNxHR, H.264, HEVC, AV1), with an optional OCIO transform |
 
 Global flags (before the subcommand; convert flags may also appear after it):
 
@@ -73,15 +88,14 @@ with status **130**.
 
 ```bash
 # Open GUI with an EXR sequence already loaded (EXR → Video tab)
-uv run python main.py --open "/show/shot/plate.####.exr"
+exr_converter --open "/show/shot/plate.####.exr"
 
 # Force Video → EXR tab + custom OCIO
-uv run python main.py --open /path/clip.mov --mode video2exr \
+exr_converter --open /path/clip.mov --mode video2exr \
   --gui-ocio /path/to/config.ocio
 
-# Packaged app
+# macOS app bundle
 open -a "EXR Converter" --args --open "/path/to/seq" --gui-ocio "$OCIO"
-# or call the binary directly:
 "/Applications/EXR Converter.app/Contents/MacOS/exr_converter" \
   --open "/path/to/seq" --gui-ocio "/path/to/config.ocio" --mode exr2video
 ```
@@ -98,19 +112,19 @@ For a one-click Nuke menu that fills these in from a **Read** node, see
 ## `video2exr`: video to EXR
 
 ```bash
-uv run python main.py video2exr -i plate.mov
-uv run python main.py video2exr -i plate.mov -o /tmp/exr_out --exr-compression zip
-uv run python main.py video2exr -i plate.mov --frame-range 1-100 --workers 4
+exr_converter video2exr -i plate.mov
+exr_converter video2exr -i plate.mov -o /tmp/exr_out --exr-compression zip
+exr_converter video2exr -i plate.mov --frame-range 1-100 --workers 4
 # Optional RED R3D / N-RAW (requires local R3D SDK bridge; see docs/r3d.md):
-uv run python main.py video2exr -i clip.R3D -o /tmp/exr_out \
+exr_converter video2exr -i clip.R3D -o /tmp/exr_out \
   --src "Log3G10 REDWideGamutRGB" --dst ACEScg
 # Optional Blackmagic RAW (requires local BRAW SDK bridge; see docs/braw.md):
-uv run python main.py video2exr -i clip.braw -o /tmp/exr_out \
+exr_converter video2exr -i clip.braw -o /tmp/exr_out \
   --src ACES2065-1 --dst ACEScg
 # Apple ProRes RAW (develops to ACES2065-1; the source space is auto-detected):
-uv run python main.py video2exr -i A001C002.mov -o /tmp/exr_out
+exr_converter video2exr -i A001C002.mov -o /tmp/exr_out
 # CinemaDNG sequence (DJI is Linear P3-D60 with +1.4 already in the pixels):
-uv run python main.py video2exr -i /path/to/shot -o /tmp/exr_out \
+exr_converter video2exr -i /path/to/shot -o /tmp/exr_out \
   --src "Linear P3-D60" --dst ACEScg
 ```
 
@@ -169,11 +183,11 @@ The command always encodes a **video file**. DJI CinemaDNG is
 [cinemadng.md](./cinemadng.md).
 
 ```bash
-uv run python main.py exr2video -i ./plate
-uv run python main.py exr2video -i ./plate -o review.mov --fps 24
-uv run python main.py exr2video -i ./plate/plate.1001.exr -o review.mov --fps 24
-uv run python main.py exr2video -i ./png_seq -o review.mp4 --codec h264 --fps 24
-uv run python main.py exr2video -i ./plate --codec h264 --crf 18
+exr_converter exr2video -i ./plate
+exr_converter exr2video -i ./plate -o review.mov --fps 24
+exr_converter exr2video -i ./plate/plate.1001.exr -o review.mov --fps 24
+exr_converter exr2video -i ./png_seq -o review.mp4 --codec h264 --fps 24
+exr_converter exr2video -i ./plate --codec h264 --crf 18
 ```
 
 | Option | Default | Notes |
@@ -255,7 +269,7 @@ other operating systems, and omits `prores_ox_*` when the oxideav extension
 is not built:
 
 ```bash
-uv run python main.py exr2video --help
+exr_converter exr2video --help
 ```
 
 User guide for the three ProRes encoders (software vs VideoToolbox vs oxideav):
@@ -291,20 +305,20 @@ the GUI's **Video → Proxy** tab.
 
 ```bash
 # One clip → ./Proxy/A001C003.mov (ProRes 422 Proxy, half resolution)
-uv run python main.py proxy -i A001C003.mov
+exr_converter proxy -i A001C003.mov
 
 # Every clip in a card folder, quarter-res H.264
-uv run python main.py proxy -i ./A001_card --resolution quarter --codec h264
+exr_converter proxy -i ./A001_card --resolution quarter --codec h264
 
 # Whole shoot day into one folder
-uv run python main.py proxy -i ./day1 --recursive -o /proxies
+exr_converter proxy -i ./day1 --recursive -o /proxies
 
 # Watch folder daemon: proxy each new clip once it finishes copying (Ctrl-C stops)
-uv run python main.py proxy --watch /Volumes/Ingest
-uv run python main.py proxy --watch /Volumes/Ingest --recursive --existing --codec dnxhr_lb
+exr_converter proxy --watch /Volumes/Ingest
+exr_converter proxy --watch /Volumes/Ingest --recursive --existing --codec dnxhr_lb
 
 # Invisible TrustMark watermark on every proxy frame (off unless --watermark is given)
-uv run python main.py proxy -i ./A001_card --watermark ABCD1234 --watermark-strength 1.0
+exr_converter proxy -i ./A001_card --watermark ABCD1234 --watermark-strength 1.0
 ```
 
 Flags match `proxy --help`. The `--codec` list in that help text is whatever
@@ -339,7 +353,7 @@ or a `--watermark-strength` outside `0.1` to `2.0` (checked only with
 converted. If the model cannot be downloaded, each clip fails with an error (a batch
 exits with code `1`).
 
-To read a mark back, use
+To read a mark back from a source checkout, use
 `uv run python scripts/trustmark_detect.py PROXY.mov` (add `--samples N` to
 read more frames; the default is 9). That helper downloads `decoder_Q.onnx`
 (not shipped with the app), samples frames, and majority-votes the bits. It
@@ -364,22 +378,22 @@ picture, timecode, and the source color tags pass through. Give `--src` and
 
 ```bash
 # One clip → ./A001C003_ProRes422HQ.mov (ProRes 422 HQ, source size, audio copied)
-uv run python main.py transcode -i A001C003.mxf
+exr_converter transcode -i A001C003.mxf
 
 # A folder into DNxHR HQX MXF in one delivery folder
-uv run python main.py transcode -i ./day1 --recursive -o /deliveries --codec dnxhr_hqx --container mxf
+exr_converter transcode -i ./day1 --recursive -o /deliveries --codec dnxhr_hqx --container mxf
 
 # H.264 review copy, fit to 1080p, CRF 18, slow preset
-uv run python main.py transcode -i plate.mov --codec h264 --crf 18 --preset slow --resolution 1080
+exr_converter transcode -i plate.mov --codec h264 --crf 18 --preset slow --resolution 1080
 
 # HEVC at a target bitrate, AAC audio
-uv run python main.py transcode -i plate.mov --codec hevc --bitrate 25 --audio aac
+exr_converter transcode -i plate.mov --codec hevc --bitrate 25 --audio aac
 
 # Custom width (height from the aspect ratio), conformed to 24 fps
-uv run python main.py transcode -i clip.mov --codec prores_4444 --width 2048 --fps 24
+exr_converter transcode -i clip.mov --codec prores_4444 --width 2048 --fps 24
 
 # Log footage to a Rec.709 display with the bundled ACES config
-uv run python main.py transcode -i log.mov --src "S-Log3 S-Gamut3.Cine" --dst "Rec.1886 Rec.709 - Display"
+exr_converter transcode -i log.mov --src "S-Log3 S-Gamut3.Cine" --dst "Rec.1886 Rec.709 - Display"
 ```
 
 | Flag | Default | Meaning |
@@ -481,7 +495,7 @@ The player, Inspect, the convert log, and the Pixel aspect row in the GUI all sh
 
 ## See also
 
-- `main.py --help`, `video2exr --help`, `exr2video --help`, `proxy --help`, `transcode --help` (always current)
+- `exr_converter --help`, `video2exr --help`, `exr2video --help`, `proxy --help`, `transcode --help` (always current)
 - [GUI](./gui.md)
 - [Nuke integration](./nuke.md)
 - [Releasing](./releasing.md)
