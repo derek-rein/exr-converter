@@ -38,6 +38,12 @@
   <a href="#changelog"><strong>Changelog</strong></a>
 </p>
 
+<p align="center">
+  <a href="https://vfx.systems/exr-converter#download"><img alt="Download EXR Converter free at vfx.systems" src="https://img.shields.io/badge/Download%20free-vfx.systems-1a73b8?style=for-the-badge"></a>
+  <br>
+  <sub>macOS · Windows · Linux. Signed builds, free with a vfx.systems account.</sub>
+</p>
+
 ## Features
 
 <table>
@@ -103,7 +109,7 @@ Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-p
 
 [![Latest release](https://img.shields.io/github/v/release/derek-rein/exr-converter?label=latest)](https://vfx.systems/exr-converter#download)
 
-**Get EXR Converter at [vfx.systems/exr-converter](https://vfx.systems/exr-converter#download).** It is free and open source (MIT). Downloads need a free vfx.systems account, which is how you hear about new releases.
+**Download EXR Converter at [vfx.systems/exr-converter](https://vfx.systems/exr-converter#download).** It is free and open source (MIT). Sign up for a free vfx.systems account to download, and you'll hear when new versions ship.
 
 | Platform | Download |
 | --- | --- |
@@ -112,9 +118,7 @@ Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-p
 | macOS Intel | [**DMG**](https://vfx.systems/download/exr-converter/macos-x64) |
 | Linux x86_64 | [**AppImage**](https://vfx.systems/download/exr-converter/linux-appimage) |
 
-Studio and IT installs (Linux tarball and RPM), older versions, and signature files are on [GitHub Releases](https://github.com/derek-rein/exr-converter/releases).
-
-All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) and carry [GitHub build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The [releases page](https://github.com/derek-rein/exr-converter/releases) has the `cosign verify-blob` and `gh attestation verify` commands.
+Release builds are [signed with Sigstore Cosign](https://docs.sigstore.dev/) and carry [GitHub build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The `cosign verify-blob` and `gh attestation verify` commands, plus the Linux tarball and RPM for studio deploys, are in the [release notes](https://github.com/derek-rein/exr-converter/releases/latest).
 
 ### Running on macOS
 
@@ -499,7 +503,7 @@ Enable **branch protection** on `main` and require the `ci-ok` status check so m
 
 ## Changelog
 
-User-facing history is in **[CHANGELOG.md](CHANGELOG.md)** (Keep a Changelog, semver). Download the current release at [vfx.systems/exr-converter](https://vfx.systems/exr-converter#download). Release notes and tagged builds are also on [GitHub Releases](https://github.com/derek-rein/exr-converter/releases/latest).
+User-facing history is in **[CHANGELOG.md](CHANGELOG.md)** (Keep a Changelog, semver). Get the current version at [vfx.systems/exr-converter](https://vfx.systems/exr-converter#download).
 
 ## License
 
