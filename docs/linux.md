@@ -103,14 +103,15 @@ so `.r3d` and `.nev` are unavailable in this package. macOS and Windows
 packages still include them. See
 [R3D / N-RAW](./r3d.md) and [Blackmagic RAW](./braw.md).
 
-## From a source checkout
+## Running from source
 
-The packages above are the Release builds. Developing from git still uses
-Python 3.13 and uv:
+The packages above are the Release builds. A git checkout uses Python 3.13
+and [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv run python main.py
 ```
 
 That environment follows `uv.lock`, which pins the same PySide6 6.9.2 as the
-release packages.
+release packages. Subcommands match the [CLI reference](./cli.md). On Linux,
+run those examples with `exr-converter`.

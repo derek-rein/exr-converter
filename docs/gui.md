@@ -8,11 +8,13 @@ Desktop UI for **video ↔ OpenEXR** with **OpenColorIO**. Launch with no
 subcommand:
 
 ```bash
-uv run python main.py
-# or packaged:
 exr_converter
 "/Applications/EXR Converter.app/Contents/MacOS/exr_converter"
 ```
+
+Linux tarball and RPM, and Windows after **Add EXR Converter to PATH**, use
+`exr-converter`. From a source checkout, see
+[Running from source](./cli.md#running-from-source).
 
 Optional launch flags (`--open`, `--gui-ocio`, `--mode`) are documented in
 [CLI: GUI launch](./cli.md#gui-launch-for-shells--nuke). Nuke can fill them in
@@ -443,7 +445,7 @@ is proxied with the settings above, joining the same queue as a batch.
 The watch folder scans the folder on a timer instead of using OS file
 events, so it works on network shares and removable volumes. For a headless
 watch folder (a render box or ingest station), use
-[`main.py proxy --watch`](./cli.md#proxy-video-to-editing-proxies).
+[`exr_converter proxy --watch`](./cli.md#proxy-video-to-editing-proxies).
 
 ### Invisible watermark
 
@@ -541,7 +543,7 @@ editorial files into ProRes, DNxHR, H.264, HEVC, or AV1. It runs on the same
 encode engine as **Video → Proxy**. Every clip goes through an **OCIO
 conversion** from its input space to the one output space, and the source
 **timecode** passes through. The matching CLI is
-[`main.py transcode`](./cli.md#transcode-video-to-video).
+[`exr_converter transcode`](./cli.md#transcode-video-to-video).
 
 **Source formats:** the same video files as Video → Proxy (`.mov`, `.mp4`,
 `.m4v`, `.mxf`, `.mkv`, `.avi`, `.webm`, `.ts`, `.mts`, `.m2ts`), plus

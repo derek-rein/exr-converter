@@ -53,8 +53,14 @@ Application certificate for **Medeu Global LLC**, then notarized and stapled.
 The app opens normally. First launch may still show the standard "downloaded
 from the internet" prompt.
 
+Installed builds run `exr_converter`. On macOS the binary is
+`"/Applications/EXR Converter.app/Contents/MacOS/exr_converter"`. Linux tarball
+and RPM, and Windows after **Add EXR Converter to PATH**, use `exr-converter`.
+See the [CLI reference](./cli.md).
+
 From a source checkout (Python 3.13 and [uv](https://docs.astral.sh/uv/)):
-`uv run python main.py`.
+`uv run python main.py`. See
+[Running from source](./cli.md#running-from-source).
 
 When you change CLI flags, GUI behavior, codecs, OCIO defaults, packaging that
 users see, or integrations, update the matching guide here in the **same** PR

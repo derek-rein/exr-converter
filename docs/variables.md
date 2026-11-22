@@ -111,8 +111,12 @@ app sees it; inside single quotes the app does it. Quote patterns either way,
 because the shell reads `<` and `>` as redirection:
 
 ```bash
-uv run python main.py transcode -i clips/ -o "$DAILIES_ROOT/<date>/<reel>" --name '<name>_<codec>'
+exr_converter transcode -i clips/ -o "$DAILIES_ROOT/<date>/<reel>" --name '<name>_<codec>'
 ```
+
+On Linux and on Windows with **Add EXR Converter to PATH**, the command is
+`exr-converter`. From a source checkout, see
+[Running from source](./cli.md#running-from-source).
 
 Example folder: `$DAILIES_ROOT/${SHOW:-misc}/<date>/<reel>`.
 
