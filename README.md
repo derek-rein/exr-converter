@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://vfx.systems/exr-converter#download"><img alt="Latest release" src="https://img.shields.io/github/v/release/derek-rein/exr-converter?style=for-the-badge&amp;label=latest&amp;color=orange"></a>
+  <a href="https://github.com/derek-rein/exr-converter/releases"><img alt="GitHub release downloads" src="https://img.shields.io/github/downloads/derek-rein/exr-converter/total?style=for-the-badge&amp;label=downloads"></a>
   <a href="https://github.com/derek-rein/exr-converter/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/derek-rein/exr-converter?style=for-the-badge"></a>
   <a href="https://github.com/derek-rein/exr-converter/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/derek-rein/exr-converter?style=for-the-badge"></a>
   <a href="https://github.com/derek-rein/exr-converter/actions/workflows/ci.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/derek-rein/exr-converter/ci.yml?branch=main&amp;style=for-the-badge&amp;label=CI"></a>
