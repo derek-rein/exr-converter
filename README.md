@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/derek-rein/exr-converter/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/derek-rein/exr-converter?style=for-the-badge&amp;label=latest&amp;color=orange"></a>
+  <a href="https://vfx.systems/exr-converter#download"><img alt="Latest release" src="https://img.shields.io/github/v/release/derek-rein/exr-converter?style=for-the-badge&amp;label=latest&amp;color=orange"></a>
   <a href="https://github.com/derek-rein/exr-converter/releases"><img alt="GitHub release downloads" src="https://img.shields.io/github/downloads/derek-rein/exr-converter/total?style=for-the-badge&amp;label=downloads"></a>
   <a href="https://github.com/derek-rein/exr-converter/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/derek-rein/exr-converter?style=for-the-badge"></a>
   <a href="https://github.com/derek-rein/exr-converter/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/derek-rein/exr-converter?style=for-the-badge"></a>
@@ -29,13 +29,19 @@
 </p>
 
 <p align="center">
-  <a href="#downloads"><strong>Download</strong></a>
+  <a href="https://vfx.systems/exr-converter#download"><strong>Download free at vfx.systems</strong></a>
   &nbsp;·&nbsp;
   <a href="#documentation"><strong>Docs</strong></a>
   &nbsp;·&nbsp;
   <a href="#features"><strong>Features</strong></a>
   &nbsp;·&nbsp;
   <a href="#changelog"><strong>Changelog</strong></a>
+</p>
+
+<p align="center">
+  <a href="https://vfx.systems/exr-converter#download"><img alt="Download EXR Converter free at vfx.systems" src="https://img.shields.io/badge/Download%20free-vfx.systems-1a73b8?style=for-the-badge"></a>
+  <br>
+  <sub>macOS · Windows · Linux. Signed builds, free with a vfx.systems account.</sub>
 </p>
 
 ## Features
@@ -101,16 +107,18 @@ Targets the [VFX Reference Platform CY2026](https://vfxplatform.com/#reference-p
 
 ## Downloads
 
-[![Latest release](https://img.shields.io/github/v/release/derek-rein/exr-converter?label=latest)](https://github.com/derek-rein/exr-converter/releases)
+[![Latest release](https://img.shields.io/github/v/release/derek-rein/exr-converter?label=latest)](https://vfx.systems/exr-converter#download)
+
+**Download EXR Converter at [vfx.systems/exr-converter](https://vfx.systems/exr-converter#download).** It is free and open source (MIT). Sign up for a free vfx.systems account to download, and you'll hear when new versions ship.
 
 | Platform | Download |
 | --- | --- |
-| Windows x64 | [**Installer (.exe)**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe) |
-| macOS Apple Silicon | [**DMG**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-arm64.dmg) |
-| macOS Intel | [**DMG**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-x86_64.dmg) |
-| Linux x86_64 | [**AppImage**](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage) · [tarball](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz) · [RPM](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm) |
+| Windows x64 | [**Installer (.exe)**](https://vfx.systems/download/exr-converter/windows-x64) |
+| macOS Apple Silicon | [**DMG**](https://vfx.systems/download/exr-converter/macos-arm64) |
+| macOS Intel | [**DMG**](https://vfx.systems/download/exr-converter/macos-x64) |
+| Linux x86_64 | [**AppImage**](https://vfx.systems/download/exr-converter/linux-appimage) |
 
-All release artifacts are [signed with Sigstore Cosign](https://docs.sigstore.dev/) and carry [GitHub build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The [releases page](https://github.com/derek-rein/exr-converter/releases) has the `cosign verify-blob` and `gh attestation verify` commands.
+Release builds are [signed with Sigstore Cosign](https://docs.sigstore.dev/) and carry [GitHub build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The `cosign verify-blob` and `gh attestation verify` commands, plus the Linux tarball and RPM for studio deploys, are in the [release notes](https://github.com/derek-rein/exr-converter/releases/latest).
 
 ### Running on macOS
 
@@ -133,8 +141,8 @@ The Windows installer and the app executable inside it are signed with Azure Art
 
 | Mac | Download |
 | --- | --- |
-| Apple Silicon | [exr_converter-macos-arm64.dmg](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-arm64.dmg) |
-| Intel | [exr_converter-macos-x86_64.dmg](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-macos-x86_64.dmg) |
+| Apple Silicon | [exr_converter-macos-arm64.dmg](https://vfx.systems/download/exr-converter/macos-arm64) |
+| Intel | [exr_converter-macos-x86_64.dmg](https://vfx.systems/download/exr-converter/macos-x64) |
 
 The macOS build is signed and notarized, so it opens normally. First launch may still show the standard "downloaded from the internet" prompt.
 
@@ -153,7 +161,7 @@ open -a "EXR Converter"
 
 #### Install on Windows
 
-Download [exr_converter-windows-x86_64-setup.exe](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-windows-x86_64-setup.exe) and run it.
+Download [exr_converter-windows-x86_64-setup.exe](https://vfx.systems/download/exr-converter/windows-x64) from vfx.systems and run it.
 
 The installer adds a Start menu shortcut and can add a desktop shortcut. The program is `exr_converter.exe`.
 
@@ -167,16 +175,16 @@ The installer adds a Start menu shortcut and can add a desktop shortcut. The pro
 
 Built on Rocky Linux 8 (glibc 2.28). Runs on RHEL, Rocky, and Alma 8 and newer. Details: [docs/linux.md](docs/linux.md).
 
-**AppImage** (artists). Download [exr_converter-linux-x86_64.AppImage](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.AppImage).
+**AppImage** (artists). Download [exr_converter-linux-x86_64.AppImage](https://vfx.systems/download/exr-converter/linux-appimage) from vfx.systems.
 
 ```bash
 chmod +x exr_converter-linux-x86_64.AppImage
 ./exr_converter-linux-x86_64.AppImage
 ```
 
-**Tarball** (studio deploy, `/opt`, `/software`, Rez). Download [exr_converter-linux-x86_64.tar.gz](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz), extract it, and run `exr-converter` from that folder. The folder does not need to be writable. Settings go to the XDG directories.
+**Tarball** (studio deploy, `/opt`, `/software`, Rez). Download [exr_converter-linux-x86_64.tar.gz](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.tar.gz) from GitHub Releases, extract it, and run `exr-converter` from that folder. The folder does not need to be writable. Settings go to the XDG directories.
 
-**RPM** (IT, RHEL / Rocky). Download [exr_converter-linux-x86_64.rpm](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm). It installs to `/opt/exr-converter`, links `/usr/bin/exr-converter`, and adds a desktop file and icon. Vendor is Medeu Global LLC. License is MIT.
+**RPM** (IT, RHEL / Rocky). Download [exr_converter-linux-x86_64.rpm](https://github.com/derek-rein/exr-converter/releases/latest/download/exr_converter-linux-x86_64.rpm) from GitHub Releases. It installs to `/opt/exr-converter`, links `/usr/bin/exr-converter`, and adds a desktop file and icon. Vendor is Medeu Global LLC. License is MIT.
 
 </details>
 
@@ -495,7 +503,7 @@ Enable **branch protection** on `main` and require the `ci-ok` status check so m
 
 ## Changelog
 
-User-facing history is in **[CHANGELOG.md](CHANGELOG.md)** (Keep a Changelog, semver). The current release line is also on the [GitHub Releases](https://github.com/derek-rein/exr-converter/releases/latest) page.
+User-facing history is in **[CHANGELOG.md](CHANGELOG.md)** (Keep a Changelog, semver). Get the current version at [vfx.systems/exr-converter](https://vfx.systems/exr-converter#download).
 
 ## License
 
