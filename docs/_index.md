@@ -71,6 +71,7 @@ as the code (and [CHANGELOG.md](https://github.com/derek-rein/exr-converter/blob
 
 | Guide | Topics |
 |-------|--------|
+| [Common jobs](./common-jobs.md) | EXR to ProRes on a Mac, EXR to MP4, an ACEScg review file, camera RAW to EXR: the GUI steps and the command for each |
 | [CLI](./cli.md) | `video2exr`, `exr2video`, `proxy` (`--watch`, `--watermark`), `transcode`, GUI launch flags |
 | [Linux](./linux.md) | AppImage, relocatable tarball, and RHEL / Rocky RPM |
 | [Variables](./variables.md) | Every `<token>` for slate, burn-in, watermark and Transcode output paths, and `$VAR` / `${VAR}` environment variables |
