@@ -1,7 +1,7 @@
 ---
 title: Common jobs
 weight: 5
-description: Short answers for the jobs people do most: EXR to ProRes, EXR to MP4, an ACEScg review file, and camera RAW to EXR
+description: Short answers for the jobs people do most - EXR to ProRes, EXR to MP4, an ACEScg review file, and camera RAW to EXR
 ---
 
 Short answers for the jobs people do most. Each one is the GUI path and the matching command. Examples use the installed
