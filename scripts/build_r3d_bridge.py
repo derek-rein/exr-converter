@@ -25,11 +25,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from private_bridge import ROOT, find_bridge, run_build  # noqa: E402
 
 DEFAULT_REPO = "derek-rein/r3d-sdk-private"
-DEFAULT_REF = "bridge-v1"
+DEFAULT_REF = "bridge-v2"
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--sdk", default=None)
     ap.add_argument("--out", type=Path, default=ROOT / "build" / "r3d")
     ap.add_argument("--repo", default=os.environ.get("R3D_BRIDGE_REPO", DEFAULT_REPO))

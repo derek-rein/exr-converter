@@ -548,6 +548,23 @@ def colorspace_candidates_from_tags(
     ]
 
 
+def _decoder_fixes_colorspace(path: str) -> bool:
+    """True when an SDK decoder, not the user, determines *path*'s pixel encoding."""
+    from .braw import is_braw_path
+    from .r3d import is_r3d_path
+    from .source_plugins import plugin_for_path
+
+    try:
+        return (
+            is_r3d_path(path)
+            or is_braw_path(path)
+            or is_cinemadng_input(path)
+            or plugin_for_path(path) is not None
+        )
+    except Exception:
+        return False
+
+
 def resolve_video_src_colorspace(
     path: str,
     ocio_cfg: object | None,
@@ -558,6 +575,10 @@ def resolve_video_src_colorspace(
     Prefers *preferred* (tab selection) when it maps into *ocio_cfg*, else
     file metadata guesses, else ``DEFAULT_SRC_V2E``. Without a config, returns
     *preferred* unchanged (or empty).
+
+    Camera RAW decoded by an SDK (R3D / N-RAW, BRAW, CinemaDNG, plugins) is the
+    exception: the decoder always emits one known encoding (e.g. Log3G10 /
+    REDWideGamutRGB), so that wins over a tab selection made for other media.
     """
     from .constants import DEFAULT_SRC_V2E
     from .ocio_utils import find_equivalent_space
@@ -565,6 +586,12 @@ def resolve_video_src_colorspace(
     preferred = (preferred or "").strip()
     if ocio_cfg is None:
         return preferred
+
+    if path and _decoder_fixes_colorspace(path):
+        for name in guess_video_colorspace_candidates(path):
+            hit = find_equivalent_space(ocio_cfg, name) if name else None
+            if hit:
+                return hit
 
     if preferred:
         hit = find_equivalent_space(ocio_cfg, preferred)

@@ -118,6 +118,18 @@ def main() -> int:
             print(f"SMOKE FAIL: rapidfuzz unavailable: {e}", file=sys.stderr)
             return 5
 
+        # The TrustMark encoder ships in the bundle; proxies must not need a download.
+        try:
+            from src.core.trustmark.models import ENCODER_FILENAME, bundled_model
+
+            _encoder = bundled_model(ENCODER_FILENAME)
+            if _encoder is None:
+                raise RuntimeError(f"{ENCODER_FILENAME} not found in the app bundle")
+            print(f"smoke: TrustMark encoder OK ({_encoder})")
+        except Exception as e:
+            print(f"SMOKE FAIL: TrustMark encoder: {e}", file=sys.stderr)
+            return 6
+
         ver = _OCIO.GetVersion()
         nums = tuple(int(x) for x in ver.split(".")[:3] if x.isdigit())
         if nums < (2, 5, 0):

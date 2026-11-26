@@ -319,6 +319,9 @@ def test_about_is_one_card_with_ghost_notice_buttons(settings: QSettings) -> Non
         notices = [b for b in cards[0].findChildren(QPushButton) if "notice" in b.text()]
         assert len(notices) >= 2
         assert all(b.property("variant") == "ghost" for b in notices)
+        # Stacked one per line so no label is clipped, however many plugins add one.
+        assert len({b.y() for b in notices}) == len(notices)
+        assert all(b.width() >= b.sizeHint().width() for b in notices)
         assert _primary_ok(dlg).property("variant") == "primary"
         _assert_tab_order_follows_reading_order(dlg)
     finally:

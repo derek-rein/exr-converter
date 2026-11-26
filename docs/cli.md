@@ -340,7 +340,7 @@ appear on macOS only.
 | `--existing` | off | `--watch`: also proxy clips already in the folder at start |
 | `--interval SECONDS` | `2` | `--watch`: time between folder scans |
 | `--settle SECONDS` | `3` | `--watch`: how long a file's size must stay the same before it is converted |
-| `--watermark TEXT` | off | Invisible TrustMark payload, up to 8 printable ASCII characters. Omitted means no watermark. The encoder model (`encoder_Q.onnx`) downloads once into a per-user cache and is checked with SHA256 |
+| `--watermark TEXT` | off | Invisible TrustMark payload, up to 8 printable ASCII characters. Omitted means no watermark. The encoder model (`encoder_Q.onnx`) ships with the app (and the source tree) and is checked with SHA256 |
 | `--watermark-strength N` | `1.0` | Strength from `0.1` to `2.0`. Used only when `--watermark` is set |
 | `--encoder MODE` | `auto` | `h264` and `hevc_8` proxies use the GPU encoder when available. Same as `exr2video --encoder` |
 | `--decoder MODE` | `auto` | `auto` decodes 8- and 10-bit 4:2:0 H.264, HEVC, AV1, and VP9 files on the GPU (NVDEC, Direct3D 11 / DXVA2, VAAPI, Quick Sync, or VideoToolbox) when this machine can, and in software otherwise. The decoded pixels are identical. `software` never uses the GPU. Light files on a many-core CPU can decode a little faster in software |
@@ -350,8 +350,8 @@ codec. Proxies do not run an OCIO view transform, so that RGB image is the
 picture the proxy shows. A payload that is too long or not printable ASCII,
 or a `--watermark-strength` outside `0.1` to `2.0` (checked only with
 `--watermark`), exits with code `2` before any clip is
-converted. If the model cannot be downloaded, each clip fails with an error (a batch
-exits with code `1`).
+converted. If the bundled model is missing or damaged and cannot be downloaded,
+each clip fails with an error (a batch exits with code `1`).
 
 To read a mark back from a source checkout, use
 `uv run python scripts/trustmark_detect.py PROXY.mov` (add `--samples N` to

@@ -80,7 +80,7 @@ src/
   rc_resources.py       # generated from resources.qrc — do not hand-edit
 native/
   exr_prores/           # optional oxideav-prores PyO3 extension (12-bit ProRes)
-resources/              # icons, style.qss, OCIO config, screenshots
+resources/              # icons, style.qss, OCIO config, TrustMark encoder_Q.onnx (MIT, packaged), screenshots
 scripts/                # bump_app_version.py, ensure_ocio.py, sign_windows.ps1, build_oxideav_prores.py, build_quicklook_appex.py, trustmark_detect.py
 packaging/macos/quicklook/  # Swift Quick Look + thumbnail appex (view LUT + flipbook; macOS release embeds under Contents/PlugIns)
 packaging/linux/       # desktop entry, launcher, Rocky 8 build
@@ -114,7 +114,7 @@ docs/                   # user-facing Markdown (vfx.systems/docs/exr-converter l
 | Sequence player | `src/gui/player/` (`SequencePlayer`, transport, preview view) |
 | Slate dialog / viewer | `src/gui/slate_widgets.py` (composes player + overlay hooks), `src/gui/ocio_gpu_plane.py`, `src/services/slate_model.py` |
 | Background convert | `src/services/worker.py` |
-| Video → Proxy tab / watch folder | `src/gui/proxy_tab.py`, `src/core/proxy.py`, `src/core/watch_folder.py`, `src/services/proxy_queue.py` (CLI `proxy` in `src/cli.py`). Optional invisible watermark: `src/core/trustmark/` (ONNX Runtime, encoder downloaded on first use) and `scripts/trustmark_detect.py` |
+| Video → Proxy tab / watch folder | `src/gui/proxy_tab.py`, `src/core/proxy.py`, `src/core/watch_folder.py`, `src/services/proxy_queue.py` (CLI `proxy` in `src/cli.py`). Optional invisible watermark: `src/core/trustmark/` (ONNX Runtime; `resources/trustmark/encoder_Q.onnx` is committed and packaged) and `scripts/trustmark_detect.py` |
 | Linux studio packages | `packaging/linux/` (Rocky 8 build, `exr-converter` launcher), `scripts/package_linux.py`, `scripts/check_glibc_floor.py`. Release job `build-linux` only |
 | Transcode tab (video → video) | `src/gui/transcode_tab.py`, `src/core/transcode.py` (shared PyAV encode engine: codecs/containers, sizes, audio, naming, OCIO, watermark; `run_video_to_proxy` is a thin wrapper over it), `TranscodeQueue` in `src/services/proxy_queue.py` (CLI `transcode` in `src/cli.py`) |
 
@@ -200,7 +200,7 @@ Pull requests that change that script dispatch the Release workflow with
    `player/mode` (`builtin`|`system`|`custom`); Video→EXR uses built-in player window.
 7. **Nuitka** — Release builds strip many Qt modules (WebEngine, Svg, Pdf, …).
    Prefer PySide6-Essentials APIs already used in the tree. Bundle includes
-   `resources/ocio` and package data for `av`, OIIO, OCIO, fileseq.
+   `resources/ocio`, `resources/trustmark/encoder_Q.onnx`, and package data for `av`, OIIO, OCIO, fileseq.
    **Check for Updates** opens the GitHub Releases page via
    `QDesktopServices` (system browser) — no in-app HTTPS download. Smoke test
    still checks Python `ssl` is importable in the frozen binary; keep
