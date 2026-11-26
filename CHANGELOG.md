@@ -13,6 +13,8 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+## [0.14.4] - 2026-11-26
+
 ### Fixed
 
 - Invisible watermarks no longer need a download: the TrustMark encoder model ships inside the app, so proxies and transcodes with a watermark work offline. Previously the first watermarked job could fail with "Could not download TrustMark encoder_Q.onnx".
@@ -1287,7 +1289,8 @@ hardening (QImage/QBuffer; exclude PIL from bundles).
 - Releases: https://github.com/derek-rein/exr-converter/releases
 - Compare tags: `https://github.com/derek-rein/exr-converter/compare/vA.B.C...vX.Y.Z`
 
-[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.14.3...HEAD
+[Unreleased]: https://github.com/derek-rein/exr-converter/compare/v0.14.4...HEAD
+[0.14.4]: https://github.com/derek-rein/exr-converter/compare/v0.14.3...v0.14.4
 [0.14.3]: https://github.com/derek-rein/exr-converter/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/derek-rein/exr-converter/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/derek-rein/exr-converter/compare/v0.14.0...v0.14.1
