@@ -16,8 +16,7 @@ project stays on 6.9.2 until RHEL 8 support is dropped.
 
 Settings go to `$XDG_CONFIG_HOME` (default `~/.config`, Qt organization
 **VFXTools**, application **EXRConverter**). Presets go to `$XDG_DATA_HOME`
-(default `~/.local/share`). Caches, including the optional TrustMark encoder,
-go to `$XDG_CACHE_HOME` (default `~/.cache`). The install folder is not written.
+(default `~/.local/share`). Caches go to `$XDG_CACHE_HOME` (default `~/.cache`). The install folder is not written.
 
 Each file has a Cosign `.sigstore.json` bundle and a GitHub Attestations
 record, same as the other release assets. Commands are in the release notes.

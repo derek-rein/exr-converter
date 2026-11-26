@@ -201,6 +201,7 @@ bundle: resources
 		--include-package=onnxruntime \
 		--include-package-data=onnxruntime \
 		--include-data-dir=resources/ocio=resources/ocio \
+		--include-data-files=resources/trustmark/encoder_Q.onnx=resources/trustmark/encoder_Q.onnx \
 		--include-data-files=pyproject.toml=pyproject.toml \
 		--include-module=ssl \
 		--include-module=exr_prores \

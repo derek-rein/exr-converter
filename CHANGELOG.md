@@ -13,6 +13,14 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Fixed
+
+- Invisible watermarks no longer need a download: the TrustMark encoder model ships inside the app, so proxies and transcodes with a watermark work offline. Previously the first watermarked job could fail with "Could not download TrustMark encoder_Q.onnx".
+- Nikon N-RAW (`.NEV`) and Nikon R3D NE clips decode on the GPU on macOS (Metal) in Video → EXR, Transcode, Proxy and the preview, instead of falling back to the CPU: the SDK decompresses them on the CPU and debayers on Metal. Frame decoding is about 25× faster on Apple Silicon.
+- Video preview (browser and player) no longer colour-converts a cached frame a second time when you scrub back to it or the clip loops. On log footage such as `.R3D` / `.NEV` this showed as black skies and magenta highlights.
+- The preview of an `.R3D` / `.NEV` clip uses Log3G10 / REDWideGamutRGB even when the Video → EXR input space is set to something else (the RED SDK always decodes to that encoding).
+- About: the notice buttons (RED, Blackmagic RAW, ARRI, Canon, …) are stacked one per line, so their labels are no longer cut off.
+
 ### Changed
 
 - CLI examples in the docs use the installed command (`exr_converter`, or `exr-converter` on Linux and on Windows when the installer adds it to PATH). `uv run python main.py` is only in the Running from source note.

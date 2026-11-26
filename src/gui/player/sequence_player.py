@@ -1593,7 +1593,11 @@ class SequencePlayer(QWidget):
         def _transform(rgb_f32):
             import numpy as np
 
-            buf = np.ascontiguousarray(rgb_f32, dtype=np.float32)
+            # Always a copy: OCIO applies in place, and the decoder / preview
+            # cache keep the source array. Transforming it in place made a
+            # revisited frame go src→working twice (camera RAW Log3G10 then
+            # blew out to black and magenta).
+            buf = np.array(rgb_f32, dtype=np.float32, order="C", copy=True)
             h, w = buf.shape[:2]
             try:
                 cpu.apply(OCIO.PackedImageDesc(buf, w, h, 3))

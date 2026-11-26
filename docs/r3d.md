@@ -19,10 +19,10 @@ Related: [CLI](./cli.md) · [GUI](./gui.md) · [AGENTS.md](https://github.com/de
 |------|----------|
 | Formats | `.r3d` (classic multi-part + R3D NE), `.nev` (N-RAW) |
 | Decode | R3D SDK IPP2 **Primary Development** → **REDWideGamutRGB + Log3G10** |
-| OCIO | Auto-detect source space prefers Log3G10 / RWG names on the active config |
+| OCIO | Source space is Log3G10 / RWG whenever the active config has it, whatever the tab's input space is set to (the SDK always decodes to that encoding) |
 | Output | Same video→EXR pipeline (EXR compression, scale ladder, frame range, workers) |
 | Pixel aspect | When the clip metadata includes an anamorphic or pixel-aspect key (`anamorphic`, `pixel_aspect_ratio`, `lens_squeeze_factor`, and the same names with spaces), that factor is the OpenEXR `pixelAspectRatio`. SDK 9.2.1 is what this app pins. Newer pixel-aspect items from later SDKs are used only if that bridge already returns them under those keys. |
-| GPU | **macOS Metal**. **Windows / Linux:** CUDA if an NVIDIA device is present, otherwise OpenCL. CPU fallback when no GPU init, or for clips Metal cannot GPU-decompress (N-RAW / R3D NE / RED ONE on macOS). Force CPU with `EXR_CONVERTER_R3D_CPU=1`. Linux release packages do not include the RED runtime (see below), so `.r3d` and `.nev` are unavailable there. |
+| GPU | **macOS Metal**. **Windows / Linux:** CUDA if an NVIDIA device is present, otherwise OpenCL. On macOS, clips the GPU cannot decompress (Nikon N-RAW, Nikon R3D NE, RED ONE) decompress on the CPU and still debayer on Metal. Full CPU decode only when GPU init fails. Convert, Transcode and Proxy share this path; the log line `R3D decode: Metal GPU` confirms it. Force CPU with `EXR_CONVERTER_R3D_CPU=1`. Linux release packages do not include the RED runtime (see below), so `.r3d` and `.nev` are unavailable there. |
 | Preview | Sequence player + video browser (half-res decode for scrub) |
 | Thumbnails | Grid thumbs via sixteenth-res decode (fast ID, not full premium) |
 | Inspect | Video-browser Inspect reads clip metadata through the SDK, not PyAV |
@@ -32,7 +32,8 @@ Scale maps to the SDK resolution ladder (full / half / quarter / …) for faster
 proxies; odd scale factors may apply a small software resize after decode.
 
 The SDK is cross-platform, but GPU APIs are not one path: **Metal** on macOS
-(full GPU decompress), **CUDA then OpenCL** on Windows and Linux via managed
+(GPU decompress where the SDK supports it, else CPU decompress; debayer and IPP2
+always on the GPU), **CUDA then OpenCL** on Windows and Linux via managed
 `R3DDecoder` (CPU decompress + GPU IPP2). CUDA needs an NVIDIA driver and the
 CUDA runtime (`cudart`) on the library path; OpenCL needs a GPU ICD. No extra
 compile-time CUDA/OpenCL SDK is required to build the bridge.
@@ -195,7 +196,7 @@ Sample clips (from RED / Nikon, not this repo):
 
 `scripts/build_r3d_bridge.py` finds the confidential bridge source via
 `R3D_BRIDGE_SRC`, `~/code/r3d-sdk-private/bridge`, or by downloading the
-`derek-rein/r3d-sdk-private` tarball at `R3D_BRIDGE_REF` (default `bridge-v1`)
+`derek-rein/r3d-sdk-private` tarball at `R3D_BRIDGE_REF` (default `bridge-v2`)
 using `R3D_SDK_READ_TOKEN` / `gh auth`. Without access, builds skip the bridge
 and the app reports the format as unavailable.
 

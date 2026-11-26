@@ -9,8 +9,10 @@ Invisible watermarks use TrustMark, variant Q.
 - Models: https://cai-watermark.adobe.net/watermarking/trustmark-models/
 - License: MIT. Copyright 2023 Adobe.
 
-EXR Converter downloads `encoder_Q.onnx` on first use and checks its SHA256.
-It does not ship `decoder_Q.onnx`. The helper `scripts/trustmark_detect.py`
+EXR Converter includes Adobe's `encoder_Q.onnx`, unmodified, under the MIT
+license above (`resources/trustmark/encoder_Q.onnx` in the source tree and in
+release builds), and checks its SHA256 before use. It does not ship
+`decoder_Q.onnx`. The helper `scripts/trustmark_detect.py`
 downloads the decoder when you ask it to read a mark.
 
 The 100-bit payload uses TrustMark's BCH_5 schema and 7-bit text mode so the

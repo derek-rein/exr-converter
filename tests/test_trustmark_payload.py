@@ -76,6 +76,37 @@ def test_content_region_is_full_frame_until_aspect_exceeds_two() -> None:
     assert content_region(1000, 200) == (400, 0, 200, 200)
 
 
+@pytest.fixture
+def no_bundled_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ignore a locally fetched resources/trustmark copy so cache tests stay isolated."""
+    monkeypatch.setattr(models, "bundled_dirs", lambda: [])
+
+
+def test_bundled_model_wins_over_cache_and_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shipped = tmp_path / "shipped"
+    shipped.mkdir()
+    blob = b"bundled-encoder"
+    (shipped / ENCODER_FILENAME).write_bytes(blob)
+    monkeypatch.setitem(models._SHA256, ENCODER_FILENAME, hashlib.sha256(blob).hexdigest())
+    monkeypatch.setattr(models, "bundled_dirs", lambda: [shipped])
+    monkeypatch.setenv("EXR_TRUSTMARK_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(
+        "src.core.trustmark.models.urllib.request.urlopen",
+        lambda *_a, **_k: pytest.fail("bundled model must not download"),
+    )
+    assert ensure_model(ENCODER_FILENAME) == shipped / ENCODER_FILENAME
+    assert not (tmp_path / "cache").exists()
+
+
+def test_corrupt_bundled_model_is_ignored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / ENCODER_FILENAME).write_bytes(b"truncated")
+    monkeypatch.setattr(models, "bundled_dirs", lambda: [tmp_path])
+    assert models.bundled_model(ENCODER_FILENAME) is None
+
+
+@pytest.mark.usefixtures("no_bundled_model")
 def test_sha256_mismatch_deletes_the_partial(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -107,6 +138,7 @@ def test_sha256_mismatch_deletes_the_partial(
     assert list(tmp_path.glob("*.partial")) == []
 
 
+@pytest.mark.usefixtures("no_bundled_model")
 def test_cache_hit_does_not_download(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EXR_TRUSTMARK_CACHE", str(tmp_path))
     blob = b"cached-encoder"
@@ -124,10 +156,17 @@ def test_cache_hit_does_not_download(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def test_decoder_model_is_not_in_the_repo_or_the_release_bundle() -> None:
     root = Path(__file__).resolve().parents[1]
     assert list(root.rglob("decoder_Q.onnx")) == []
-    assert list(root.rglob("encoder_Q.onnx")) == []
+    # The encoder is committed and every release build packages it.
+    encoder = root / "resources" / "trustmark" / ENCODER_FILENAME
+    assert models.bundled_model(ENCODER_FILENAME) == encoder.resolve()
+    flag = "--include-data-files=resources/trustmark/encoder_Q.onnx="
     release = (root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "decoder_Q.onnx" not in release
     assert "--include-package=onnxruntime" in release
+    assert flag in release
     makefile = (root / "Makefile").read_text(encoding="utf-8")
     assert "--include-package=onnxruntime" in makefile
+    assert flag in makefile
+    rocky = (root / "packaging" / "linux" / "build-on-rocky.sh").read_text(encoding="utf-8")
+    assert flag in rocky
     assert bch.ECC_BITS == 35

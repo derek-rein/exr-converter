@@ -125,7 +125,7 @@ uv run python scripts/build_oxideav_prores.py
 if [ -n "$_r3d_token" ]; then
   SDK_ROOT="$(R3D_SDK_READ_TOKEN="$_r3d_token" uv run python scripts/fetch_r3d_sdk.py --out "${RUNNER_TEMP:-/tmp}/r3d-sdk")"
   export R3D_SDK_ROOT="$SDK_ROOT"
-  export R3D_BRIDGE_REF="${R3D_BRIDGE_REF:-bridge-v1}"
+  export R3D_BRIDGE_REF="${R3D_BRIDGE_REF:-bridge-v2}"
   R3D_SDK_READ_TOKEN="$_r3d_token" uv run python scripts/build_r3d_bridge.py -v
 else
   echo "R3D_SDK_READ_TOKEN not set — skipping R3D bridge"
@@ -206,6 +206,7 @@ uv run python -m nuitka \
   --include-package=onnxruntime \
   --include-package-data=onnxruntime \
   --include-data-dir=resources/ocio=resources/ocio \
+  --include-data-files=resources/trustmark/encoder_Q.onnx=resources/trustmark/encoder_Q.onnx \
   --include-data-files=pyproject.toml=pyproject.toml \
   --include-module=ssl \
   --include-module=exr_prores \

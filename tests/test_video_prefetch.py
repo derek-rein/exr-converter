@@ -231,6 +231,19 @@ class TestResolveVideoSrcColorspace:
         assert hit
         assert "709" in hit or "Rec" in hit
 
+    @pytest.mark.parametrize("name", ["A001_C001.R3D", "DSC_0019.NEV"])
+    def test_camera_raw_ignores_tab_selection(self, name: str) -> None:
+        """R3D / N-RAW always decode to Log3G10 RWG; a Rec.709 tab pick must not win."""
+        from pathlib import Path
+
+        import PyOpenColorIO as OCIO
+
+        from src.core.video import resolve_video_src_colorspace
+
+        cfg = OCIO.Config.CreateFromFile(str(next(Path("resources").rglob("*.ocio"))))
+        hit = resolve_video_src_colorspace(f"/no/such/{name}", cfg, preferred="Output - Rec.709")
+        assert "Log3G10" in hit
+
     def test_empty_preferred_falls_back_to_default(self) -> None:
         from pathlib import Path
 

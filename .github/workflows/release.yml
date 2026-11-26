@@ -358,7 +358,7 @@ jobs:
         shell: bash
         env:
           R3D_SDK_READ_TOKEN: ${{ secrets.R3D_SDK_READ_TOKEN }}
-          R3D_BRIDGE_REF: bridge-v1
+          R3D_BRIDGE_REF: bridge-v2
         run: |
           set -euo pipefail
           uv run python scripts/build_r3d_bridge.py -v
@@ -493,6 +493,7 @@ jobs:
             --include-package=onnxruntime \
             --include-package-data=onnxruntime \
             --include-data-dir=resources/ocio=resources/ocio \
+            --include-data-files=resources/trustmark/encoder_Q.onnx=resources/trustmark/encoder_Q.onnx \
             --include-data-files=pyproject.toml=pyproject.toml \
             --include-module=ssl \
             --include-module=exr_prores \
@@ -1236,7 +1237,7 @@ jobs:
           BRAW_SDK_READ_TOKEN: ${{ secrets.BRAW_SDK_READ_TOKEN }}
           CAMERA_RAW_READ_TOKEN: ${{ secrets.CANON_SDK_READ_TOKEN }}
           ARRI_SDK_READ_TOKEN: ${{ secrets.ARRI_SDK_READ_TOKEN }}
-          R3D_BRIDGE_REF: bridge-v1
+          R3D_BRIDGE_REF: bridge-v2
           BRAW_BRIDGE_REF: bridge-v1
         run: |
           set -euo pipefail

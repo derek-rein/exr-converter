@@ -491,14 +491,14 @@ square. The mark is computed on 8-bit RGB and added back to a 16-bit RGB
 frame, so 10-bit codecs keep their precision. The CLI does the same with
 `proxy --watermark`. The [Transcode](#transcode) tab offers the same mark.
 
-**Model download.** The first watermarked proxy downloads TrustMark's
-`encoder_Q.onnx` (about 17 MB) from Adobe's model server
-(`cai-watermark.adobe.net`) and checks its SHA256. It is not included in the
-app. Later runs use the cached copy and work offline. If the download or the
-check fails, that proxy fails with an error and nothing is written under the
-final name. The model runs on the CPU with ONNX Runtime.
+**Model.** The app ships TrustMark's `encoder_Q.onnx` (about 17 MB), so
+watermarking works offline and never downloads anything. Its SHA256 is checked
+before use. Only if that copy is missing or damaged is it downloaded once from
+Adobe's model server (`cai-watermark.adobe.net`) into the cache below; if that
+download or the check fails, that proxy fails with an error and nothing is
+written under the final name. The model runs on the CPU with ONNX Runtime.
 
-| OS | Model cache |
+| OS | Fallback model cache |
 |----|-------------|
 | macOS | `~/Library/Caches/VFXTools/EXRConverter/trustmark` |
 | Windows | `%LOCALAPPDATA%\VFXTools\EXRConverter\Cache\trustmark` |

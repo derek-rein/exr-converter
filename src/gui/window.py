@@ -271,7 +271,7 @@ class AboutDialog(QDialog):
             "not the Adobe DNG SDK.</p>"
             "<p style='font-size:10px;'>Invisible watermarks use "
             "<a href='https://github.com/adobe/trustmark'>Adobe TrustMark</a> (MIT) "
-            "through ONNX Runtime (MIT). The encoder model downloads on first use. "
+            "through ONNX Runtime (MIT). The TrustMark encoder model ships with the app. "
             "Notices are in THIRD_PARTY_NOTICES.md in the source tree.</p>"
             "<p style='font-size:10px;'>Application source is MIT-licensed. "
             "Optional RED Redistributable libraries and Blackmagic RAW runtime "
@@ -302,9 +302,17 @@ class AboutDialog(QDialog):
                 notices.append(btn)
         except Exception:
             pass
+        # One button per line: a single row clipped the labels once plugin
+        # notices (ARRI, Canon, …) joined RED and Blackmagic.
+        notices_box = QWidget()
+        notices_col = QVBoxLayout(notices_box)
+        notices_col.setContentsMargins(0, 0, 0, 0)
+        notices_col.setSpacing(2)
         for btn in notices:
             set_style_property(btn, "variant", "ghost")
-        form.add_row("Notices", *notices, width=NATURAL, spacing=4)
+            notices_col.addWidget(btn, 0, Qt.AlignmentFlag.AlignLeft)
+        notices_label = form.add_row("Notices", notices_box, width=NATURAL)
+        form.setAlignment(notices_label, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addWidget(card, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
