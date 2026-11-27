@@ -1143,10 +1143,46 @@ jobs:
             "$RUNNER_TEMP/notary-submit.json" "$RUNNER_TEMP/notary-info.json"
           echo "Removed temporary keychain and signing files (if any)."
 
+      # Smoke and integration tests launch exr_converter.exe from this folder.
+      # Windows often still has the directory open (the process itself, or
+      # Defender scanning it) for a few seconds after those steps exit, and
+      # Rename-Item then fails with "Access to the path is denied".
       - name: Rename standalone folder (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Rename-Item dist\main.dist exr_converter
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path (Get-Location) 'dist\main.dist'
+          $destName = 'exr_converter'
+          $prefix = $src.TrimEnd('\') + '\'
+          if (Test-Path -LiteralPath (Join-Path (Split-Path $src -Parent) $destName)) {
+            throw "Refusing to rename: dist\$destName already exists"
+          }
+          $stopped = @{}
+          Get-Process -Name 'exr_converter' -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "Stopping leftover $($_.ProcessName) pid=$($_.Id)"
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+            $stopped[$_.Id] = $true
+          }
+          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) } |
+            ForEach-Object {
+              if ($stopped.ContainsKey($_.ProcessId)) { return }
+              Write-Host "Stopping $($_.Name) pid=$($_.ProcessId) path=$($_.ExecutablePath)"
+              Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+          $attempts = 6
+          for ($i = 1; $i -le $attempts; $i++) {
+            try {
+              Rename-Item -LiteralPath $src -NewName $destName -ErrorAction Stop
+              Write-Host "Renamed dist\main.dist -> dist\$destName"
+              exit 0
+            } catch {
+              Write-Host "Rename attempt $i/${attempts} failed: $($_.Exception.Message)"
+              if ($i -eq $attempts) { throw }
+              Start-Sleep -Seconds (2 * $i)
+            }
+          }
 
       # Azure Artifact Signing (signtool + dlib, scripts/sign_windows.ps1).
       # Signs the app exe before Inno packs it, then the setup exe below. No
