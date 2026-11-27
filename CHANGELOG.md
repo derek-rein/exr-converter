@@ -13,6 +13,10 @@ rolling the `[Unreleased]` section into a versioned heading.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Windows release build retries renaming its standalone folder when a test process still has that folder open, so a passing test run can still produce the installer.
+
 ## [0.14.4] - 2026-11-26
 
 ### Fixed
